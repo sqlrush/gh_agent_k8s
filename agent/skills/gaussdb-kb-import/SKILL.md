@@ -103,6 +103,7 @@ python3 {baseDir}/scripts/kb.py contract --apply    # 用户确认后执行
 标记区外一字不动;标记区损坏时跳过该文件并报错。纯取数的 skill(slowsql / topsql / sqlfetch / explain / topproc / procinfo)不注入。
 **治理边界(向用户讲清)**:skill 自身 SKILL.md 与脚本的确定性判定 > 知识库 > 模型自带知识。知识库管「客户怎么说、以前怎么处置」,
 管不着「skill 怎么工作」,**不改 severity**;不一致时并列呈现交用户裁决。安装目录副本会被下次 install 覆盖,源码仓也要 apply。
+容器部署下 skills 目录只读:`contract --apply` 在构建镜像前于源码仓执行一次,结果随镜像发布,运行时不再执行。
 
 ## 5. 验证闭环
 

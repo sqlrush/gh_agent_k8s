@@ -3,16 +3,17 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-/usr/bin/python3}"
-KBPY="$ROOT/skills/gaussdb-kb/scripts/kb.py"
+KBPY="$ROOT/skills/gaussdb-kb-import/scripts/kb.py"     # 导入 skill:validate / setup / index / eval
+KBQ="$ROOT/skills/gaussdb-kb/scripts/kb.py"             # 查询 skill:query / health / search / cite-check
 KB="${KB_DIR:-$HOME/.kb-sample}"
 CONN="${KB_DEMO_CONN:-og}"
 source "$HOME/.kb-test.env"
 cd "$ROOT"
 step() { echo; echo "===== $* ====="; }
 
-step "生成语料"; $PY skills/gaussdb-kb/testdata/build_sample.py
-step "validate(样例目录)"; $PY "$KBPY" validate --kb skills/gaussdb-kb/testdata/sample-kb 2>&1 | tail -3
-rm -rf "$KB"; cp -R skills/gaussdb-kb/testdata/sample-kb "$KB"
+step "生成语料"; $PY skills/gaussdb-kb-import/testdata/build_sample.py
+step "validate(样例目录)"; $PY "$KBPY" validate --kb skills/gaussdb-kb-import/testdata/sample-kb 2>&1 | tail -3
+rm -rf "$KB"; cp -R skills/gaussdb-kb-import/testdata/sample-kb "$KB"
 cat > "$KB/kb.yaml" <<'YAML'
 store:
   pg: {host: 127.0.0.1, port: 5440, database: kb, user: kb, credential: kb-pg}

@@ -124,6 +124,19 @@ def test_data_skills_all_mention_login():
     assert not missing, "没有指向 gaussdb-login 的 skill：%s" % missing
 
 
+def test_query_kb_skill_never_offers_import_commands():
+    """runtime 镜像只有查询 skill;它的 SKILL.md 不能引导模型去跑不存在的导入命令。"""
+    text = (_ROOT / "skills" / "gaussdb-kb" / "SKILL.md").read_text(encoding="utf-8")
+    for cmd in ("kb.py ingest", "kb.py apply", "kb.py propose", "kb.py review", "kb.py index", "kb.py setup"):
+        assert cmd not in text, cmd
+    assert "gaussdb-kb-import" in text
+
+
+def test_agents_md_routes_import_and_query_to_different_skills():
+    text = _AGENTS.read_text(encoding="utf-8")
+    assert "`gaussdb-kb-import`" in text and "`gaussdb-kb`" in text
+
+
 def test_data_skills_tell_the_model_to_carry_the_session_handle():
     """同沙箱多用户串库的修法靠模型把 login 发的句柄带到每一条命令上——SKILL.md 不说,模型就不会带。
     每一份写了「登录之后本 skill 不需要传 -c」的 SKILL.md 都必须紧跟句柄契约。"""

@@ -979,3 +979,17 @@ git push origin main agent-v0.2
 - **占位符**：无「TBD」；Dockerfile 的 `install-opencode.sh` 输出关键字 `installed` 与 v12.9 一致（Task 0 冒烟时见过）。
 - **类型一致**：`podctl` 子命令名在 entrypoint 与 CLI 定义一致；`db_backup(..., now=)` 的时间戳格式 `%Y%m%dT%H%M%SZ` 与 `_backups()` 的排序假设一致（同格式字典序 = 时间序）。
 - **已知不确定点（实施时验证）**：`OPENCODE_CONFIG` 指向渲染文件后，`XDG_CONFIG_HOME/opencode/` 下没有 `opencode.jsonc` 是否会被 opencode 自动创建（Task 0 的 XDG 实验里它创建了一个空壳）——镜像目录只读时若报错，改为在镜像里放一个只含 `$schema` 的空壳。`host.docker.internal` 在 OrbStack 下的解析。
+
+## 执行记录（2026-09-17）
+
+| 任务 | 提交（分支 `feat/phase2-images`） | 结果 |
+|---|---|---|
+| 1 podctl | `225bfc5` | 19 条单测通过。与计划的差别：`test_db_checkpoint_truncates_wal` 要在连接打开时做 checkpoint（最后一个连接关闭时 SQLite 自己会删 `-wal`） |
+| 2 entrypoint | `f3e3ad9` + `98e6892` | 多写一份 `/data/env.sh`（只有目录变量，无密钥），`docker exec` / `kubectl exec` 排障时 source |
+| 3 Dockerfile | `2bad562` | arm64 与 amd64 各两个镜像构建成功，`docker image inspect` 均 155 MB（`docker images` 在 OrbStack 的 containerd 存储下显示 658 MB 是合并统计，不是真实大小）；runtime 17 个 skill、kb-import 2 个；rg 3.9 MB、models.json 4.7 MB 预置 |
+| 4 冒烟 | `98e6892` | 13/13。首轮 1 项失败是断言写法（`kb search` 按行 grep，命中的是 `rule:` 行不是 id 行） |
+| 5 文档 | 本提交 | `docs/env-contract.md`、README、路线图 |
+
+两个不确定点都验证过：`OPENCODE_CONFIG` 指向外部文件时 opencode **不会**在 `$XDG_CONFIG_HOME/opencode/` 里创建 jsonc——用 `docker run --read-only --tmpfs /data` 起 runtime 镜像，2 秒健康，配置目录仍只有 `AGENTS.md skills`；`host.docker.internal` 在 OrbStack 下可解析。所以镜像可按 `readOnlyRootFilesystem: true` 部署，只需 `/data` 是可写 emptyDir。
+
+冒烟里顺带确认的 spec 条目：§6.2 ②独占（第二个 Pod 等待、不打开 db）、③优雅停机（`docker stop` 后 WAL 为 0、`backup/` 有文件、`.owner` 删除）、④自检（写坏 db 后从备份恢复并在日志写明）、⑤备份（退出时一份）。①挂载参数与⑥压测在客户 NAS 上做（阶段 5）。

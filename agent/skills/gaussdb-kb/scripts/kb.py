@@ -59,22 +59,11 @@ for _anc in _HERE.parents:                       # common/(仓库根,或装好�
         sys.path.insert(0, str(_anc))
         break
 
-KB_SUBDIRS = ("errata", "rules", "guides", "archive", "sources", "inbox")
-RULE_ID_RE = re.compile(r"^GS-[A-Z]{2,4}-\d{3}$")
-SEVERITIES = frozenset({"error", "warn", "info"})
-CHECK_KINDS = frozenset({"deterministic", "advisory"})
-RULE_REQUIRED_FIELDS = ("id", "severity", "check", "rule")
+from common.kb.rulesfile import (  # noqa: E402,F401  —— 旧名字继续可用,kb_cases 与测试按 kb.<name> 取
+    CHECK_KINDS, KB_SUBDIRS, RULE_DIRS, RULE_ID_RE, RULE_REQUIRED_FIELDS, SEARCH_HIT_CAP, SEARCHABLE,
+    SEVERITIES, STATUS_ACTIVE, STATUS_DEPRECATED, STATUSES, first_heading, iter_active_rules, iter_files,
+    load_rule_file, read_text_file, rule_status, split_frontmatter)
 
-# A clause is either in force or withdrawn. Legacy clauses have no `status` field
-# at all, so its absence must mean active — see rule_status().
-STATUS_ACTIVE = "active"
-STATUS_DEPRECATED = "deprecated"
-STATUSES = frozenset({STATUS_ACTIVE, STATUS_DEPRECATED})
-# archive/ is scanned first on purpose: it is settled history, so when an ID
-# collides it is the *new* clause that must be blamed, not the withdrawn one it
-# collided with. Scan rules/ first and validate points the operator at archive/ —
-# the exact opposite of the file they need to fix.
-RULE_DIRS = ("archive", "rules")
 CONTRACT_BEGIN = "<!-- KB-CONTRACT:BEGIN"
 CONTRACT_END = "<!-- KB-CONTRACT:END -->"
 # 只有会做「规范判断 / 阈值判断」的 skill 才需要知识库契约。slowsql / topsql /
@@ -90,7 +79,7 @@ SKILL_PREFIX = "gaussdb-"
 
 def skill_base_name(name: str) -> str:
     return name[len(SKILL_PREFIX):] if name.startswith(SKILL_PREFIX) else name
-SEARCH_HIT_CAP = 200
+
 
 HEADING_PATTERNS = (
     re.compile(r"^#{1,6}\s+\S"),
@@ -153,16 +142,6 @@ def read_version(kb: pathlib.Path) -> str:
 
 
 # ---------------------------------------------------------------- ingest
-
-def read_text_file(path: pathlib.Path) -> str:
-    raw = path.read_bytes()
-    for enc in ("utf-8", "gb18030"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", "replace")
-
 
 def extract_docx(path: pathlib.Path) -> str:
     import zipfile
@@ -433,66 +412,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------- shared parsing
 
-def split_frontmatter(text: str) -> tuple[dict | None, str | None]:
-    """Return (meta, error). meta is {} when no frontmatter block exists."""
-    if not text.startswith("---"):
-        return {}, None
-    match = re.match(r"^---\s*\n(.*?)\n---\s*\n?", text, re.S)
-    if not match:
-        return None, "frontmatter 起始 --- 没有对应的结束 ---"
-    try:
-        meta = yaml.safe_load(match.group(1))
-    except yaml.YAMLError as exc:
-        return None, f"frontmatter YAML 解析失败:{exc}"
-    if meta is None:
-        return {}, None
-    if not isinstance(meta, dict):
-        return None, "frontmatter 不是键值映射"
-    return meta, None
-
-
-def load_rule_file(path: pathlib.Path) -> tuple[list, str | None]:
-    try:
-        data = yaml.safe_load(read_text_file(path))
-    except (OSError, yaml.YAMLError) as exc:
-        return [], f"YAML 解析失败:{exc}"
-    if data is None:
-        return [], None
-    if not isinstance(data, list):
-        return [], "顶层必须是条款列表(yaml list)"
-    return data, None
-
-
-def rule_status(entry: dict) -> str:
-    """`active` unless the entry says otherwise.
-
-    Legacy clauses were written before the field existed; treating a missing
-    `status` as anything but active would retroactively withdraw the whole
-    existing knowledge base.
-    """
-    return str(entry.get("status") or STATUS_ACTIVE).strip().lower()
-
-
-def iter_files(kb: pathlib.Path, sub: str, suffixes: tuple[str, ...]) -> list[pathlib.Path]:
-    root = kb / sub
-    if not root.is_dir():
-        return []
-    return sorted(p for p in root.rglob("*") if p.is_file() and p.suffix in suffixes)
-
-
-def first_heading(path: pathlib.Path) -> str:
-    try:
-        text = read_text_file(path)
-    except OSError:
-        return path.stem
-    meta, _ = split_frontmatter(text)
-    if meta and meta.get("description"):
-        return str(meta["description"])
-    for line in text.splitlines():
-        stripped = line.strip().lstrip("#").strip()
-        if stripped and not stripped.startswith("---"):
-            return stripped
-    return path.stem
+# split_frontmatter / load_rule_file / rule_status / iter_files / first_heading:
+# 已搬到 common/kb/rulesfile.py(查询 skill 与导入 skill 共用),顶部按原名导入。
 
 
 # ---------------------------------------------------------------- index
@@ -518,22 +439,6 @@ def describe_rule_file(path: pathlib.Path) -> str:
 # guessing what keyword to grep. INDEX.md stops at the file — the semantic-drift
 # gap lives in the file→clause jump, and this is what closes it.
 _LISTED_ID_RE = re.compile(r"`(GS-[A-Z]{2,4}-\d{3})`")
-
-
-def iter_active_rules(kb: pathlib.Path):
-    """Yield (path, err, active_entries) for each rules/*.yaml, in file order.
-
-    Deprecated clauses are dropped here — RULES.md is the judge-against list, and a
-    withdrawn clause must never enter it (that is the whole point of archive/).
-    """
-    for path in iter_files(kb, "rules", (".yaml", ".yml")):
-        entries, err = load_rule_file(path)
-        if err:
-            yield path, err, []
-            continue
-        active = [e for e in entries
-                  if isinstance(e, dict) and rule_status(e) == STATUS_ACTIVE]
-        yield path, None, active
 
 
 def _rule_file_comment(path: pathlib.Path) -> str:
@@ -767,7 +672,8 @@ def validate_guides(kb: pathlib.Path, findings: list) -> None:
 # entire mechanism by which a withdrawn clause stops reaching the skills.
 # sources/ is excluded too: it holds the customer's original files and keeps
 # whatever encoding they arrived in; nothing greps it.
-_SEARCHABLE = (("errata", (".md",)), ("rules", (".yaml", ".yml")), ("guides", (".md",)))
+# 定义在 common/kb/rulesfile.SEARCHABLE(查询 skill 也要用同一份范围)。
+_SEARCHABLE = SEARCHABLE
 
 # archive/ is out of the grep range but validate still parses it, so it has to be
 # UTF-8 like the rest — a GB18030 archive file would make ID-reuse checks miss it.

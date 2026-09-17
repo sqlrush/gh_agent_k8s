@@ -36,6 +36,7 @@ gh_skill 保持独立可交付：不经容器也能按原方式安装。本仓�
 | 3 | 用户接入 | Pod 内 `opencode serve` 为唯一后端；Web 走 frontend 镜像；CLI 用 opencode 自带的 `opencode attach`（ttyd 备选）。frontend 在两个后端镜像做完后做 |
 | 4 | 网关 | 平台做。两种模式：对话结束回收 Pod / 保留 Pod 等待重连 |
 | 5 | 仓库 | 容器化放本仓库；gh_skill 只做技能侧改动 |
+| 6 | 接入网关 | 共享的控制面组件（1 个 Deployment、2 副本、无状态）：鉴权、按工号找 / 建 / 回收 runtime Pod、代理。不是每人一个。用户状态不需要「还原」，挂载即恢复（2026-09-16） |
 
 ## 3. 总体架构
 
@@ -51,6 +52,17 @@ gh_skill 保持独立可交付：不经容器也能按原方式安装。本仓�
 ```
 
 frontend 不挂 NAS、不带 skill，只把浏览器和某个用户的 `opencode serve` 接起来；按工号找 Pod 的事仍由网关做。
+
+**组件清单**
+
+| 组件 | 数量 | 状态 | 谁做 |
+|---|---|---|---|
+| 接入网关 Pod | 1 个 Deployment，2 副本 | 无状态 | 平台（或本仓库出第四个镜像，见 §8） |
+| frontend Pod | 1 个 Deployment | 无状态 | 本仓库，第二版 |
+| runtime Pod | 每人 1 个 | 无状态，数据在 NAS `users/<工号>/` | 本仓库出镜像，网关创建 |
+| kb-import Pod | 1 个，管理员共用 | 无状态，数据在 NAS `kb/` | 本仓库出镜像 |
+| NAS | 1 个 RWX PVC | 唯一的状态所在 | 平台提供 |
+| GRMP 中间件、模型服务 | 既有 | — | 既有 |
 
 ## 4. NAS 目录布局
 
@@ -209,22 +221,45 @@ SQLite 在网络文件系统上出问题只有两个机制：
 - **原子写**：`index` 重写 `INDEX.md`、`RULES.md`、`CASES.md` 先写临时文件再改名。runtime 每次调用重新扫目录，导入后立即可见。
 - Git 审计（每次 apply 提交到 `/nas/kb.git`）：第二阶段可选。
 
-## 8. 网关契约（平台侧）
+## 8. 接入网关
 
-平台按工号创建 / 删除 `runtime-<工号>` Deployment，注入 §6 的环境变量与 Secret，把流量按 SSO 身份转发到对应 Pod 的 4096 端口并带基本认证。
+**定位**：所有用户请求的入口，共享的控制面组件。1 个 Deployment、2 副本、无状态；不是每人一个。
 
-两种生命周期模式，镜像不感知：
+**职责**
 
-| 模式 | 平台动作 | 说明 |
+1. SSO 鉴权，得到工号。
+2. 查 k8s：`runtime-<工号>` 是否存在且 Ready。不存在则创建 Deployment：`subPath users/<工号>`、`GSDB_USER_ID`、本人 GRMP 令牌的 Secret 引用、随机 `OPENCODE_SERVER_PASSWORD`；等待 Ready（冷启动约 10 秒）。
+3. 反向代理到该 Pod 的 4096 端口，带基本认证。`opencode attach` 的连接走同一条路。
+4. 按生命周期模式回收 Pod。
+
+**没有「还原」步骤**：用户的会话、对话记录、压缩摘要、上传文件、skill 登录会话全在 NAS `users/<工号>/`。新 Pod 挂上这个目录，opencode 打开其中的 `opencode.db`，历史会话自动出现。网关不复制、不恢复任何数据；「按用户名确定历史」= 用工号拼出挂载路径。
+
+**自身状态**：无。工号到 Pod 的映射是命名约定；闲置时间记在 Deployment 的 annotation 上，网关重启不丢。
+
+**需要**：SSO 对接；k8s RBAC（本命名空间内 Deployment 的创建 / 删除 / 查询）；每人 GRMP 令牌的来源。
+
+**谁做**
+
+| 客户平台现状 | 做法 | 本仓库交付 |
 |---|---|---|
-| 对话结束回收 | 会话结束 → 删除 Deployment（走 60 秒 grace） | 下次登录重新创建，挂同一 `users/<工号>`，历史自动回来。**平台不需要复制或恢复任何东西**：会话、对话记录、压缩摘要、上传文件全在 NAS 目录里 |
-| 保留 Pod | 不删，重连复用 | 省冷启动；建议加闲置超时（如 8 小时无请求缩到 0） |
+| 已有带 SSO 的 API 网关 | 在其后加一个「Pod 供给器」，按本节契约建 / 回收 Pod 并代理 | 契约 + Pod 模板 |
+| 没有 | 本仓库出第四个镜像 `gaussdb-agent-gateway`：鉴权对接、供给、代理 | 镜像 + 清单 |
 
-平台**必须**保证：同一工号任一时刻只有一个 runtime Pod（Recreate + 删除完成后再创建）。§6 的 `.owner` 是第二道保险。
+待客户确认平台现状后定。
+
+**生命周期**：两种模式，镜像不感知。
+
+| 模式 | 网关动作 | 说明 |
+|---|---|---|
+| 对话结束回收 | 会话结束 → 删除 Deployment（走 60 秒 grace） | 下次登录重新创建，挂同一 `users/<工号>`，历史自动回来 |
+| 保留 Pod | 不删，重连复用 | 省冷启动；建议加闲置超时（如 8 小时无请求缩到 0），否则离线用户长期占内存 |
+
+网关**必须**保证：同一工号任一时刻只有一个 runtime Pod（Recreate + 删除完成后再创建）。§6 的 `.owner` 是第二道保险。
 
 ## 9. 用户接入（后端镜像完成后做）
 
 - 后端 Pod 内只有 `opencode serve`（无界面的 HTTP 服务）。
+- opencode 自带 `opencode web`：同一个服务加内置的浏览器界面，1.18.27 已确认存在。可作为 frontend 完成前的过渡，启动命令换一个词；界面是通用编程 agent 的，不可定制。是否用它做第一版待定。
 - Web：frontend 镜像，deepseek-harness 前端改造，对接 opencode HTTP API 与 SSE 事件流；改造量待后端镜像完成后评估。
 - CLI：opencode 自带的远程终端客户端，命令是 `opencode attach <url>`——用户本机装 opencode，跑 `opencode attach https://网关/<工号>`，本机 TUI 连远端的 `serve`，看到的会话与 Web 一致。桌面不能装软件时用 ttyd 在浏览器里跑 `opencode attach http://127.0.0.1:4096`。
 - 认证：`OPENCODE_SERVER_PASSWORD` 由网关生成注入，Pod 入站只放行网关与 frontend。
@@ -249,6 +284,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 - 每人 Pod 只挂自己的 `users/<工号>`；`kb/` 只读。
 - NetworkPolicy：入站只放行网关；出站按 §5。Pod 之间不通。
 - 非 root；Secret 只以环境变量注入；`share` 禁用；无 `auth.json`。
+- 网关的 k8s RBAC 只限本命名空间内 Deployment 的创建 / 删除 / 查询；`OPENCODE_SERVER_PASSWORD` 只有网关知道。
 - 库的隔离仍依赖 GRMP 按人令牌与授权；Pod 负责把本人令牌送到中间件。
 - 本仓库公开：不放客户名称、地址、令牌；Secret / ConfigMap 只有样例。
 
@@ -273,6 +309,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 | 环境变量契约、网关契约、交付手册容器化章节（含 §6.3 与客户确认表） | 本仓库 `docs/` |
 | 镜像冒烟、集群验证脚本 | 本仓库 `scripts/` |
 | 技能侧改动与测试 | gh_skill，标签 `skills-v13.0` |
+| 网关镜像 `gaussdb-agent-gateway`（仅当平台没有网关） | 本仓库，待客户确认 |
 | 离线镜像包（`docker save`）+ 校验值 | 交付时生成，不入库 |
 
 ## 14. 风险与待办
@@ -285,6 +322,8 @@ SQLite 在网络文件系统上出问题只有两个机制：
 | kb-import 多管理员并发 | 第一版 replicas=1 + 锁 |
 | `opencode.db` 无限增长 | 每人 2 GB 配额；用户可删会话；后续加清理策略 |
 | opencode 升级迁移不可回退 | 升级前 NAS 快照 |
+| 跨对话长期记忆 | opencode 没有此功能。可选特性：`users/<工号>/workspace/memory.md`，AGENTS.md 引导模型开始时读、结束时更新；文件在 NAS 上随目录回来。不影响架构 |
+| 网关由谁做 | 待客户确认平台是否已有带 SSO 的网关 |
 
 ## 15. 实施顺序
 

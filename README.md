@@ -22,6 +22,18 @@
 | 接入 | 后端 Pod 内只跑 `opencode serve`；Web 走 frontend；CLI 用 `opencode attach`；frontend 在后端镜像完成后做 |
 | 网关 | 平台按工号建 Pod、回收 Pod；本仓库提供 Pod 模板与环境变量契约 |
 
+## 组件
+
+| 组件 | 数量 | 状态 | 谁做 |
+|---|---|---|---|
+| 接入网关 Pod | 1 个 Deployment，2 副本 | 无状态 | 平台（或本仓库出 `gaussdb-agent-gateway`） |
+| frontend Pod | 1 个 Deployment | 无状态 | 本仓库，第二版 |
+| runtime Pod | 每人 1 个 | 无状态，数据在 NAS `users/<工号>/` | 本仓库出镜像，网关创建 |
+| kb-import Pod | 1 个，管理员共用 | 无状态，数据在 NAS `kb/` | 本仓库出镜像 |
+| NAS | 1 个 RWX PVC | 唯一的状态所在 | 平台提供 |
+
+用户的历史会话不需要「还原」：新 Pod 挂上 `users/<工号>/`，opencode 打开里面的 `opencode.db`，历史自动出现。
+
 ## 目录（规划）
 
 ```

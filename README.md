@@ -18,8 +18,8 @@
 |---|---|
 | 状态 | 全部在 NAS（RWX PVC），Pod 用 `subPath` 只挂自己那一层 |
 | SQLite | 在 runtime Pod 内运行，`opencode.db` 直接位于 NAS 挂载路径；NFSv4.1 + `local_lock=all` + 单 Pod 独占 + 优雅停机 + 启动自检 + 退出备份 |
-| 镜像 | `gaussdb-agent-runtime`（诊断 skill + 知识库查询）、`gaussdb-agent-kb-import`（知识库导入），一个 Dockerfile 两个 target |
-| 接入 | Pod 内只跑 `opencode serve`；Web 与 CLI 接入后置 |
+| 镜像 | `gaussdb-agent-runtime`（诊断 skill + 知识库查询）、`gaussdb-agent-kb-import`（知识库导入）、`gaussdb-agent-frontend`（deepseek-harness 前端改造，无状态） |
+| 接入 | 后端 Pod 内只跑 `opencode serve`；Web 走 frontend；CLI 用 `opencode attach`；frontend 在后端镜像完成后做 |
 | 网关 | 平台按工号建 Pod、回收 Pod；本仓库提供 Pod 模板与环境变量契约 |
 
 ## 目录（规划）

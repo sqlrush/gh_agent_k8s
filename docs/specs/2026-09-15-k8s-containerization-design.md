@@ -32,23 +32,25 @@ gh_skill 保持独立可交付：不经容器也能按原方式安装。本仓�
 | # | 决策 | 结果 |
 |---|---|---|
 | 1 | SQLite 放哪 | 在 runtime Pod 里运行，db 文件通过 NAS 挂载进 Pod（不用 Litestream）。§6 列出降低风险的措施 |
-| 2 | 镜像数量 | 两个镜像，skill 集合物理分开；gaussdb-kb 拆成查询 / 导入两个 skill |
-| 3 | 用户接入 | `opencode serve` 为唯一后端；Web 界面用 harness 的 web 插件改造；CLI 用 `opencode attach`（ttyd 备选）。后置 |
+| 2 | 镜像数量 | 三个镜像：runtime、kb-import、frontend。runtime 与 kb-import 的 skill 集合物理分开，gaussdb-kb 拆成查询 / 导入两个 skill；frontend 基于 deepseek-harness 的前端改造（2026-09-16 补） |
+| 3 | 用户接入 | Pod 内 `opencode serve` 为唯一后端；Web 走 frontend 镜像；CLI 用 opencode 自带的 `opencode attach`（ttyd 备选）。frontend 在两个后端镜像做完后做 |
 | 4 | 网关 | 平台做。两种模式：对话结束回收 Pod / 保留 Pod 等待重连 |
 | 5 | 仓库 | 容器化放本仓库；gh_skill 只做技能侧改动 |
 
 ## 3. 总体架构
 
 ```
-  用户(工号) ──SSO──▶ 接入网关 ──▶ runtime-<工号> Pod ──▶ GRMP ──▶ GaussDB
-  知识库管理员 ──────▶ 接入网关 ──▶ kb-import-<工号> Pod          模型服务
-                                        │                           ▲
-                          ┌─────────────┴───────────────┐           │
-                          ▼                             ▼           │
-                 NAS users/<工号>/（本人状态）   NAS kb/（知识库）   两种 Pod 都出站到模型服务
-                 runtime 读写                   runtime 只读
-                                                kb-import 读写
+  浏览器 ──SSO──▶ frontend Pod（共享，无状态）──▶ 接入网关 ──▶ runtime-<工号> Pod ──▶ GRMP ──▶ GaussDB
+  本机 opencode attach ────────────────────────▶ 接入网关 ──▶ kb-import-<工号> Pod          模型服务
+                                                                   │                           ▲
+                                                     ┌─────────────┴───────────────┐           │
+                                                     ▼                             ▼           │
+                                            NAS users/<工号>/（本人状态）   NAS kb/（知识库）   两种后端 Pod 都出站到模型服务
+                                            runtime 读写                   runtime 只读
+                                                                           kb-import 读写
 ```
+
+frontend 不挂 NAS、不带 skill，只把浏览器和某个用户的 `opencode serve` 接起来；按工号找 Pod 的事仍由网关做。
 
 ## 4. NAS 目录布局
 
@@ -77,7 +79,11 @@ gh_skill 保持独立可交付：不经容器也能按原方式安装。本仓�
 
 ## 5. 镜像
 
-一个 Dockerfile，多阶段，两个 target。构建参数 `SKILLS_TAG` 指定 gh_skill 标签。
+三个镜像。两个后端镜像出自同一个 Dockerfile（多阶段，两个 target，构建参数 `SKILLS_TAG` 指定 gh_skill 标签）；frontend 单独一个 Dockerfile。
+
+**frontend（`gaussdb-agent-frontend`）**：deepseek-harness 的 Web 前端改造成对接 opencode 的 HTTP API 与 SSE 事件流。无状态、不挂 NAS、不含 skill，一个共享 Deployment 服务所有用户；SSO 后由网关把请求转到该用户的 runtime Pod。在两个后端镜像完成后再做，见 §9。
+
+**两个后端镜像**：
 
 | | `gaussdb-agent-runtime` | `gaussdb-agent-kb-import` |
 |---|---|---|
@@ -216,12 +222,12 @@ SQLite 在网络文件系统上出问题只有两个机制：
 
 平台**必须**保证：同一工号任一时刻只有一个 runtime Pod（Recreate + 删除完成后再创建）。§6 的 `.owner` 是第二道保险。
 
-## 9. 用户接入（后置）
+## 9. 用户接入（后端镜像完成后做）
 
-- Pod 内只有 `opencode serve`。
-- Web：harness 的 web 插件改成对接 opencode HTTP API 与 SSE 事件流，改造量待镜像完成后评估。
-- CLI：用户本机 `opencode attach https://网关/<工号>`（官方支持的远程 TUI）；桌面不能装软件时用 ttyd 在浏览器里跑 `opencode attach http://127.0.0.1:4096`。
-- 认证：`OPENCODE_SERVER_PASSWORD` 由网关生成注入，Pod 入站只放行网关。
+- 后端 Pod 内只有 `opencode serve`（无界面的 HTTP 服务）。
+- Web：frontend 镜像，deepseek-harness 前端改造，对接 opencode HTTP API 与 SSE 事件流；改造量待后端镜像完成后评估。
+- CLI：opencode 自带的远程终端客户端，命令是 `opencode attach <url>`——用户本机装 opencode，跑 `opencode attach https://网关/<工号>`，本机 TUI 连远端的 `serve`，看到的会话与 Web 一致。桌面不能装软件时用 ttyd 在浏览器里跑 `opencode attach http://127.0.0.1:4096`。
+- 认证：`OPENCODE_SERVER_PASSWORD` 由网关生成注入，Pod 入站只放行网关与 frontend。
 
 ## 10. 技能侧改动（在 gh_skill 完成，发布为 skills-v13.0）
 
@@ -262,7 +268,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 
 | 产出 | 仓库 |
 |---|---|
-| `Dockerfile`（两个 target）、`entrypoint.sh`、`opencode.jsonc` 模板 | 本仓库 `docker/` |
+| 后端 `Dockerfile`（两个 target）、`entrypoint.sh`、`opencode.jsonc` 模板；frontend `Dockerfile` | 本仓库 `docker/` |
 | k8s 清单模板（runtime / kb-import Deployment、PVC、NetworkPolicy、Secret/ConfigMap 样例） | 本仓库 `k8s/` |
 | 环境变量契约、网关契约、交付手册容器化章节（含 §6.3 与客户确认表） | 本仓库 `docs/` |
 | 镜像冒烟、集群验证脚本 | 本仓库 `scripts/` |
@@ -289,7 +295,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 | 3. k8s 清单与集群验证 | OrbStack k8s、hostPath PV、runtime × 2 + kb-import × 1 | 清单模板 + 验证脚本 | §12 第 1–6 项 | 3 天 |
 | 4. 文档与发布 | 契约文档、手册章节、离线镜像包 | 交付包 | 从包装出副本再跑冒烟 | 1 天 |
 | 5. 客户环境 | NFS 压测、客户签字、平台对接网关 | 压测报告 | §6.2 ⑥ | 客户侧 1–2 周 |
-| 6. 接入层 | harness web 插件改造、`attach` / ttyd | 另起项目 | — | 镜像做完再评估 |
+| 6. frontend 镜像与 CLI | deepseek-harness 前端改造为 frontend 镜像；`attach` / ttyd 接入说明 | frontend 镜像 + 清单 | 浏览器经 frontend 完整走一次登录、诊断、知识库查询 | 后端镜像做完再评估 |
 
 第 5 步前需要客户提供：NAS 的 NFS 版本、`kubectl get storageclass` 输出。
 

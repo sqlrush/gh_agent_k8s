@@ -21,3 +21,4 @@ __pycache__/
 
 # 本地构建产物
 docker/vendor/
+dist/

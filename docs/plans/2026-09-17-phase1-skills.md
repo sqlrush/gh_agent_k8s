@@ -299,6 +299,17 @@ Expected: PASS。gh_skill 的会话 e2e（`~/kf-verify/kf_session_e2e.sh` 的 `S
 
 ---
 
+### Task 2b: 连不上中间件的网络异常都变成带地址的 GrmpError（两仓库；执行中发现，2026-09-17 完成）
+
+做 Task 2 的 e2e 时发现 v12.9 就有的缺陷：`GrmpClient._post` 只接 `URLError`，`http.client.RemoteDisconnected` 这类异常直接 Traceback；报错文案只写 path 不写地址，S19「打到了新地址」无从断言。
+
+- Modify: `common/grmp/client.py:95-108`——`except (urllib.error.URLError, http.client.HTTPException, OSError)`，两处文案追加 `（中间件 <base_url>）`；path 开头的原格式保留（`test_grmp_hints_client_units.py:114` 断言 `请求 /x 失败`）。
+- Test: `tests/test_grmp_client_network_units.py`：RemoteDisconnected / ConnectionRefusedError / socket.timeout / URLError 四种都变成含 `host:port` 的 GrmpError；HTTPError 仍带状态码与地址。
+- e2e：`kf_session_e2e.sh` S19 改用 vacuum（health 会把访问失败吞成「未采集」并照样打印 🟢，不适合做这个断言）；`PY` 改为可覆盖。20/20。
+- 提交：gh_agent_k8s `fix(grmp)`；gh_skill `fix/k8s-shared` 同一补丁。
+
+---
+
 ### Task 3: findings 信封与 health 报告带执行人（仅本仓库）
 
 **Files:**
@@ -1253,3 +1264,37 @@ git push origin main agent-v0.1
 - **Spec 覆盖**：§10 六项 → Task 1（#2）、Task 2（#4）、Task 3（#5）、Task 4（#1）、Task 5（#3）、Task 6（#6）；§7 互斥与原子写 → Task 5；§5 「runtime 镜像里没有导入代码」→ Task 4c 的 `test_query_skill_scripts_contain_no_import_code`。契约注入改构建期 → Task 4d。
 - **占位符**：Task 4c 里 `...  # 逐字搬过来` 出现三处，都指向本仓库里明确的现有函数（`_grep_file`、`cmd_search`、`cmd_health`），执行者按文件行号搬即可，不是待定内容。
 - **类型一致**：`lock.hold(kb_dir, ttl_s)`、`atomic.write_text_atomic(path, text)`、`audit.actor_id()`、`kb_store.add_query_subcommands / add_admin_subcommands`、`config._DEFAULT_STATE_DIR` 在各任务中命名一致。
+
+## 执行记录（2026-09-17）
+
+| 任务 | 本仓库提交（分支 `feat/phase1-skills`） | gh_skill 提交（分支 `fix/k8s-shared`） | 备注 |
+|---|---|---|---|
+| 0 导入 | `efaf82c` | — | 基线 2170 通过、45 跳过 |
+| 1 GSDB_HOME 守卫 | `4a5ab0f` | `f9166ae` | |
+| 2 会话不存地址 | `50388ea` | `d676a0d` | e2e S19 用 vacuum 断言，20/20 |
+| 2b 网络异常带地址 | `93e6263` | `1f05fa5` | 执行中发现的 v12.9 缺陷 |
+| 3 执行人 | `cee3c2a` | — | |
+| 4a rulesfile | `0df77e3` | — | |
+| 4b 目录改名 | `a2551a8` | — | 红线注入器点名 `gaussdb-kb-import` 主脚本仍是 kb.py |
+| 4c 查询 skill | `ec012ca` | — | 与 4c 计划的差别：`kb_store.add_query_subcommands` 没有保留，query/health 直接搬进查询 skill 的 kb.py；`contract` 留在导入侧 |
+| 4d AGENTS.md 等 | `7ea6e6e` | — | 安装冒烟 18 目录；kb 三态 e2e（file + sample）与 gh_skill 逐字一致 |
+| 5 写锁 + 原子写 | `65edeb7` | `aebdc27` | 并发 e2e：第二个 index 被拒、退出码 2、锁释放 |
+| 6 导入命令桩 | `15bd431` | — | 桩在 `main()` 解析参数之前拦截；`kb_cite` 改为模块级导入 |
+| 7 验收 | 脚本层全绿；模型层被 Kimi 月度配额挡住 | | 见下表 |
+
+**Task 7 结果（2026-09-17）**
+
+| 层 | agent/（gh_agent_k8s `feat/phase1-skills` @ `15bd431`） | gh_skill（`fix/k8s-shared` @ `d2723df`） |
+|---|---|---|
+| 单测（py3.12，venv） | 2218 通过、45 跳过 | 2188 通过、45 跳过 |
+| 场景矩阵 60×2（`GSDB_HOME=~/kf-verify/gdaa-gsql`） | og 60/60、og-grmp 60/60 | og 60/60、og-grmp 60/60 |
+| 会话 e2e（含新 S19） | 20/20 | 20/20 |
+| kb 三态 e2e（file + sample） | 与 gh_skill 逐字一致，eval 12/12 | eval 12/12 |
+| harness 80（交付包解出副本，直连 + 8779 mock） | 80/80（首轮 77/80：3 个 E2-mock 是 env_up 拉起的 mock 进程连备机卡住，重启 mock 后同批 80/80，代码无关） | 未跑（改动与 agent 相同，矩阵与 e2e 已覆盖） |
+| 复跑 10 | 10/10 | — |
+| 模型级 G1–G4（DeepSeek `deepseek-flash`，Kimi 当月配额已满） | 全部符合预期：G1 不登录只引导、不透露预置会话 A/B；G2 带句柄完成诊断；G3 要求导入 → 答「知识库只读，找管理员在导入环境做」，知识库目录 125 个文件前后一致；G4 走 `kb.py query/search` 命中 `GS-IDX-001`、`GS-OPS-003`、案例 `S3-20250210-…`，引用带 ID 与出处。首轮 G4 空答是隔离配置缺 `permission.external_directory: allow`（知识库目录在项目目录之外），补上后正常；runtime Pod 的配置要带这条 | — |
+| py3.9 单测（`/usr/bin/python3`，Xcode 许可接受后） | 2218 通过、45 跳过 | 2188 通过、45 跳过 |
+
+结论：全部通过。合入 main，本仓库打 `agent-v0.1`，gh_skill 打 `skills-v12.10`。
+
+执行中改过的验收脚本（Mac `~/kf-verify`）：`kf_session_e2e.sh` 加 S19（`PY` 可覆盖）；`~/kb-verify/modes-e2e.sh` 加 `ROOT`/`PY` 覆盖并按目录自动选导入 / 查询脚本；`kf_env_up.sh`、`kf_harness.py`、`kf_rerun.py`、`kf_patch_probe.py` 各有 `_venv` 副本（系统 Python 被 Xcode 许可挡住期间用）。

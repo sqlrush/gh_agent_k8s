@@ -115,13 +115,26 @@ def test_no_leftover_edit_artifacts(path):
 def test_data_skills_all_mention_login():
     """要连库的 skill 都得指向 gaussdb-login —— 漏掉的那个，模型会自己猜连接名。
 
-    kbimport 不连库，login 自己不必自指。
+    知识库的查询 / 导入两个 skill 都不连库，login 自己不必自指。
     """
-    exempt = {"gaussdb-kb", "gaussdb-login"}
+    exempt = {"gaussdb-kb", "gaussdb-kb-import", "gaussdb-login"}
     missing = [p.parent.name for p in _SKILLS
                if p.parent.name not in exempt
                and "gaussdb-login" not in p.read_text(encoding="utf-8")]
     assert not missing, "没有指向 gaussdb-login 的 skill：%s" % missing
+
+
+def test_query_kb_skill_never_offers_import_commands():
+    """runtime 镜像只有查询 skill;它的 SKILL.md 不能引导模型去跑不存在的导入命令。"""
+    text = (_ROOT / "skills" / "gaussdb-kb" / "SKILL.md").read_text(encoding="utf-8")
+    for cmd in ("kb.py ingest", "kb.py apply", "kb.py propose", "kb.py review", "kb.py index", "kb.py setup"):
+        assert cmd not in text, cmd
+    assert "gaussdb-kb-import" in text
+
+
+def test_agents_md_routes_import_and_query_to_different_skills():
+    text = _AGENTS.read_text(encoding="utf-8")
+    assert "`gaussdb-kb-import`" in text and "`gaussdb-kb`" in text
 
 
 def test_data_skills_tell_the_model_to_carry_the_session_handle():

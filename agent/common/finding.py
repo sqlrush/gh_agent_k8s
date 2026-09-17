@@ -74,10 +74,11 @@ _REQUIRED = ("dimension", "code", "severity", "metric", "value",
 
 
 def findings_to_json(findings: list[Finding], skill: str) -> str:
-    """序列化成 health 认得的形状，并盖上来源 skill 名。"""
+    """序列化成 health 认得的形状，并盖上来源 skill 名与执行人（GSDB_USER_ID，没有就是空串）。"""
+    from .audit import actor_id
     stamped = [replace(f, skill=skill) for f in findings]
     return json.dumps(
-        {"skill": skill, "findings": [f.to_dict() for f in stamped]},
+        {"skill": skill, "user_id": actor_id(), "findings": [f.to_dict() for f in stamped]},
         ensure_ascii=False, indent=2)
 
 

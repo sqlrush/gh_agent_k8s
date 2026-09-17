@@ -13,7 +13,7 @@ import yaml
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
-_SCRIPTS = _ROOT / "skills" / "gaussdb-kb" / "scripts"
+_SCRIPTS = _ROOT / "skills" / "gaussdb-kb-import" / "scripts"
 sys.path.insert(0, str(_SCRIPTS))
 
 import kb_cases  # noqa: E402

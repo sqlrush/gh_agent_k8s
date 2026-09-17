@@ -1,4 +1,4 @@
-"""kb.py 的存储侧子命令:setup / index / query / health / feedback / eval。
+"""kb.py 的存储侧子命令:setup / index / feedback / eval(query / health 在查询 skill gaussdb-kb)。
 
 全部确定性:连库、建表、索引、检索、打分。模型不参与。
 口令来自 common.credential(凭据名写在 kb.yaml),这里不接收、不打印口令。
@@ -19,6 +19,8 @@ from common.kb import indexer, query as kbquery, render
 from common.kb import store_graph as sg
 from common.kb import store_pg as spg
 from common.kb.embed import Embedder, EmbedError
+from common.kb import lock as kblock
+from common.kb.atomic import write_text_atomic
 
 
 class StoreCmdError(Exception):
@@ -155,104 +157,16 @@ def cmd_index(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------- query
-
-def _load_findings(path: pathlib.Path) -> List[Any]:
-    from common.finding import findings_from_json
-    return findings_from_json(path.read_text(encoding="utf-8"))
-
-
-def cmd_query(args: argparse.Namespace) -> int:
-    kb = kbconfig.resolve_kb_dir(args.kb)
-    if args.from_findings:
-        findings = _load_findings(pathlib.Path(args.from_findings))
-        result = kbquery.from_findings(findings, kb_dir=kb)
-    else:
-        result = kbquery.from_text(args.q, kb_dir=kb)
-    if args.json:
-        print(json.dumps(kbquery.result_to_dict(result), ensure_ascii=False, indent=2))
-    else:
-        print(render.render_section(result), end="")
-    return 0 if result.status.attached else 2
-
-
-# ---------------------------------------------------------------- health
-
-def _misses_top(kb: pathlib.Path, n: int = 10) -> List[Tuple[str, int]]:
-    path = kb / "index" / "misses.log"
-    if not path.is_file():
-        return []
-    counts: Dict[str, int] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            counts[parts[1]] = counts.get(parts[1], 0) + 1
-    return sorted(counts.items(), key=lambda p: (-p[1], p[0]))[:n]
-
-
-def _pending(kb: pathlib.Path) -> List[str]:
-    out = []
-    inbox = kb / "inbox"
-    if not inbox.is_dir():
-        return out
-    for slug_dir in sorted(p for p in inbox.iterdir() if p.is_dir()):
-        items = list((slug_dir / "items").glob("*.md")) if (slug_dir / "items").is_dir() else []
-        cand = slug_dir / "candidates.json"
-        dec = slug_dir / "decisions.yaml"
-        if items and not cand.exists():
-            out.append(f"inbox/{slug_dir.name}: {len(items)} 单待 propose")
-        elif cand.exists() and not dec.exists():
-            out.append(f"inbox/{slug_dir.name}: 候选待 review/确认")
-        elif dec.exists():
-            out.append(f"inbox/{slug_dir.name}: 有 decisions 待 apply")
-        elif (slug_dir / "source.md").exists():
-            out.append(f"inbox/{slug_dir.name}: 规范待条款化")
-    return out
-
-
-def cmd_health(args: argparse.Namespace) -> int:
-    kb = kbconfig.resolve_kb_dir(args.kb)
-    if not kb.is_dir():
-        raise StoreCmdError(f"KB 目录不存在:{kb}")
-    sess = kbquery.KbSession.open(kb)
-    try:
-        status = sess.status()
-        file_warnings = list(getattr(sess.pg, "warnings", ()))[:5]    # 文件模式:坏文件在这里露头
-    finally:
-        sess.close()
-    print(render.status_line(status))
-    from common.kb import inbox as kbinbox
-    print(f"收件目录  : {kbinbox.inbox_dir(kb)}(用户要导入自己电脑上的文件时,先上传到这里再 ingest)")
-    for w in file_warnings:
-        print(f"[warn ] 文件:{w}")
-    state = indexer.read_state(kb) or {}
-    if state:
-        print(f"上次索引  : {state.get('indexed_at', '?')} · 文档新写 {state.get('docs_indexed', '?')} · "
-              f"覆盖 {state.get('chunk_embedded', '?')}/{state.get('chunk_total', '?')} · 图 {state.get('graph', '?')}")
-    pending = _pending(kb)
-    print("待处理    : " + ("; ".join(pending) if pending else "无"))
-    misses = _misses_top(kb)
-    if misses:
-        print("缺口清单  : 近期查不到条款/案例的发现 Top —— " +
-              "、".join(f"{code}×{n}" for code, n in misses) + "(补这类材料收益最大)")
-    else:
-        print("缺口清单  : 无记录")
-    if not status.attached:
-        print(f"[error] 知识库未接入:{status.reason}")
-        return 2
-    return 2 if pending else 0
-
-
 # ---------------------------------------------------------------- feedback
 
 def cmd_feedback(args: argparse.Namespace) -> int:
     kb = kbconfig.resolve_kb_dir(args.kb)
     path = kb / "eval" / "feedback.yaml"
-    path.parent.mkdir(parents=True, exist_ok=True)
     entry = {"id": args.id, "verdict": "useful" if args.useful else "irrelevant",
              "at": datetime.date.today().isoformat(), "note": args.note or ""}
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write("- " + json.dumps(entry, ensure_ascii=False) + "\n")
+    with kblock.hold(kb):                       # 追加也是写共享文件:持锁,整文件原子替换
+        old = path.read_text(encoding="utf-8") if path.is_file() else ""
+        write_text_atomic(path, old + "- " + json.dumps(entry, ensure_ascii=False) + "\n")
     print(f"已记录:{entry['id']} → {entry['verdict']}(采纳率加权在下次 index 后生效)")
     return 0
 
@@ -303,22 +217,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------- parser wiring
 
-def add_subcommands(sub: "argparse._SubParsersAction") -> None:
+def add_admin_subcommands(sub: "argparse._SubParsersAction") -> None:
+    """setup / feedback / eval:只在导入 skill 里。query / health 在 gaussdb-kb(查询)。"""
     p = sub.add_parser("setup", help="连接高斯/PG 与 Neo4j,建表建约束,报告引擎能力")
     p.add_argument("--kb")
     p.set_defaults(func=cmd_setup)
-
-
-    p = sub.add_parser("query", help="检索:--q 自然语言,或 --from-findings findings.json")
-    p.add_argument("--kb")
-    p.add_argument("--q", help="问题文本")
-    p.add_argument("--from-findings", help="skill 输出的 findings json 文件")
-    p.add_argument("--json", action="store_true")
-    p.set_defaults(func=cmd_query)
-
-    p = sub.add_parser("health", help="文本大盘:接入状态、条款/案例/边数、覆盖率、待处理、缺口清单")
-    p.add_argument("--kb")
-    p.set_defaults(func=cmd_health)
 
     p = sub.add_parser("feedback", help="DBA 对一次引用打分:--useful / --irrelevant")
     p.add_argument("id")

@@ -1280,6 +1280,21 @@ git push origin main agent-v0.1
 | 4d AGENTS.md 等 | `7ea6e6e` | — | 安装冒烟 18 目录；kb 三态 e2e（file + sample）与 gh_skill 逐字一致 |
 | 5 写锁 + 原子写 | `65edeb7` | `aebdc27` | 并发 e2e：第二个 index 被拒、退出码 2、锁释放 |
 | 6 导入命令桩 | `15bd431` | — | 桩在 `main()` 解析参数之前拦截；`kb_cite` 改为模块级导入 |
-| 7 验收 | 进行中 | | |
+| 7 验收 | 脚本层全绿；模型层被 Kimi 月度配额挡住 | | 见下表 |
+
+**Task 7 结果（2026-09-17）**
+
+| 层 | agent/（gh_agent_k8s `feat/phase1-skills` @ `15bd431`） | gh_skill（`fix/k8s-shared` @ `d2723df`） |
+|---|---|---|
+| 单测（py3.12，venv） | 2218 通过、45 跳过 | 2188 通过、45 跳过 |
+| 场景矩阵 60×2（`GSDB_HOME=~/kf-verify/gdaa-gsql`） | og 60/60、og-grmp 60/60 | og 60/60、og-grmp 60/60 |
+| 会话 e2e（含新 S19） | 20/20 | 20/20 |
+| kb 三态 e2e（file + sample） | 与 gh_skill 逐字一致，eval 12/12 | eval 12/12 |
+| harness 80（交付包解出副本，直连 + 8779 mock） | 80/80（首轮 77/80：3 个 E2-mock 是 env_up 拉起的 mock 进程连备机卡住，重启 mock 后同批 80/80，代码无关） | 未跑（改动与 agent 相同，矩阵与 e2e 已覆盖） |
+| 复跑 10 | 10/10 | — |
+| 模型级 G1–G4 | **未能执行**：`opencode run` 报 Kimi 账号月度用量已达上限（`model-session-agent-out/*.err`）。脚本 `~/kf-verify/model_session_run_agent.sh` 已就绪（G3 导入引导、G4 知识库查询、知识库目录零写入断言），配额恢复或换模型（`KB_DEMO_MODEL=<provider/model>`）后直接重跑 | — |
+| py3.9 单测 | 未跑：Mac 系统 Python 被 Xcode 许可挡住 | 同左 |
+
+未合 main、未打标签：等模型级跑过或 user 决定跳过。
 
 执行中改过的验收脚本（Mac `~/kf-verify`）：`kf_session_e2e.sh` 加 S19（`PY` 可覆盖）；`~/kb-verify/modes-e2e.sh` 加 `ROOT`/`PY` 覆盖并按目录自动选导入 / 查询脚本；`kf_env_up.sh`、`kf_harness.py`、`kf_rerun.py`、`kf_patch_probe.py` 各有 `_venv` 副本（系统 Python 被 Xcode 许可挡住期间用）。

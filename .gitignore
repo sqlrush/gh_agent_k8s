@@ -1,0 +1,20 @@
+# 凭据与现场配置,永远不进仓库
+*.env
+*.enc
+*.key
+*.pem
+secrets/
+prd/
+
+# 构建与验证产物
+images/
+out/
+*.tar
+*.tar.gz
+*.log
+
+# 系统与工具
+.DS_Store
+__pycache__/
+*.pyc
+.venv/

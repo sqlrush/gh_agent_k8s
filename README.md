@@ -39,9 +39,9 @@
 ```
 agent/       技能代码(common/ skills/ scripts/ tools/ tests/ …),来自 gh_skill + Pod 适配改动;UPSTREAM 记录来源
 docker/      Dockerfile(base → runtime / kb-import)、entrypoint.sh、podctl.py(+tests)、opencode.jsonc.tmpl
-k8s/         Deployment / PVC / NetworkPolicy / Secret、ConfigMap 样例(阶段 3)
-scripts/     vendor-from-gh-skill.sh(首次导入)、build-images.sh、smoke-image.sh(+tcp-forward.py)
-docs/        specs/ 设计、plans/ 计划、env-contract.md 环境契约
+k8s/         base/(命名空间、NAS PVC、ConfigMap、角色表、NetworkPolicy) templates/(按工号渲染的 runtime / kb-import) local/(Mac 专用覆盖)
+scripts/     vendor-from-gh-skill.sh、build-images.sh、smoke-image.sh(+tcp-forward.py)、k8s/provision.py(网关建 Pod 的参考实现)、k8s/verify-cluster.sh
+docs/        specs/ 设计、plans/ 计划、env-contract.md 环境契约、k8s-deploy.md 平台部署手册
 ```
 
 ## 构建与冒烟（Mac + OrbStack）
@@ -56,7 +56,8 @@ bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-ver
 
 - 2026-09-17 阶段 1 完成（`agent-v0.1`）：技能侧 Pod 适配，gh_skill 同步发布 `skills-v12.10`。
 - 2026-09-17 阶段 2 完成（`agent-v0.2`）：`gaussdb-agent-runtime` / `gaussdb-agent-kb-import` 两个镜像（x86_64 + aarch64）可构建，13 项冒烟通过。
-- 下一步阶段 3：k8s 清单与 OrbStack 集群验证。路线图见 `docs/plans/2026-09-17-roadmap.md`。
+- 2026-09-17 阶段 3 完成（`agent-v0.3`）：k8s 清单、`provision.py`、OrbStack 集群 13 项验证通过（含 NetworkPolicy 生效）。
+- 下一步阶段 4：契约与交付文档收口、离线镜像包。路线图见 `docs/plans/2026-09-17-roadmap.md`。
 
 ## 安全
 

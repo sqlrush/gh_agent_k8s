@@ -37,7 +37,9 @@ RUN chmod 0755 /opt/agent/entrypoint.sh && chown -R agent:agent /opt/agent && mk
 USER agent
 WORKDIR /data
 EXPOSE 4096
-HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 CMD curl -fsS http://127.0.0.1:4096/global/health || exit 1
+# 设了 OPENCODE_SERVER_PASSWORD 时 /global/health 也要基本认证,探针带上口令(k8s 模板里的 exec 探针同样写法)
+HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
+  CMD curl -fsS ${OPENCODE_SERVER_PASSWORD:+-u "opencode:$OPENCODE_SERVER_PASSWORD"} http://127.0.0.1:4096/global/health || exit 1
 ENTRYPOINT ["/opt/agent/entrypoint.sh"]
 
 # ---------------------------------------------------------------- runtime:诊断 skill + 知识库查询

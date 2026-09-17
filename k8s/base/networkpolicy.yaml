@@ -1,0 +1,45 @@
+# runtime:入站只放行网关(标签 app=agent-gateway,或命名空间 agent-gateway);出站只放行 DNS、中间件、模型服务。
+# kb-import:入站同上;出站只放行 DNS 与模型服务(不接触任何数据库)。
+# 中间件与模型服务的地址段是占位(10.0.0.0/8),平台按实际填写。CNI 必须支持 NetworkPolicy(Calico / Cilium);
+# OrbStack 本地集群不强制执行,只做清单校验。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: runtime-policy
+  namespace: gaussdb-agent
+spec:
+  podSelector:
+    matchLabels: {app: gaussdb-agent, role: runtime}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: agent-gateway}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: agent-gateway}}
+      ports: [{port: 4096, protocol: TCP}]
+  egress:
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 中间件 GRMP:平台改成实际地址段与端口
+      ports: [{port: 8080, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 模型服务:平台改成实际地址段与端口
+      ports: [{port: 443, protocol: TCP}, {port: 80, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kb-import-policy
+  namespace: gaussdb-agent
+spec:
+  podSelector:
+    matchLabels: {app: gaussdb-agent, role: kb-import}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: agent-gateway}}
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: agent-gateway}}
+      ports: [{port: 4096, protocol: TCP}]
+  egress:
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 模型服务:平台改成实际地址段与端口
+      ports: [{port: 443, protocol: TCP}, {port: 80, protocol: TCP}]

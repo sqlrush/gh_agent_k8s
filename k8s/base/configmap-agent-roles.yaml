@@ -1,0 +1,11 @@
+# mock 的分组(spec §8 授权):没有 AD 组时,网关按这张表判定谁是知识库管理员。
+# 有 AD 组时网关按组判定,这个 ConfigMap 不需要。普通用户的「已开通」= 存在 Secret grmp-token-<工号>。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-roles
+  namespace: gaussdb-agent
+data:
+  # 知识库管理员工号,每行一个;不在此列的人只能得到 runtime Pod
+  kb-admins: |
+    u2001

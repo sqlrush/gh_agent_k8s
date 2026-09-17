@@ -1,0 +1,67 @@
+# 按工号渲染(scripts/k8s/provision.py):${USER_ID} ${IMAGE} ${IMAGE_PULL_POLICY} ${SUBPATH_ROOT}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-${USER_ID}
+  namespace: gaussdb-agent
+  labels: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
+  annotations:
+    gaussdb-agent/last-activity: ""          # 网关按闲置超时回收时写这里
+spec:
+  replicas: 1
+  strategy: {type: Recreate}                 # 同一用户目录同一时刻只许一个 Pod 打开 opencode.db
+  selector:
+    matchLabels: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
+  template:
+    metadata:
+      labels: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true}
+      containers:
+        - name: opencode
+          image: ${IMAGE}
+          imagePullPolicy: ${IMAGE_PULL_POLICY}
+          securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          ports: [{containerPort: 4096, name: http}]
+          env:
+            - {name: GSDB_USER_ID, value: "${USER_ID}"}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: GRMP_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: grmp-token-${USER_ID}, key: GRMP_AUTH_TOKEN}}}
+            - {name: OPENCODE_SERVER_PASSWORD, valueFrom: {secretKeyRef: {name: pod-auth-${USER_ID}, key: OPENCODE_SERVER_PASSWORD}}}
+            - {name: MODEL_API_KEY, valueFrom: {secretKeyRef: {name: model-api, key: MODEL_API_KEY}}}
+          envFrom:
+            - configMapRef: {name: agent-config}
+          volumeMounts:
+            - {name: nas, mountPath: /nas/me, subPath: ${SUBPATH_ROOT}/${USER_ID}}
+            - {name: nas, mountPath: /nas/kb, subPath: kb, readOnly: true}
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+          # opencode 开了基本认证后 /global/health 也要口令:探针在容器内带口令 curl,口令只在环境变量里,不进清单
+          readinessProbe:
+            exec: {command: ["sh", "-c", "curl -fsS -u \"opencode:$$OPENCODE_SERVER_PASSWORD\" http://127.0.0.1:4096/global/health"]}
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec: {command: ["sh", "-c", "curl -fsS -u \"opencode:$$OPENCODE_SERVER_PASSWORD\" http://127.0.0.1:4096/global/health"]}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          lifecycle: {preStop: {exec: {command: ["sleep", "5"]}}}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+      volumes:
+        - {name: nas, persistentVolumeClaim: {claimName: nas}}
+        - {name: data, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: runtime-${USER_ID}
+  namespace: gaussdb-agent
+  labels: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
+spec:
+  selector: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
+  ports: [{port: 4096, targetPort: 4096, name: http}]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 
@@ -18,6 +19,7 @@ for _anc in _HERE.parents:                       # common/(仓库根,或装好�
         sys.path.insert(0, str(_anc))
         break
 
+import kb_cite  # noqa: E402  —— 在 sys.path 刚放好时就绑定,调用方之后怎么改 sys.path 都不影响
 from common.kb import config as kbconfig  # noqa: E402
 from common.kb import indexer, query as kbquery, render  # noqa: E402
 from common.kb.rulesfile import SEARCH_HIT_CAP, SEARCHABLE, iter_files, read_text_file  # noqa: E402
@@ -25,6 +27,18 @@ from common.kb.rulesfile import SEARCH_HIT_CAP, SEARCHABLE, iter_files, read_tex
 
 class KbError(Exception):
     """Operator-facing failure; message is printed as-is."""
+
+
+# 导入侧的子命令在本环境(runtime 镜像)物理不存在。保留命令名做桩:模型按记忆调用时得到「去哪、找谁」,
+# 而不是 argparse 的 invalid choice——那句话对模型没有指导意义,它会开始猜别的命令或自己动手写目录。
+IMPORT_ONLY = ("ingest", "index", "validate", "propose", "review", "apply", "setup", "feedback", "eval", "contract")
+IMPORT_ONLY_MSG = ("本环境不含知识库导入功能(gaussdb-kb-import),请联系知识库管理员在导入环境操作。"
+                   "本环境可用:query / health / search / cite-check。")
+
+
+def cmd_import_only(args: argparse.Namespace) -> int:
+    print("[error] %s" % IMPORT_ONLY_MSG, file=sys.stderr)
+    return 2
 
 
 # ---------------------------------------------------------------- search
@@ -156,6 +170,8 @@ def cmd_health(args: argparse.Namespace) -> int:
     finally:
         sess.close()
     print(render.status_line(status))
+    if not os.access(kb, os.W_OK):
+        print("知识库只读  : 是(本环境不能导入;由知识库管理员在导入环境维护)")
     from common.kb import inbox as kbinbox
     print(f"收件目录  : {kbinbox.inbox_dir(kb)}(用户要导入自己电脑上的文件时,先上传到这里再 ingest)")
     for w in file_warnings:
@@ -181,8 +197,6 @@ def cmd_health(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------- main
 
 def build_parser() -> argparse.ArgumentParser:
-    import kb_cite
-
     parser = argparse.ArgumentParser(
         prog="kb.py",
         description="GaussDB 客户知识库(查询):检索 · 大盘 · 引用核对。导入与索引在 gaussdb-kb-import。",
@@ -208,12 +222,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_search)
 
     kb_cite.add_subcommands(sub)
+
+    for name in IMPORT_ONLY:
+        p = sub.add_parser(name, help="(本环境不可用,见 gaussdb-kb-import)")
+        p.add_argument("rest", nargs=argparse.REMAINDER)
+        p.set_defaults(func=cmd_import_only)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in IMPORT_ONLY:          # 不解析参数:导入命令的参数形状本环境不认识,也不需要认识
+        return cmd_import_only(argparse.Namespace())
     args = build_parser().parse_args(argv)
-    import kb_cite
     try:
         return args.func(args)
     except (KbError, kb_cite.CiteCmdError, kbconfig.KbConfigError) as exc:

@@ -16,15 +16,12 @@ def _load(scripts: pathlib.Path, name: str):
     modname = f"{scripts.parent.name}_{name}".replace("-", "_")
     if modname in sys.modules:
         return sys.modules[modname]
-    saved = sys.path[:]
-    sys.path.insert(0, str(scripts))
-    try:
-        spec = importlib.util.spec_from_file_location(modname, scripts / f"{name}.py")
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[modname] = mod
-        spec.loader.exec_module(mod)
-    finally:
-        sys.path[:] = saved
+    if str(scripts) not in sys.path:             # 兄弟模块(kb_store / kb_cases / kb_cite)按脚本目录找,和真实运行一样
+        sys.path.append(str(scripts))
+    spec = importlib.util.spec_from_file_location(modname, scripts / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[modname] = mod
+    spec.loader.exec_module(mod)
     return mod
 
 
@@ -78,3 +75,40 @@ def test_query_missing_kb_dir_is_a_clean_error(tmp_path, capsys):
     mod = _load(_Q, "kb")
     rc = mod.main(["search", "x", "--kb", str(tmp_path / "nope")])
     assert rc == 1 and "KB 目录不存在" in capsys.readouterr().err
+
+
+IMPORT_CMDS = ("ingest", "index", "validate", "propose", "review", "apply", "setup", "feedback", "eval", "contract")
+
+
+@pytest.mark.parametrize("cmd", IMPORT_CMDS)
+def test_import_commands_are_stubbed_with_guidance(cmd, capsys):
+    """模型按记忆调导入命令时,要的是「去哪、找谁」的指引,不是 argparse 的 invalid choice。"""
+    mod = _load(_Q, "kb")
+    rc = mod.main([cmd, "--kb", "/nonexistent", "whatever"])
+    err = capsys.readouterr().err
+    assert rc == 2 and "gaussdb-kb-import" in err and "知识库管理员" in err
+
+
+def test_stubs_do_not_touch_the_kb_dir(tmp_path, capsys):
+    kb = _kb(tmp_path)
+    before = sorted(p.name for p in kb.rglob("*"))
+    _load(_Q, "kb").main(["ingest", "spec.docx", "--kb", str(kb)])
+    assert sorted(p.name for p in kb.rglob("*")) == before
+
+
+def test_health_says_read_only_when_kb_dir_is_not_writable(tmp_path, capsys):
+    import os
+    if os.geteuid() == 0:
+        pytest.skip("root 不受目录权限约束")
+    kb = _kb(tmp_path)
+    kb.chmod(0o500)
+    try:
+        _load(_Q, "kb").main(["health", "--kb", str(kb)])
+    finally:
+        kb.chmod(0o700)
+    assert "知识库只读" in capsys.readouterr().out
+
+
+def test_health_has_no_read_only_line_when_writable(tmp_path, capsys):
+    _load(_Q, "kb").main(["health", "--kb", str(_kb(tmp_path))])
+    assert "知识库只读" not in capsys.readouterr().out

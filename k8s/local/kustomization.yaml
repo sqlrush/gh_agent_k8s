@@ -1,0 +1,6 @@
+# Mac 本地(OrbStack Kubernetes):base + hostPath PV。用法: kubectl --context orbstack apply -k k8s/local
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - nas-pv-hostpath.yaml

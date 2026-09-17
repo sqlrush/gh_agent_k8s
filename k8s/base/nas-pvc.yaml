@@ -1,0 +1,14 @@
+# NAS 的 RWX 卷:所有 Pod 共用一个 claim,各自用 subPath 只挂自己那一层(spec §4)。
+# 客户环境:平台用 NFS StorageClass 或静态 PV 满足这个 claim;PV 的 mountOptions 见 spec §4
+# (nfsvers=4.1, hard, local_lock=all)。Mac 本地用 k8s/local/nas-pv-hostpath.yaml。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nas
+  namespace: gaussdb-agent
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nas
+  resources:
+    requests:
+      storage: 500Gi

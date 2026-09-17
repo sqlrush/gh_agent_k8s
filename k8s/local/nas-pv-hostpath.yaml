@@ -1,0 +1,15 @@
+# 只在 Mac(OrbStack Kubernetes)上用:hostPath 直接读写 Mac 目录,Pod 内 uid 1000 对应宿主文件属主。
+# 客户环境不要用这个文件。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nas-local
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nas
+  hostPath:
+    path: /tmp/agent-nas-k8s
+    type: DirectoryOrCreate

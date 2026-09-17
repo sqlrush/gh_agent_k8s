@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_SCRIPTS = _ROOT / "skills" / "gaussdb-kb" / "scripts"
+_SCRIPTS = _ROOT / "skills" / "gaussdb-kb-import" / "scripts"
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_SCRIPTS))
 

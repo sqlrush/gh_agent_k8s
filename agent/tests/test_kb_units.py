@@ -14,7 +14,7 @@ import sys
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_SCRIPT = _ROOT / "skills" / "gaussdb-kb" / "scripts" / "kb.py"
+_SCRIPT = _ROOT / "skills" / "gaussdb-kb-import" / "scripts" / "kb.py"
 
 
 def _real_skill_md(name: str) -> pathlib.Path:

@@ -115,9 +115,9 @@ def test_no_leftover_edit_artifacts(path):
 def test_data_skills_all_mention_login():
     """要连库的 skill 都得指向 gaussdb-login —— 漏掉的那个，模型会自己猜连接名。
 
-    kbimport 不连库，login 自己不必自指。
+    知识库的查询 / 导入两个 skill 都不连库，login 自己不必自指。
     """
-    exempt = {"gaussdb-kb", "gaussdb-login"}
+    exempt = {"gaussdb-kb", "gaussdb-kb-import", "gaussdb-login"}
     missing = [p.parent.name for p in _SKILLS
                if p.parent.name not in exempt
                and "gaussdb-login" not in p.read_text(encoding="utf-8")]

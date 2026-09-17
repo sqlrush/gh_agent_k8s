@@ -37,7 +37,7 @@ def test_read_text_file_accepts_gbk(tmp_path):
 
 def test_kb_py_still_exposes_the_helpers_by_the_old_names():
     """现有测试与 kb_cases 通过 kb.<name> 取这些函数;搬家不能改名。"""
-    scripts = _ROOT / "skills" / "gaussdb-kb" / "scripts"
+    scripts = _ROOT / "skills" / "gaussdb-kb-import" / "scripts"
     sys.path.insert(0, str(scripts))
     spec = importlib.util.spec_from_file_location("kb_rf_probe", scripts / "kb.py")
     mod = importlib.util.module_from_spec(spec)

@@ -30,9 +30,14 @@ def canonical_text(root: pathlib.Path = ROOT) -> str:
     return (root / CANON).read_text(encoding="utf-8").strip("\n")
 
 
+# 目录名推不出主脚本名的 skill 在这里点名。gaussdb-kb / gaussdb-kb-import 的入口都叫 kb.py:
+# 前者是查询,后者是导入,两个镜像各装一个,SKILL.md 里 `{script}` 渲染出来必须都是 kb.py。
+_MAIN_SCRIPT_OVERRIDES = {"gaussdb-kb-import": "kb.py"}
+
+
 def main_script(skill_dir: pathlib.Path) -> str:
     """gaussdb-sqlfetch → sqlfetch.py。每个 skill 的主脚本就叫这个名字(tests 里核过存在)。"""
-    return skill_dir.name.split("-", 1)[-1] + ".py"
+    return _MAIN_SCRIPT_OVERRIDES.get(skill_dir.name) or skill_dir.name.split("-", 1)[-1] + ".py"
 
 
 def render(script: str, root: pathlib.Path = ROOT) -> str:

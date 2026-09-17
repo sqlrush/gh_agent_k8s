@@ -1264,3 +1264,22 @@ git push origin main agent-v0.1
 - **Spec 覆盖**：§10 六项 → Task 1（#2）、Task 2（#4）、Task 3（#5）、Task 4（#1）、Task 5（#3）、Task 6（#6）；§7 互斥与原子写 → Task 5；§5 「runtime 镜像里没有导入代码」→ Task 4c 的 `test_query_skill_scripts_contain_no_import_code`。契约注入改构建期 → Task 4d。
 - **占位符**：Task 4c 里 `...  # 逐字搬过来` 出现三处，都指向本仓库里明确的现有函数（`_grep_file`、`cmd_search`、`cmd_health`），执行者按文件行号搬即可，不是待定内容。
 - **类型一致**：`lock.hold(kb_dir, ttl_s)`、`atomic.write_text_atomic(path, text)`、`audit.actor_id()`、`kb_store.add_query_subcommands / add_admin_subcommands`、`config._DEFAULT_STATE_DIR` 在各任务中命名一致。
+
+## 执行记录（2026-09-17）
+
+| 任务 | 本仓库提交（分支 `feat/phase1-skills`） | gh_skill 提交（分支 `fix/k8s-shared`） | 备注 |
+|---|---|---|---|
+| 0 导入 | `efaf82c` | — | 基线 2170 通过、45 跳过 |
+| 1 GSDB_HOME 守卫 | `4a5ab0f` | `f9166ae` | |
+| 2 会话不存地址 | `50388ea` | `d676a0d` | e2e S19 用 vacuum 断言，20/20 |
+| 2b 网络异常带地址 | `93e6263` | `1f05fa5` | 执行中发现的 v12.9 缺陷 |
+| 3 执行人 | `cee3c2a` | — | |
+| 4a rulesfile | `0df77e3` | — | |
+| 4b 目录改名 | `a2551a8` | — | 红线注入器点名 `gaussdb-kb-import` 主脚本仍是 kb.py |
+| 4c 查询 skill | `ec012ca` | — | 与 4c 计划的差别：`kb_store.add_query_subcommands` 没有保留，query/health 直接搬进查询 skill 的 kb.py；`contract` 留在导入侧 |
+| 4d AGENTS.md 等 | `7ea6e6e` | — | 安装冒烟 18 目录；kb 三态 e2e（file + sample）与 gh_skill 逐字一致 |
+| 5 写锁 + 原子写 | `65edeb7` | `aebdc27` | 并发 e2e：第二个 index 被拒、退出码 2、锁释放 |
+| 6 导入命令桩 | `15bd431` | — | 桩在 `main()` 解析参数之前拦截；`kb_cite` 改为模块级导入 |
+| 7 验收 | 进行中 | | |
+
+执行中改过的验收脚本（Mac `~/kf-verify`）：`kf_session_e2e.sh` 加 S19（`PY` 可覆盖）；`~/kb-verify/modes-e2e.sh` 加 `ROOT`/`PY` 覆盖并按目录自动选导入 / 查询脚本；`kf_env_up.sh`、`kf_harness.py`、`kf_rerun.py`、`kf_patch_probe.py` 各有 `_venv` 副本（系统 Python 被 Xcode 许可挡住期间用）。

@@ -24,6 +24,8 @@ BACKUP=$NAS_ME/backup
 mkdir -p "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "$GSDB_HOME" "$NAS_ME/workspace" "$BACKUP" /data/home /data/oc
 chmod 700 "$GSDB_HOME"
 [ -n "${GSDB_KB_INBOX:-}" ] && mkdir -p "$GSDB_KB_INBOX"
+# exec 进容器排障时 `. /data/env.sh` 即得同样的目录变量;只放路径,不放令牌与密钥
+env | grep -E '^(XDG_[A-Z_]+|GSDB_HOME|GSDB_KB_DIR|GSDB_KB_INBOX|OPENCODE_CONFIG|HOME)=' | sed 's/^/export /' > /data/env.sh
 
 # ---- 配置:每次启动重生成,配置不是状态 ----------------------------------------
 $PODCTL render-opencode-config --out "$OPENCODE_CONFIG"

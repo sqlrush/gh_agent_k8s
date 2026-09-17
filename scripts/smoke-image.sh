@@ -26,20 +26,24 @@ rm -rf "$NAS"; mkdir -p "$NAS/users/$U" "$NAS/admins/$U"
 cp -R "$HOME/kb-verify/modes/kb" "$NAS/kb"; rm -f "$NAS/kb/.lock"
 chmod -R a+rwX "$NAS"
 
-run_rt(){ docker run -d --name "$1" "${ENV[@]}" -e POD_NAME="$1" -v "$NAS/users/$U:/nas/me" -v "$NAS/kb:/nas/kb:ro" -p "$2:4096" "$RT" >/dev/null; }
-wait_ready(){ for _ in $(seq 1 40); do curl -fsS -m 2 "http://127.0.0.1:$1/global/health" >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
+# 和 k8s 模板一样以只读根文件系统起容器:/data、/tmp 是唯一可写的本地目录(阶段 3 发现 opencode 加载配置要写 config/cache 目录)
+RO=(--read-only --tmpfs /data:rw,uid=1000,gid=1000,mode=0755 --tmpfs /tmp:rw)
+run_rt(){ docker run -d --name "$1" "${RO[@]}" "${ENV[@]}" -e POD_NAME="$1" -v "$NAS/users/$U:/nas/me" -v "$NAS/kb:/nas/kb:ro" -p "$2:4096" "$RT" >/dev/null; }
+wait_ready(){ for _ in $(seq 1 90); do curl -fsS -m 2 "http://127.0.0.1:$1/global/health" >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
 X(){ docker exec "$1" bash -c ". /data/env.sh; $2" 2>&1; }
 S=/opt/agent/config/opencode/skills
 
 # 1 启动与探针
-run_rt smoke-rt 14096
-wait_ready 14096 || { out=$(docker logs smoke-rt 2>&1); bad "runtime 40 秒内没就绪"; }
-out=$(curl -s http://127.0.0.1:14096/global/health)
+run_rt smoke-rt 15096
+wait_ready 15096 || { out=$(docker logs smoke-rt 2>&1); bad "runtime 90 秒内没就绪"; }
+out=$(curl -s http://127.0.0.1:15096/global/health)
 check "runtime 启动,/global/health 返回 healthy"              'has "\"healthy\":true"'
 out=$(X smoke-rt "id -u; ls -la /nas/me; cat /nas/me/.owner")
 check "以 uid 1000 运行,/nas/me 下有 .owner、gdaa、xdg-data"    'has "^1000" && has ".owner" && has "gdaa" && has "xdg-data"'
 out=$(X smoke-rt 'cat $GSDB_HOME/config.yaml; ls -la /data/oc')
 check "config.yaml 与 opencode.json 已按环境变量渲染(0600)"    'has "host: '"$HOSTGW"'" && has "port: 8781" && has -- "-rw-------.*opencode.json"'
+out=$(X smoke-rt 'curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/config | head -c 300; echo; curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" -H "Content-Type: application/json" -d "{\"title\":\"smoke\"}" http://127.0.0.1:4096/session | head -c 120')
+check "只读根文件系统下配置真的加载了:/config 有 share=disabled,能建会话"   'has "\"share\":\"disabled\"" && has "\"id\":\"ses"'
 
 # 2 经 mock 登录并跑诊断,报告带执行人
 out=$(X smoke-rt "python3 $S/gaussdb-login/scripts/login.py --ip 10.0.0.9 --database postgres")
@@ -59,7 +63,7 @@ out=$(X smoke-rt "touch /nas/kb/probe 2>&1; echo rc=\$?")
 check "runtime 对 /nas/kb 只读"                                 'has "Read-only" || has "rc=1"'
 
 # 4 .owner 冲突:同一用户目录第二个 Pod 必须等待,不打开 db
-run_rt smoke-rt2 14097; sleep 8
+run_rt smoke-rt2 15097; sleep 8
 out=$(docker logs smoke-rt2 2>&1; echo "running=$(docker inspect -f '{{.State.Running}}' smoke-rt2)")
 check "第二个 Pod 看到新鲜的 .owner 后等待,不启动 opencode"      '! has "数据库自检" && (has "running=true" || has "仍持有")'
 docker rm -f smoke-rt2 >/dev/null 2>&1
@@ -72,14 +76,14 @@ docker rm -f smoke-rt >/dev/null 2>&1
 
 # 6 损坏恢复:写坏 db,重启应从备份恢复并报出
 printf 'garbage%.0s' $(seq 1 2000) > "$NAS/users/$U/xdg-data/opencode/opencode.db"
-run_rt smoke-rt 14096; wait_ready 14096; out=$(docker logs smoke-rt 2>&1)
+run_rt smoke-rt 15096; wait_ready 15096; out=$(docker logs smoke-rt 2>&1)
 check "启动自检发现损坏,从备份恢复并写明"                     'has "损坏" && has "已从备份"'
 docker rm -f smoke-rt >/dev/null 2>&1
 
 # 7 kb-import 镜像:可写知识库,导入命令真实存在,只有两个 kb skill
-docker run -d --name smoke-ki -e GSDB_USER_ID=$U -e POD_NAME=kb-import-$U -e MODEL_BASE_URL=http://$HOSTGW:9 -e MODEL_API_KEY=x -e MODEL_ID=none \
-  -e GRMP_API_HOST=unused -v "$NAS/admins/$U:/nas/me" -v "$NAS/kb:/nas/kb" -p 14098:4096 "$KI" >/dev/null
-wait_ready 14098 || { out=$(docker logs smoke-ki 2>&1); bad "kb-import 40 秒内没就绪"; }
+docker run -d --name smoke-ki "${RO[@]}" -e GSDB_USER_ID=$U -e POD_NAME=kb-import-$U -e MODEL_BASE_URL=http://$HOSTGW:9 -e MODEL_API_KEY=x -e MODEL_ID=none \
+  -e GRMP_API_HOST=unused -v "$NAS/admins/$U:/nas/me" -v "$NAS/kb:/nas/kb" -p 15098:4096 "$KI" >/dev/null
+wait_ready 15098 || { out=$(docker logs smoke-ki 2>&1); bad "kb-import 40 秒内没就绪"; }
 out=$(X smoke-ki "ls $S | grep gaussdb- | tr '\n' ' '; python3 $S/gaussdb-kb-import/scripts/kb.py validate --kb /nas/kb | tail -1; python3 $S/gaussdb-kb/scripts/kb.py health | head -3")
 check "kb-import 只有两个 kb skill,validate 可跑,health 不报只读"  'has "gaussdb-kb-import" && ! has "gaussdb-health" && ! has "知识库只读"'
 

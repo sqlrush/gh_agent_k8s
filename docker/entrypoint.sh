@@ -13,15 +13,21 @@ PODCTL="python3 /opt/agent/podctl.py"
 # ---- 目录(spec §4) ---------------------------------------------------------
 export XDG_DATA_HOME=$NAS_ME/xdg-data
 export XDG_STATE_HOME=$NAS_ME/xdg-state
-export XDG_CONFIG_HOME=/opt/agent/config          # 镜像内:skills、AGENTS.md
-export XDG_CACHE_HOME=/opt/agent/cache            # 镜像内:models.json、rg
+# opencode 加载配置时会往 $XDG_CONFIG_HOME/opencode/ 写 .gitignore、往 $XDG_CACHE_HOME/opencode/ 写 models.json 临时文件;
+# 镜像目录只读(readOnlyRootFilesystem)会让配置加载失败、所有 API 报错(探针 /global/health 不碰配置,发现不了)。
+# 所以每次启动把镜像里的 skills/AGENTS.md(3 MB)与 models.json/rg(8 MB)复制到 /data 下再指过去。
+export XDG_CONFIG_HOME=/data/config
+export XDG_CACHE_HOME=/data/cache
 export GSDB_HOME=$NAS_ME/gdaa
 export GSDB_KB_DIR=$NAS_KB
 export HOME=/data/home                            # 有些库要写 $HOME;放本地可写目录
 export OPENCODE_CONFIG=/data/oc/opencode.json     # 渲染出来的运行时配置(含 key,0600)
 DB=$XDG_DATA_HOME/opencode/opencode.db
 BACKUP=$NAS_ME/backup
-mkdir -p "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "$GSDB_HOME" "$NAS_ME/workspace" "$BACKUP" /data/home /data/oc
+mkdir -p "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "$GSDB_HOME" "$NAS_ME/workspace" "$BACKUP" \
+         /data/home /data/oc /data/config/opencode /data/cache/opencode
+cp -R /opt/agent/config/opencode/. /data/config/opencode/
+cp -R /opt/agent/cache/opencode/. /data/cache/opencode/
 chmod 700 "$GSDB_HOME"
 [ -n "${GSDB_KB_INBOX:-}" ] && mkdir -p "$GSDB_KB_INBOX"
 # exec 进容器排障时 `. /data/env.sh` 即得同样的目录变量;只放路径,不放令牌与密钥

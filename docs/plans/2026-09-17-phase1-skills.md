@@ -4,7 +4,7 @@
 
 **Goal:** 让 gh_skill 技能集能在只读镜像 + NAS 目录的 Pod 里运行，并把知识库导入功能物理拆到独立 skill，发布为 `skills-v13.0`。
 
-**Architecture:** 六个互相独立的小改动，全部在 gh_skill 仓库 `feat/k8s` 分支，每项一个提交；不改 opencode，不改白名单，不改安全红线正文。gaussdb-kb 拆成 `gaussdb-kb`（查询：query / health / search / cite-check）与 `gaussdb-kb-import`（ingest / index / validate / setup / feedback / eval / propose / review / apply / contract），共用 `common/kb/`；两个 skill 各自的 `kb.py` 只是命令入口，规则文件的读取辅助函数搬进 `common/kb/rulesfile.py`。
+**Architecture:** 先把 gh_skill `skills-v12.9` 的技能代码导入本仓库 `agent/`（Task 0），之后六个互相独立的小改动都在 `agent/` 里做，每项一个提交；标「两仓库」的三项（Task 1、2、5）同一份 diff 再提交到 gh_skill。不改 opencode，不改白名单，不改安全红线正文。gaussdb-kb 拆成 `gaussdb-kb`（查询：query / health / search / cite-check）与 `gaussdb-kb-import`（ingest / index / validate / setup / feedback / eval / propose / review / apply / contract），共用 `common/kb/`；两个 skill 各自的 `kb.py` 只是命令入口，规则文件的读取辅助函数搬进 `common/kb/rulesfile.py`。
 
 **Tech Stack:** Python 3.9（Mac `~/p2venv/bin/python3` 3.12 也要过）、pytest、PyYAML；仓库 `~/gh_skill/opencode_skill-main-v2-0729`。
 
@@ -19,8 +19,9 @@
 - 提交信息中文 conventional commit，结尾两行：
   `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`
   `Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ`
-- 测试在 Mac 上跑：`cd ~/gh_skill/opencode_skill-main-v2-0729 && ~/p2venv/bin/python3 -m pytest tests/<文件> -q`。系统 `/usr/bin/python3` 目前被 Xcode 许可挡住，别用。
-- 分支：`git checkout -b feat/k8s main`（main 现在是 `b07500a`）。
+- **路径约定**：Task 1 起所有相对路径（`common/…`、`skills/…`、`tests/…`、`tools/…`、`AGENTS.md`）都以本仓库 `agent/` 为根。测试在 Mac 上跑：`cd ~/gh_agent_k8s/agent && ~/p2venv/bin/python3 -m pytest tests/<文件> -q`。系统 `/usr/bin/python3` 目前被 Xcode 许可挡住，别用。
+- **开发规范**：Pod 适配代码只在本仓库；标「两仓库」的任务（1、2、5）把同一份 diff 也提交到 gh_skill（`~/gh_skill/opencode_skill-main-v2-0729`，从 main 开分支 `fix/k8s-shared`），那边的测试命令是 `cd ~/gh_skill/opencode_skill-main-v2-0729 && ~/p2venv/bin/python3 -m pytest …`。标「仅本仓库」的任务（3、4、6）不碰 gh_skill。
+- 本仓库直接在 `main` 上提交（仓库刚建，没有别的分支）。
 
 ---
 
@@ -44,7 +45,41 @@
 
 ---
 
-### Task 1: GSDB_HOME 缺省目录不可写时明确报错
+### Task 0: 把 gh_skill skills-v12.9 导入 agent/（仅本仓库）
+
+**Files:**
+- Create: `scripts/vendor-from-gh-skill.sh`（已写好）
+- Create: `agent/`（脚本产出）、`agent/UPSTREAM`
+
+**Interfaces:**
+- Produces: `agent/` 下与 gh_skill 相同的布局：`common/`、`skills/`（17 个）、`scripts/registry/`、`scripts/kb/`、`tools/`、`tests/`、`grmp_middleware/`、`AGENTS.md`、`install-opencode.sh`、`deploy.sh`、`requirements.txt`、`pytest.ini`；`agent/UPSTREAM` 两行：`gh_skill skills-v12.9 6190e4a…` 与导入日期。不含 `docs/`、`demo/`、`tests/test_delivery_drift_units.py`（依赖客户交付物目录）。
+
+- [ ] **Step 1: 导入**
+
+```bash
+cd ~/gh_agent_k8s && bash scripts/vendor-from-gh-skill.sh ~/gh_skill/opencode_skill-main-v2-0729 skills-v12.9
+cat agent/UPSTREAM; ls agent/skills | wc -l     # 17
+```
+
+- [ ] **Step 2: 基线测试必须和 gh_skill 一样绿**
+
+```bash
+cd ~/gh_agent_k8s/agent && ~/p2venv/bin/python3 -m pytest tests -q -p no:cacheprovider 2>&1 | tail -3
+```
+Expected: 全部 PASS（gh_skill 在 v12.9 是 2171 条，去掉 delivery_drift 那几条后略少）；live 标记的自动跳过。
+
+- [ ] **Step 3: 提交**
+
+```bash
+cd ~/gh_agent_k8s && git add scripts/vendor-from-gh-skill.sh agent && git commit -m "feat(agent): 导入 gh_skill skills-v12.9 作为 Pod 适配的起点
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
+```
+
+---
+
+### Task 1: GSDB_HOME 缺省目录不可写时明确报错（两仓库）
 
 **Files:**
 - Modify: `common/config.py:158-181`（`state_dir`、`ensure_dir`）
@@ -136,9 +171,19 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
 ```
 
+- [ ] **Step 6: 同步到 gh_skill**
+
+```bash
+cd ~/gh_agent_k8s && git format-patch -1 --stdout -- agent/common/config.py agent/tests/test_config_units.py > /tmp/t1.patch
+cd ~/gh_skill/opencode_skill-main-v2-0729 && git checkout -q -b fix/k8s-shared main 2>/dev/null || git checkout -q fix/k8s-shared
+git am -p2 --directory=. /tmp/t1.patch      # agent/ 前缀被 -p2 去掉
+~/p2venv/bin/python3 -m pytest tests/test_config_units.py tests/test_session_units.py -q
+```
+Expected: 打上补丁、测试 PASS。`git am` 冲突时用 `git apply -p2 --3way /tmp/t1.patch` 手工合并后按同样的提交信息提交。
+
 ---
 
-### Task 2: api 模式会话不再沿用文件里的中间件地址
+### Task 2: api 模式会话不再沿用文件里的中间件地址（两仓库）
 
 **Files:**
 - Modify: `common/session.py:124-150`（`_read`）
@@ -244,9 +289,18 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
 ```
 
+- [ ] **Step 7: 同步到 gh_skill**
+
+```bash
+cd ~/gh_agent_k8s && git format-patch -1 --stdout -- agent/common/session.py agent/tests/test_session_units.py > /tmp/t2.patch
+cd ~/gh_skill/opencode_skill-main-v2-0729 && git checkout -q fix/k8s-shared && git am -p2 /tmp/t2.patch
+~/p2venv/bin/python3 -m pytest tests/test_session_units.py tests/test_login_session_units.py tests/test_login_config_units.py tests/test_sqlreview_units.py -q
+```
+Expected: PASS。gh_skill 的会话 e2e（`~/kf-verify/kf_session_e2e.sh` 的 `S` 变量指向 gh_skill 的 skills）也要跑到 19/19。
+
 ---
 
-### Task 3: findings 信封与 health 报告带执行人
+### Task 3: findings 信封与 health 报告带执行人（仅本仓库）
 
 **Files:**
 - Create: `common/audit.py`
@@ -369,9 +423,9 @@ Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
 
 ---
 
-### Task 4: gaussdb-kb 拆成查询与导入两个 skill
+### Task 4: gaussdb-kb 拆成查询与导入两个 skill（仅本仓库）
 
-这是最大的一项，分 4a–4e 五个子步骤，每步可独立验证；4a–4d 各一个提交。
+这是最大的一项，分 4a–4e 五个子步骤，每步可独立验证；4a–4d 各一个提交。gh_skill 保持一个 gaussdb-kb 不拆。
 
 #### 4a. 规则文件辅助函数搬进 `common/kb/rulesfile.py`
 
@@ -827,7 +881,9 @@ Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
 
 ---
 
-### Task 5: 知识库写入互斥与原子写
+### Task 5: 知识库写入互斥与原子写（两仓库）
+
+gh_skill 那边没有拆分，接入点在 `skills/gaussdb-kb/scripts/` 下的同名文件，改法相同。
 
 **Files:**
 - Create: `common/kb/lock.py`、`common/kb/atomic.py`
@@ -1026,9 +1082,25 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
 ```
 
+- [ ] **Step 7: 同步到 gh_skill**
+
+`common/kb/lock.py`、`common/kb/atomic.py`、`tests/test_kb_lock_units.py` 三个新文件直接复制过去；接入点手工改 gh_skill 的 `skills/gaussdb-kb/scripts/{kb.py,kb_cases.py,kb_store.py}`（同样的位置、同样的改法，只是目录名不同）。
+
+```bash
+cd ~/gh_skill/opencode_skill-main-v2-0729 && git checkout -q fix/k8s-shared
+cp ~/gh_agent_k8s/agent/common/kb/{lock,atomic}.py common/kb/ && cp ~/gh_agent_k8s/agent/tests/test_kb_lock_units.py tests/
+# 手工改三个脚本的接入点后:
+~/p2venv/bin/python3 -m pytest tests/test_kb_lock_units.py tests/test_kb_units.py tests/test_kb_cases_units.py tests/test_kb_store_cmds_units.py -q
+git add common/kb/lock.py common/kb/atomic.py skills/gaussdb-kb/scripts tests/test_kb_lock_units.py
+git commit -m "feat(kb): 写入互斥(.lock,10 分钟过期接管)与清单/案例原子写
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
+```
+
 ---
 
-### Task 6: 只读知识库的明确提示
+### Task 6: 只读知识库的明确提示（仅本仓库）
 
 **Files:**
 - Modify: `skills/gaussdb-kb/scripts/kb.py`（`build_parser` 加导入命令桩；`cmd_health` 加只读行）
@@ -1125,51 +1197,60 @@ Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ"
 
 ---
 
-### Task 7: 全量验收与发布 skills-v13.0
+### Task 7: 全量验收、gh_skill 发布 skills-v12.10、本仓库打 agent-v0.1
 
 **Files:**
-- Modify: 18 个 `SKILL.md` 的 `version`（只有改过内容的 skill 升号：gaussdb-kb 3.0.0、gaussdb-kb-import 3.0.0、gaussdb-health 补丁号 +1）
-- Modify: `docs/工作清单-20260907-0908.md`（追加本次条目）
+- Modify（本仓库 `agent/`）：改过内容的 `SKILL.md` 升号：gaussdb-kb 3.0.0、gaussdb-kb-import 3.0.0、gaussdb-health 补丁号 +1
+- Modify（gh_skill）：gaussdb-kb 补丁号 +1（写锁）
 
-- [ ] **Step 1: 单测两版本**
+- [ ] **Step 1: 本仓库 agent/ 全量单测**
 
 ```bash
-cd ~/gh_skill/opencode_skill-main-v2-0729
-~/p2venv/bin/python3 -m pytest tests -q -p no:cacheprovider
+cd ~/gh_agent_k8s/agent && ~/p2venv/bin/python3 -m pytest tests -q -p no:cacheprovider
 ```
-Expected: 全绿（数量应为 2171 + 本计划新增 ≈ 30）。py3.9 那份等 Xcode 许可接受后补跑：`/usr/bin/python3 -m pytest tests -q`。
+Expected: 全绿（Task 0 基线数 + 本计划新增 ≈ 30）。
 
-- [ ] **Step 2: 场景矩阵与 harness**
+- [ ] **Step 2: 本仓库 agent/ 的场景矩阵、harness、e2e**
+
+Mac 上的验收脚本通过 `S=` 或 `.tarball` 指向被测的 skills 树；这次指向 `~/gh_agent_k8s/agent`：
 
 ```bash
-~/p2venv/bin/python3 tools/scenario_matrix.py          # 60×2
-bash ~/kf-verify/kf_harness_run.sh                     # 80
-bash ~/kf-verify/kf_session_e2e.sh                     # 19
-bash ~/kb-verify/modes-e2e.sh                          # kb 三态
+cd ~/gh_agent_k8s/agent && ~/p2venv/bin/python3 tools/scenario_matrix.py          # 60×2
+S=~/gh_agent_k8s/agent/skills bash ~/kf-verify/kf_session_e2e.sh                   # 19
+S=~/gh_agent_k8s/agent/skills bash ~/kb-verify/modes-e2e.sh                        # kb 三态(ingest 路径改 gaussdb-kb-import)
+bash ~/kf-verify/kf_harness_run.sh                                                  # 80,harness 从压缩包装出副本:先按 v12.9 的打包命令给 agent/ 打包
 ```
 Expected: 与 v12.9 基线一致，会话 e2e 多一例。
 
 - [ ] **Step 3: 模型级抽查**
 
-`bash ~/kf-verify/model_session_run2.sh`；另起一个对话让模型「导入工单」，期望模型只引导「联系知识库管理员」、不尝试写目录。
+`bash ~/kf-verify/model_session_run2.sh`（指向 agent/）；另起一个对话让模型「导入工单」，期望模型只引导「联系知识库管理员」、不尝试写目录。
 
-- [ ] **Step 4: 合入与打标签**
+- [ ] **Step 4: gh_skill 发布 skills-v12.10**
 
 ```bash
-git checkout main && git merge --no-ff feat/k8s -m "merge: skills-v13.0 容器化技能侧改动"
-git tag -a skills-v13.0 -m "skills-v13.0: 容器化技能侧改动(kb 拆分、GSDB_HOME 守卫、会话不存地址、执行人、写锁)"
-git push origin main skills-v13.0
-bash scripts/package.sh   # 或与 v12.9 相同的打包命令,产出 gaussdb-skills-<sha>-<日期>.tar.gz + .sha256
+cd ~/gh_skill/opencode_skill-main-v2-0729 && git checkout -q fix/k8s-shared
+~/p2venv/bin/python3 -m pytest tests -q -p no:cacheprovider          # 全绿
+~/p2venv/bin/python3 tools/scenario_matrix.py && bash ~/kf-verify/kf_session_e2e.sh
+git checkout main && git merge --no-ff fix/k8s-shared -m "merge: skills-v12.10 通用修复(GSDB_HOME 提示、会话不存中间件地址、知识库写锁)"
+git tag -a skills-v12.10 -m "skills-v12.10: GSDB_HOME 提示、会话不存中间件地址、知识库写锁与原子写"
+git push origin main skills-v12.10
 ```
+打包命令与 v12.9 相同，产出 `gaussdb-skills-<sha>-<日期>.tar.gz` + `.sha256`。
 
-- [ ] **Step 5: 更新 gh_agent_k8s**
+- [ ] **Step 5: 本仓库打标签**
 
-在 `gh_agent_k8s/docs/plans/2026-09-17-roadmap.md` 阶段 1 行标「完成 <日期>，标签 skills-v13.0」，提交推送。
+```bash
+cd ~/gh_agent_k8s && git tag -a agent-v0.1 -m "agent-v0.1: 技能侧 Pod 适配完成(基于 gh_skill skills-v12.9,含 v12.10 的三项)"
+git push origin main agent-v0.1
+```
+在 `docs/plans/2026-09-17-roadmap.md` 阶段 1 行标「完成 <日期>，agent-v0.1 / skills-v12.10」，提交推送。
 
 ---
 
 ## Self-Review
 
+- **归属**：两仓库 = Task 1、2、5（各带「同步到 gh_skill」步骤）；仅本仓库 = Task 0、3、4、6。
 - **Spec 覆盖**：§10 六项 → Task 1（#2）、Task 2（#4）、Task 3（#5）、Task 4（#1）、Task 5（#3）、Task 6（#6）；§7 互斥与原子写 → Task 5；§5 「runtime 镜像里没有导入代码」→ Task 4c 的 `test_query_skill_scripts_contain_no_import_code`。契约注入改构建期 → Task 4d。
 - **占位符**：Task 4c 里 `...  # 逐字搬过来` 出现三处，都指向本仓库里明确的现有函数（`_grep_file`、`cmd_search`、`cmd_health`），执行者按文件行号搬即可，不是待定内容。
 - **类型一致**：`lock.hold(kb_dir, ttl_s)`、`atomic.write_text_atomic(path, text)`、`audit.actor_id()`、`kb_store.add_query_subcommands / add_admin_subcommands`、`config._DEFAULT_STATE_DIR` 在各任务中命名一致。

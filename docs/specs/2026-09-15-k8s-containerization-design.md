@@ -6,10 +6,15 @@
 
 | 仓库 | 内容 | 本项目里的角色 |
 |---|---|---|
-| [gh_skill](https://github.com/sqlrush/gh_skill) | 17 个 `gaussdb-*` skill、`common/`、白名单脚本、验收 | 镜像的构建输入，按标签引用；§10 的技能侧改动在那里完成并发布新标签 |
-| **gh_agent_k8s**（本仓库） | Dockerfile、entrypoint、k8s 清单、环境变量契约、验证脚本、交付文档 | 容器化本身 |
+| [gh_skill](https://github.com/sqlrush/gh_skill) | 17 个 `gaussdb-*` skill、`common/`、白名单脚本、验收 | **非 Pod 的 opencode 独立部署**继续用它；只收与部署方式无关的技能功能修复 |
+| **gh_agent_k8s**（本仓库） | `agent/`：从 gh_skill 标签复制来的技能代码 + Pod 适配改动；`docker/`、`k8s/`、`scripts/`、`docs/` | 容器化本身；镜像从 `agent/` 构建 |
 
-gh_skill 保持独立可交付：不经容器也能按原方式安装。本仓库不复制技能代码。
+**开发规范（2026-09-17 定）**
+
+1. 和 Pod 架构相关的适配代码全部放本仓库 `agent/`，不动 gh_skill。
+2. 如果是 skill 本身的功能改动（与部署方式无关的修复或增强），两个仓库同时改：本仓库 `agent/` 一份，gh_skill 一份同样的 diff。这样 gh_skill 继续适配非 Pod 的独立部署场景。
+3. `agent/UPSTREAM` 记录它基于 gh_skill 的哪个标签、哪个提交；首次导入用 `scripts/vendor-from-gh-skill.sh`，之后靠 cherry-pick 同步，不整目录覆盖。
+4. 每项改动在计划里标明归属：「仅本仓库」或「两仓库」。
 
 ## 1. 目标与边界
 
@@ -37,6 +42,7 @@ gh_skill 保持独立可交付：不经容器也能按原方式安装。本仓�
 | 4 | 网关 | 平台做。两种模式：对话结束回收 Pod / 保留 Pod 等待重连 |
 | 5 | 仓库 | 容器化放本仓库；gh_skill 只做技能侧改动 |
 | 6 | 接入网关 | 共享的控制面组件（1 个 Deployment、2 副本、无状态）：鉴权、按工号找 / 建 / 回收 runtime Pod、代理。不是每人一个。用户状态不需要「还原」，挂载即恢复（2026-09-16） |
+| 7 | 代码归属 | Pod 适配代码只在本仓库 `agent/`；技能本身的功能改动两仓库同时改，gh_skill 继续服务非 Pod 部署（2026-09-17，见 §0 开发规范） |
 
 ## 3. 总体架构
 
@@ -91,7 +97,7 @@ frontend 不挂 NAS、不带 skill，只把浏览器和某个用户的 `opencode
 
 ## 5. 镜像
 
-三个镜像。两个后端镜像出自同一个 Dockerfile（多阶段，两个 target，构建参数 `SKILLS_TAG` 指定 gh_skill 标签）；frontend 单独一个 Dockerfile。
+三个镜像。两个后端镜像出自同一个 Dockerfile（多阶段，两个 target），技能代码来自本仓库 `agent/`，不在构建时拉 gh_skill；frontend 单独一个 Dockerfile。
 
 **frontend（`gaussdb-agent-frontend`）**：deepseek-harness 的 Web 前端改造成对接 opencode 的 HTTP API 与 SSE 事件流。无状态、不挂 NAS、不含 skill，一个共享 Deployment 服务所有用户；SSO 后由网关把请求转到该用户的 runtime Pod。在两个后端镜像完成后再做，见 §9。
 
@@ -264,16 +270,18 @@ SQLite 在网络文件系统上出问题只有两个机制：
 - CLI：opencode 自带的远程终端客户端，命令是 `opencode attach <url>`——用户本机装 opencode，跑 `opencode attach https://网关/<工号>`，本机 TUI 连远端的 `serve`，看到的会话与 Web 一致。桌面不能装软件时用 ttyd 在浏览器里跑 `opencode attach http://127.0.0.1:4096`。
 - 认证：`OPENCODE_SERVER_PASSWORD` 由网关生成注入，Pod 入站只放行网关与 frontend。
 
-## 10. 技能侧改动（在 gh_skill 完成，发布为 skills-v13.0）
+## 10. 技能侧改动（在本仓库 `agent/` 完成；标「两仓库」的同步到 gh_skill）
 
-| # | 改动 | 原因 | 测试 |
-|---|---|---|---|
-| 1 | gaussdb-kb 拆成 `gaussdb-kb`（search/contract/query/health/cite-check）与 `gaussdb-kb-import`（ingest/index/validate/setup/feedback/eval/propose/review/apply） | 两镜像物理分离 | 结构闸门；两份 SKILL.md；17 个 `test_kb_*` 按路径迁移；红线数 17→18；AGENTS.md 技能匹配改两条 |
-| 2 | `GSDB_HOME` 未设且默认目录不可写 → `ConfigError` 明确提示 | 默认值在 skills 目录里，镜像只读 | 只读临时目录断言文案 |
-| 3 | `common/kb/lock.py` 写入互斥（`.lock`，10 分钟过期接管）；`common/kb/atomic.py` 临时文件 + `os.replace` | 多 import、读写并发 | 取得 / 冲突 / 过期接管；两进程并发 apply e2e |
-| 4 | api 模式加载会话时忽略文件里的 host/port，每次从 `GRMP_API_HOST` → `config.yaml` 取 | 会话进 NAS 后 Pod 重建不带旧地址 | 旧地址会话 + 新环境变量断言；会话 e2e 加一例 |
-| 5 | 报告头部「执行人：<GSDB_USER_ID>」，Evidence 加 `user_id` | 审计落到人 | 设 / 不设两种 |
-| 6 | 查询版 `kb.py` 保留导入子命令名作桩：「本环境不含知识库导入功能」退出码 2；`health` 状态行加「只读」 | 静默失败比报错危险 | 桩文案；只读目录 health |
+| # | 改动 | 原因 | 归属 | 测试 |
+|---|---|---|---|---|
+| 1 | gaussdb-kb 拆成 `gaussdb-kb`（query/health/search/cite-check）与 `gaussdb-kb-import`（ingest/index/validate/setup/feedback/eval/propose/review/apply/contract） | 两镜像物理分离 | 仅本仓库 | 结构闸门；两份 SKILL.md；`test_kb_*` 按路径迁移；红线数 17→18；AGENTS.md 技能匹配改两条 |
+| 2 | `GSDB_HOME` 未设且默认目录不可写 → `ConfigError` 明确提示 | 默认值在 skills 目录里，镜像只读；独立部署下同样是「一句话代替堆栈」 | 两仓库 | 只读临时目录断言文案 |
+| 3 | `common/kb/lock.py` 写入互斥（`.lock`，10 分钟过期接管）；`common/kb/atomic.py` 临时文件 + `os.replace` | 多 import、读写并发；独立部署的共享沙箱同样多人共用一个知识库目录 | 两仓库 | 取得 / 冲突 / 过期接管；两进程并发 apply e2e |
+| 4 | api 模式加载会话时忽略文件里的 host/port，每次从 `GRMP_API_HOST` → `config.yaml` 取 | 会话进 NAS 后 Pod 重建不带旧地址；独立部署下就是 09-14 的现场问题 | 两仓库 | 旧地址会话 + 新环境变量断言；会话 e2e 加一例 |
+| 5 | findings JSON 信封加 `user_id`，health 报告标题下「执行人：<GSDB_USER_ID>」 | 审计落到人 | 仅本仓库 | 设 / 不设两种 |
+| 6 | 查询版 `kb.py` 保留导入子命令名作桩：「本环境不含知识库导入功能」退出码 2；`health` 加「知识库只读」行 | 静默失败比报错危险 | 仅本仓库 | 桩文案；只读目录 health |
+
+gh_skill 收到 #2、#3、#4 后发布 `skills-v12.10`；本仓库 `agent/` 的版本号独立（镜像标签用本仓库标签）。
 
 `contract --apply` 改成构建期工具：仓库里跑一次，结果随镜像发布，SKILL.md 不再引导运行时执行。
 
@@ -308,7 +316,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 | k8s 清单模板（runtime / kb-import Deployment、PVC、NetworkPolicy、Secret/ConfigMap 样例） | 本仓库 `k8s/` |
 | 环境变量契约、网关契约、交付手册容器化章节（含 §6.3 与客户确认表） | 本仓库 `docs/` |
 | 镜像冒烟、集群验证脚本 | 本仓库 `scripts/` |
-| 技能侧改动与测试 | gh_skill，标签 `skills-v13.0` |
+| 技能侧改动与测试 | 本仓库 `agent/`；#2、#3、#4 同步到 gh_skill，发布 `skills-v12.10` |
 | 网关镜像 `gaussdb-agent-gateway`（仅当平台没有网关） | 本仓库，待客户确认 |
 | 离线镜像包（`docker save`）+ 校验值 | 交付时生成，不入库 |
 
@@ -329,7 +337,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 
 | 步 | 内容 | 产出 | 验证 | 估计 |
 |---|---|---|---|---|
-| 1. 技能侧改动 | §10 六项，gh_skill 分支 `feat/k8s`，发布 `skills-v13.0` | 6 个提交 + 测试 | gh_skill 现有验收全跑 | 3–4 天 |
+| 1. 技能侧改动 | 先把 gh_skill `skills-v12.9` 导入本仓库 `agent/`；§10 六项在 `agent/` 做；#2、#3、#4 同步到 gh_skill 发 `skills-v12.10` | `agent/` 6 个提交 + 测试；gh_skill 3 个提交 | `agent/` 下跑 gh_skill 的全部验收层；gh_skill 那边同样跑 | 3–4 天 |
 | 2. 镜像 | Dockerfile 两 target、entrypoint、`opencode.jsonc` 模板、预置 `models.json` / `rg` / opencode 二进制；两架构 | 两个镜像 | `docker run` 挂本地目录当 NAS 跑冒烟；`.owner` 与自检单独测 | 2 天 |
 | 3. k8s 清单与集群验证 | OrbStack k8s、hostPath PV、runtime × 2 + kb-import × 1 | 清单模板 + 验证脚本 | §12 第 1–6 项 | 3 天 |
 | 4. 文档与发布 | 契约文档、手册章节、离线镜像包 | 交付包 | 从包装出副本再跑冒烟 | 1 天 |

@@ -2,11 +2,11 @@
 
 把 opencode + [gh_skill](https://github.com/sqlrush/gh_skill) 的 GaussDB/openGauss DBA 技能集放进 Kubernetes：每个用户一个 Agent Pod，Pod 无状态，状态全部在 NAS 上；知识库导入与诊断运行分成两个镜像。
 
-## 与 gh_skill 的关系
+## 与 gh_skill 的关系（开发规范）
 
-- **gh_skill**：技能集本身（17 个 `gaussdb-*` skill、`common/`、白名单脚本）。按标签发布（`skills-v12.9` 起）。
-- **本仓库**：Dockerfile、entrypoint、k8s 清单、环境变量契约、验证脚本、交付文档。镜像构建时按标签拉取 gh_skill，不复制技能代码。
-- 容器化需要的技能侧改动（gaussdb-kb 拆分、`GSDB_HOME` 守卫、会话不存中间件地址等）在 gh_skill 仓库完成并发布为新标签，本仓库只引用。
+- **gh_skill**：技能集本身，继续服务**非 Pod 的 opencode 独立部署**。只收与部署方式无关的技能功能修复。
+- **本仓库 `agent/`**：从 gh_skill 标签（`agent/UPSTREAM` 记录）复制来的技能代码，加上 Pod 适配改动。镜像从这里构建。
+- 规则：Pod 架构相关的适配代码只放本仓库；skill 本身的功能改动两个仓库同时改。首次导入用 `scripts/vendor-from-gh-skill.sh`，之后靠 cherry-pick 同步，不整目录覆盖。
 
 ## 设计
 
@@ -37,10 +37,11 @@
 ## 目录（规划）
 
 ```
+agent/       技能代码(common/ skills/ scripts/ tools/ tests/ …),来自 gh_skill + Pod 适配改动;UPSTREAM 记录来源
 docker/      Dockerfile、entrypoint.sh、opencode.jsonc 模板
 k8s/         Deployment / PVC / NetworkPolicy / Secret、ConfigMap 样例
-scripts/     镜像冒烟、集群验证脚本
-docs/        设计、环境变量契约、交付文档
+scripts/     导入脚本、镜像冒烟、集群验证脚本
+docs/        设计、计划、环境变量契约、交付文档
 ```
 
 ## 状态

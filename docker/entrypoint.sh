@@ -46,6 +46,13 @@ REFRESHER=$!
 $PODCTL db-check --db "$DB" --backup-dir "$BACKUP"
 $PODCTL log-prune --dir "$XDG_DATA_HOME/opencode/log" --days 7
 
+# ---- 工作目录做成 git 仓库(只在首次):opencode 以此识别「项目」,Web 界面按项目列会话,撤销功能也靠它 ----
+if [ ! -d "$NAS_ME/workspace/.git" ]; then
+  git -C "$NAS_ME/workspace" init -q \
+    && git -C "$NAS_ME/workspace" -c user.name=agent -c user.email=agent@pod commit -q --allow-empty -m "workspace init" \
+    && echo "工作目录: 已初始化为 git 仓库($NAS_ME/workspace)"
+fi
+
 # ---- 启动 opencode;SIGTERM 转发给它,等它退出后再做收尾 -----------------------------
 cd "$NAS_ME/workspace"
 opencode serve --hostname 0.0.0.0 --port "$OPENCODE_PORT" &

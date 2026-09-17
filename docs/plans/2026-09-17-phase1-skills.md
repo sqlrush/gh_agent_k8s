@@ -299,6 +299,17 @@ Expected: PASS。gh_skill 的会话 e2e（`~/kf-verify/kf_session_e2e.sh` 的 `S
 
 ---
 
+### Task 2b: 连不上中间件的网络异常都变成带地址的 GrmpError（两仓库；执行中发现，2026-09-17 完成）
+
+做 Task 2 的 e2e 时发现 v12.9 就有的缺陷：`GrmpClient._post` 只接 `URLError`，`http.client.RemoteDisconnected` 这类异常直接 Traceback；报错文案只写 path 不写地址，S19「打到了新地址」无从断言。
+
+- Modify: `common/grmp/client.py:95-108`——`except (urllib.error.URLError, http.client.HTTPException, OSError)`，两处文案追加 `（中间件 <base_url>）`；path 开头的原格式保留（`test_grmp_hints_client_units.py:114` 断言 `请求 /x 失败`）。
+- Test: `tests/test_grmp_client_network_units.py`：RemoteDisconnected / ConnectionRefusedError / socket.timeout / URLError 四种都变成含 `host:port` 的 GrmpError；HTTPError 仍带状态码与地址。
+- e2e：`kf_session_e2e.sh` S19 改用 vacuum（health 会把访问失败吞成「未采集」并照样打印 🟢，不适合做这个断言）；`PY` 改为可覆盖。20/20。
+- 提交：gh_agent_k8s `fix(grmp)`；gh_skill `fix/k8s-shared` 同一补丁。
+
+---
+
 ### Task 3: findings 信封与 health 报告带执行人（仅本仓库）
 
 **Files:**

@@ -83,6 +83,11 @@ def render_health(ev: HealthEvidence, sub_results=()) -> str:
         out = f"# Health Evidence — {ev.conn} ({ev.target})\n\n"
     else:
         out = f"# Health Evidence — {ev.conn}\n\n"
+    # 容器里每个 Pod 一个人(GSDB_USER_ID 由平台注入):报告抬头写明执行人,审计落到人。
+    # 单机沙箱没有这个变量,这一行不出现,报告形状不变。
+    from common.audit import actor_id
+    if actor_id():
+        out = out.rstrip("\n") + f"\n执行人：{actor_id()}\n\n"
     out += f"总体状态：{ev.overall.label()}\n\n"
 
     # 顶部两段固定小节：先说清楚这次没查到什么、结构性覆盖不到什么，

@@ -6,7 +6,7 @@
 
 | 项 | 要求 |
 |---|---|
-| 镜像 | 把 `gaussdb-agent-runtime`、`gaussdb-agent-kb-import`（标签 `agent-v0.2-oc1.18.27`，x86_64 / aarch64）推到内网镜像仓库 |
+| 镜像 | 把 `gaussdb-agent-runtime`、`gaussdb-agent-kb-import`（标签 `agent-v0.4-oc1.18.27`，x86_64 / aarch64）推到内网镜像仓库 |
 | NAS | 一个 RWX 卷，NFSv4.1；PV `mountOptions: [nfsvers=4.1, hard, local_lock=all]`；导出目录对 uid 1000 可写；目录结构 `users/<工号>/`、`admins/<工号>/`、`kb/` 由平台建好（uid 1000） |
 | StorageClass | `nas`（或静态 PV 带 `storageClassName: nas`），能满足 `k8s/base/nas-pvc.yaml` 的 claim |
 | CNI | 支持 NetworkPolicy（Calico / Cilium 等）。不支持时策略不生效，隔离只剩 Pod 与 subPath |
@@ -29,7 +29,7 @@ kubectl -n gaussdb-agent edit networkpolicy runtime-policy kb-import-policy   # 
 网关在用户登录后要做的四件事，等价于：
 
 ```bash
-python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.2-oc1.18.27 --pull-policy Always \
+python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.4-oc1.18.27 --pull-policy Always \
     --token-env-file <含 GRMP_AUTH_TOKEN= 的文件>
 ```
 

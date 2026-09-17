@@ -47,7 +47,8 @@ NAS 目录对 uid 1000 可写（镜像以 `agent`，uid 1000 运行）。NFS 要
 2. `.owner` 独占：另一个 Pod 90 秒内刷新过标记 → 最多等 55 秒 → 仍被占则退出 1，不打开 db。
 3. `opencode.db` 完整性自检：损坏 → 改名留证 → 从 `backup/` 最新一份恢复；没有备份 → 空库启动。每种情况都写日志，不静默。
 4. 删 7 天前的 `log/*.log`。
-5. `opencode serve --hostname 0.0.0.0 --port 4096`，工作目录 `/nas/me/workspace`。
+5. 首次启动把 `/nas/me/workspace` 初始化成 git 仓库（空提交），opencode 以此识别「项目」，Web 界面按项目列会话。
+6. `opencode serve --hostname 0.0.0.0 --port 4096`，工作目录 `/nas/me/workspace`。`serve` 自带 Web 界面（`/`）与 HTTP API（`/doc` 是 OpenAPI）。
 
 ## 镜像里没有的东西
 

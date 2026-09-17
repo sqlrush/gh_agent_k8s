@@ -6,11 +6,11 @@
 
 | 文件 | 内容 |
 |---|---|
-| `gaussdb-agent-<TAG>-amd64.tar.gz` / `-arm64.tar.gz`（+ `.sha256`） | 两个后端镜像：`gaussdb-agent-runtime`（每用户一个 Pod）、`gaussdb-agent-kb-import`（知识库管理员）。x86_64 与鲲鹏各一包 |
-| `gaussdb-agent-<TAG>-k8s.tar.gz`（+ `.sha256`） | `k8s/base` 一次性清单、`k8s/templates` 按工号渲染的模板、`docs/env-contract.md` 环境契约、`docs/k8s-deploy.md` 部署手册、本手册、设计文档 |
+| `gaussdb-agent-v0.4-oc1.18.27-amd64.tar.gz` / `-arm64.tar.gz`（+ `.sha256`，各约 150 MB） | 两个后端镜像：`gaussdb-agent-runtime`（每用户一个 Pod）、`gaussdb-agent-kb-import`（知识库管理员）。x86_64 与鲲鹏各一包 |
+| `gaussdb-agent-v0.4-oc1.18.27-k8s.tar.gz`（+ `.sha256`） | `k8s/base` 一次性清单、`k8s/templates` 按工号渲染的模板、`docs/env-contract.md` 环境契约、`docs/k8s-deploy.md` 部署手册、本手册、设计文档 |
 | `MANIFEST.txt` | 镜像 id、大小、仓库提交号、导入命令 |
 
-由 `scripts/package-images.sh <TAG>` 生成。镜像里**没有**：令牌、密钥、客户地址、`auth.json`、任何会话数据。
+由 `scripts/package-images.sh agent-v0.4-oc1.18.27` 生成到 `dist/gaussdb-agent-v0.4-oc1.18.27/`；发布前的验证是删掉本地镜像、从包 `docker load` 回来、再跑 `scripts/smoke-image.sh`（14 项，只读根文件系统）。镜像里**没有**：令牌、密钥、客户地址、`auth.json`、任何会话数据。
 
 ## 2. 平台必做
 

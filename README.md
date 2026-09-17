@@ -38,15 +38,25 @@
 
 ```
 agent/       技能代码(common/ skills/ scripts/ tools/ tests/ …),来自 gh_skill + Pod 适配改动;UPSTREAM 记录来源
-docker/      Dockerfile、entrypoint.sh、opencode.jsonc 模板
-k8s/         Deployment / PVC / NetworkPolicy / Secret、ConfigMap 样例
-scripts/     导入脚本、镜像冒烟、集群验证脚本
-docs/        设计、计划、环境变量契约、交付文档
+docker/      Dockerfile(base → runtime / kb-import)、entrypoint.sh、podctl.py(+tests)、opencode.jsonc.tmpl
+k8s/         Deployment / PVC / NetworkPolicy / Secret、ConfigMap 样例(阶段 3)
+scripts/     vendor-from-gh-skill.sh(首次导入)、build-images.sh、smoke-image.sh(+tcp-forward.py)
+docs/        specs/ 设计、plans/ 计划、env-contract.md 环境契约
+```
+
+## 构建与冒烟（Mac + OrbStack）
+
+```bash
+scripts/build-images.sh dev                       # 本机架构;--platform linux/amd64,linux/arm64 交叉
+PATH=$HOME/p2venv/bin:$PATH python3 -m pytest docker/tests -q   # podctl 单测
+bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-verify 的 8779 mock 与 ~/.gdaa/grmp.env
 ```
 
 ## 状态
 
-2026-09-16：设计已定稿，待实施。实施顺序见设计文档 §15。
+- 2026-09-17 阶段 1 完成（`agent-v0.1`）：技能侧 Pod 适配，gh_skill 同步发布 `skills-v12.10`。
+- 2026-09-17 阶段 2 完成（`agent-v0.2`）：`gaussdb-agent-runtime` / `gaussdb-agent-kb-import` 两个镜像（x86_64 + aarch64）可构建，13 项冒烟通过。
+- 下一步阶段 3：k8s 清单与 OrbStack 集群验证。路线图见 `docs/plans/2026-09-17-roadmap.md`。
 
 ## 安全
 

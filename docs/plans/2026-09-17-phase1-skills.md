@@ -19,7 +19,7 @@
 - 提交信息中文 conventional commit，结尾两行：
   `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`
   `Claude-Session: https://claude.ai/code/session_01NFTD813rWESLz4NzmGi4NZ`
-- **路径约定**：Task 1 起所有相对路径（`common/…`、`skills/…`、`tests/…`、`tools/…`、`AGENTS.md`）都以本仓库 `agent/` 为根。测试在 Mac 上跑：`cd ~/gh_agent_k8s/agent && ~/p2venv/bin/python3 -m pytest tests/<文件> -q`。系统 `/usr/bin/python3` 目前被 Xcode 许可挡住，别用。
+- **路径约定**：Task 1 起所有相对路径（`common/…`、`skills/…`、`tests/…`、`tools/…`、`AGENTS.md`）都以本仓库 `agent/` 为根。测试在 Mac 上跑：`cd ~/gh_agent_k8s/agent && PATH=$HOME/p2venv/bin:$PATH python3 -m pytest tests/<文件> -q`。**PATH 必须把 venv 放前面**：`deploy.sh`、`install-opencode.sh` 的 e2e 测试会调 PATH 上的 `python3`，系统 `/usr/bin/python3` 目前被 Xcode 许可挡住（Task 0 基线：不改 PATH 时这两个文件 28 个失败，改了全绿 2170 通过、45 跳过）。
 - **开发规范**：Pod 适配代码只在本仓库；标「两仓库」的任务（1、2、5）把同一份 diff 也提交到 gh_skill（`~/gh_skill/opencode_skill-main-v2-0729`，从 main 开分支 `fix/k8s-shared`），那边的测试命令是 `cd ~/gh_skill/opencode_skill-main-v2-0729 && ~/p2venv/bin/python3 -m pytest …`。标「仅本仓库」的任务（3、4、6）不碰 gh_skill。
 - 本仓库直接在 `main` 上提交（仓库刚建，没有别的分支）。
 
@@ -54,21 +54,20 @@
 **Interfaces:**
 - Produces: `agent/` 下与 gh_skill 相同的布局：`common/`、`skills/`（17 个）、`scripts/registry/`、`scripts/kb/`、`tools/`、`tests/`、`grmp_middleware/`、`AGENTS.md`、`install-opencode.sh`、`deploy.sh`、`requirements.txt`、`pytest.ini`；`agent/UPSTREAM` 两行：`gh_skill skills-v12.9 6190e4a…` 与导入日期。不含 `docs/`、`demo/`、`tests/test_delivery_drift_units.py`（依赖客户交付物目录）。
 
-- [ ] **Step 1: 导入**
+- [x] **Step 1: 导入**（2026-09-17 完成，提交 `efaf82c`）
 
 ```bash
 cd ~/gh_agent_k8s && bash scripts/vendor-from-gh-skill.sh ~/gh_skill/opencode_skill-main-v2-0729 skills-v12.9
 cat agent/UPSTREAM; ls agent/skills | wc -l     # 17
 ```
 
-- [ ] **Step 2: 基线测试必须和 gh_skill 一样绿**
+- [x] **Step 2: 基线测试必须和 gh_skill 一样绿**（2170 通过、45 跳过；不把 venv 放 PATH 前面时 28 个失败，gh_skill 原仓库同样 28 个，是 Mac 系统 Python 被 Xcode 许可挡住）
 
 ```bash
-cd ~/gh_agent_k8s/agent && ~/p2venv/bin/python3 -m pytest tests -q -p no:cacheprovider 2>&1 | tail -3
+cd ~/gh_agent_k8s/agent && PATH=$HOME/p2venv/bin:$PATH python3 -m pytest tests -q -p no:cacheprovider 2>&1 | tail -3
 ```
-Expected: 全部 PASS（gh_skill 在 v12.9 是 2171 条，去掉 delivery_drift 那几条后略少）；live 标记的自动跳过。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 cd ~/gh_agent_k8s && git add scripts/vendor-from-gh-skill.sh agent && git commit -m "feat(agent): 导入 gh_skill skills-v12.9 作为 Pod 适配的起点

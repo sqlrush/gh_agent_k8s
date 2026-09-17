@@ -26,6 +26,12 @@ def _load(name: str):
 kb = _load("kb")
 kb_store = _load("kb_store")
 
+# query / health 搬到了查询 skill(gaussdb-kb):文件模式下的行为断言不变,只是从那边取函数
+_qspec = importlib.util.spec_from_file_location(
+    "gaussdb_kb_kb", _ROOT / "skills" / "gaussdb-kb" / "scripts" / "kb.py")
+kbq = importlib.util.module_from_spec(_qspec)
+_qspec.loader.exec_module(kbq)
+
 CASE_ID = "S1-20250224-CBST-偶现单条update慢"
 CASE = f"""---
 id: {CASE_ID}
@@ -85,7 +91,7 @@ def _ns(d, **kw):
 
 
 def test_health_in_file_mode_is_attached_and_exits_zero(tmp_path, capsys):
-    rc = kb_store.cmd_health(_ns(_kb(tmp_path)))
+    rc = kbq.cmd_health(_ns(_kb(tmp_path)))
     out = capsys.readouterr().out
     assert rc == 0, out
     assert out.startswith("> 知识库") and "模式:文件(kb.yaml 未配置 store.pg" in out
@@ -108,7 +114,7 @@ def test_index_all_without_store_rebuilds_file_index_only(tmp_path, capsys):
 
 
 def test_query_in_file_mode_renders_hits_and_exits_zero(tmp_path, capsys):
-    rc = kb_store.cmd_query(_ns(_kb(tmp_path), q="autovacuum 次数异常高 cbst.cosp_asyn_task_dtl"))
+    rc = kbq.cmd_query(_ns(_kb(tmp_path), q="autovacuum 次数异常高 cbst.cosp_asyn_task_dtl"))
     out = capsys.readouterr().out
     assert rc == 0, out
     assert "模式:文件(" in out
@@ -117,7 +123,7 @@ def test_query_in_file_mode_renders_hits_and_exits_zero(tmp_path, capsys):
 
 
 def test_query_without_kb_dir_is_still_unattached(tmp_path, capsys):
-    rc = kb_store.cmd_query(_ns(tmp_path / "nope", q="x"))
+    rc = kbq.cmd_query(_ns(tmp_path / "nope", q="x"))
     assert rc == 2 and "知识库未接入" in capsys.readouterr().out
 
 
@@ -140,7 +146,7 @@ def test_index_with_a_configured_but_unreachable_store_keeps_the_file_index(tmp_
 
 
 def test_health_with_a_configured_but_unreachable_store_reports_the_reason(tmp_path, capsys):
-    rc = kb_store.cmd_health(_ns(_kb(tmp_path, _DOWN)))
+    rc = kbq.cmd_health(_ns(_kb(tmp_path, _DOWN)))
     out = capsys.readouterr().out
     assert rc == 0 and "模式:文件(" in out and "kb-nope" in out
 
@@ -204,6 +210,6 @@ def test_health_prints_the_upload_inbox_dir(tmp_path, capsys, monkeypatch):
     """用户要导入自己电脑上的文件时,模型得能说出「传到沙箱哪个目录」——这行就是那个目录。"""
     monkeypatch.delenv("GSDB_KB_INBOX", raising=False)
     d = _kb(tmp_path)
-    kb_store.cmd_health(_ns(d))
+    kbq.cmd_health(_ns(d))
     out = capsys.readouterr().out
     assert "收件目录" in out and str(d / "inbox" / "uploads") in out

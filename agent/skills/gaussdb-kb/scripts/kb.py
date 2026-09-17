@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""gaussdb-kb(查询):query / health / search / cite-check。
+
+导入、索引、审批在 gaussdb-kb-import;runtime 镜像里没有那些代码。
+本文件只是命令入口,检索逻辑在 common/kb/。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import sys
+
+_HERE = pathlib.Path(__file__).resolve()
+sys.path.insert(0, str(_HERE.parent))           # 兄弟模块 kb_cite
+for _anc in _HERE.parents:                       # common/(仓库根,或装好后的 skills/ 下)
+    if (_anc / "common" / "kb" / "__init__.py").exists():
+        sys.path.insert(0, str(_anc))
+        break
+
+from common.kb import config as kbconfig  # noqa: E402
+from common.kb import indexer, query as kbquery, render  # noqa: E402
+from common.kb.rulesfile import SEARCH_HIT_CAP, SEARCHABLE, iter_files, read_text_file  # noqa: E402
+
+
+class KbError(Exception):
+    """Operator-facing failure; message is printed as-is."""
+
+
+# ---------------------------------------------------------------- search
+
+def _grep_file(path: pathlib.Path, kb: pathlib.Path, needle: str,
+               prefix: str = "") -> list[str]:
+    """Literal, case-insensitive line matches — the same thing the skills' grep does."""
+    try:
+        content = read_text_file(path)
+    except OSError as exc:
+        print(f"{path.relative_to(kb)}: 读取失败:{exc}", file=sys.stderr)
+        return []
+    return [f"{prefix}{path.relative_to(kb)}:{lineno}: {line.strip()}"
+            for lineno, line in enumerate(content.splitlines(), 1)
+            if needle in line.lower()]
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    kb = kbconfig.resolve_kb_dir(args.kb)
+    if not kb.is_dir():
+        raise KbError(f"KB 目录不存在:{kb}")
+    needle = args.keyword.lower()
+
+    # Mirrors the skills' grep range exactly — archive/ is not in it.
+    hits: list[str] = []
+    for sub, suffixes in SEARCHABLE:
+        for path in iter_files(kb, sub, suffixes):
+            hits += _grep_file(path, kb, needle)
+
+    archived = [h for p in iter_files(kb, "archive", (".yaml", ".yml"))
+                for h in _grep_file(p, kb, needle, prefix="[已废止] ")]
+
+    with_archive = bool(getattr(args, "include_archived", False))
+    shown = hits + (archived if with_archive else [])
+    for line in shown[:SEARCH_HIT_CAP]:
+        print(line)
+    if len(shown) > SEARCH_HIT_CAP:
+        print(f"(命中超过 {SEARCH_HIT_CAP} 条,已截断——换更具体的关键词)")
+
+    if hits:
+        return 0
+
+    # Nothing *current* matched. Which line to print depends on whether we just
+    # listed withdrawn ones: saying 「未命中」 directly under a list of hits is a
+    # self-contradiction, and 「未命中」 is the line carrying the discipline (never
+    # pass your own knowledge off as the customer's spec), so it must land on the
+    # right case rather than being sprayed at both.
+    miss = (f"未命中:'{args.keyword}'(KB={kb})。"
+            "知识库未覆盖时必须如实说明,不得用自带知识冒充规范。")
+
+    if with_archive and archived:
+        print(f"现行条款未命中:'{args.keyword}' —— 上列 {len(archived)} 行均为"
+              "**已废止**条款,仅供追溯,不得用于判定。")
+    elif archived:
+        # The re-import trap: without this note the model concludes 「知识库没这条」
+        # while a withdrawn clause on exactly that topic sits in archive/. Say that it
+        # exists; never print its text, or it becomes usable for judging.
+        print(miss)
+        print(f"注:archive/ 中另有 {len(archived)} 行**已废止**条款命中该关键词"
+              "(不得用于判定;确需查阅历史加 --include-archived)。")
+    else:
+        print(miss)
+    return 0
+
+
+# ---------------------------------------------------------------- query
+
+def _load_findings(path: pathlib.Path):
+    from common.finding import findings_from_json
+    return findings_from_json(path.read_text(encoding="utf-8"))
+
+
+def cmd_query(args: argparse.Namespace) -> int:
+    kb = kbconfig.resolve_kb_dir(args.kb)
+    if args.from_findings:
+        findings = _load_findings(pathlib.Path(args.from_findings))
+        result = kbquery.from_findings(findings, kb_dir=kb)
+    else:
+        result = kbquery.from_text(args.q, kb_dir=kb)
+    if args.json:
+        print(json.dumps(kbquery.result_to_dict(result), ensure_ascii=False, indent=2))
+    else:
+        print(render.render_section(result), end="")
+    return 0 if result.status.attached else 2
+
+
+# ---------------------------------------------------------------- health
+
+def _misses_top(kb: pathlib.Path, n: int = 10) -> list[tuple[str, int]]:
+    path = kb / "index" / "misses.log"
+    if not path.is_file():
+        return []
+    counts: dict[str, int] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            counts[parts[1]] = counts.get(parts[1], 0) + 1
+    return sorted(counts.items(), key=lambda p: (-p[1], p[0]))[:n]
+
+
+def _pending(kb: pathlib.Path) -> list[str]:
+    out = []
+    inbox = kb / "inbox"
+    if not inbox.is_dir():
+        return out
+    for slug_dir in sorted(p for p in inbox.iterdir() if p.is_dir()):
+        items = list((slug_dir / "items").glob("*.md")) if (slug_dir / "items").is_dir() else []
+        cand = slug_dir / "candidates.json"
+        dec = slug_dir / "decisions.yaml"
+        if items and not cand.exists():
+            out.append(f"inbox/{slug_dir.name}: {len(items)} 单待 propose")
+        elif cand.exists() and not dec.exists():
+            out.append(f"inbox/{slug_dir.name}: 候选待 review/确认")
+        elif dec.exists():
+            out.append(f"inbox/{slug_dir.name}: 有 decisions 待 apply")
+        elif (slug_dir / "source.md").exists():
+            out.append(f"inbox/{slug_dir.name}: 规范待条款化")
+    return out
+
+
+def cmd_health(args: argparse.Namespace) -> int:
+    kb = kbconfig.resolve_kb_dir(args.kb)
+    if not kb.is_dir():
+        raise KbError(f"KB 目录不存在:{kb}")
+    sess = kbquery.KbSession.open(kb)
+    try:
+        status = sess.status()
+        file_warnings = list(getattr(sess.pg, "warnings", ()))[:5]    # 文件模式:坏文件在这里露头
+    finally:
+        sess.close()
+    print(render.status_line(status))
+    from common.kb import inbox as kbinbox
+    print(f"收件目录  : {kbinbox.inbox_dir(kb)}(用户要导入自己电脑上的文件时,先上传到这里再 ingest)")
+    for w in file_warnings:
+        print(f"[warn ] 文件:{w}")
+    state = indexer.read_state(kb) or {}
+    if state:
+        print(f"上次索引  : {state.get('indexed_at', '?')} · 文档新写 {state.get('docs_indexed', '?')} · "
+              f"覆盖 {state.get('chunk_embedded', '?')}/{state.get('chunk_total', '?')} · 图 {state.get('graph', '?')}")
+    pending = _pending(kb)
+    print("待处理    : " + ("; ".join(pending) if pending else "无"))
+    misses = _misses_top(kb)
+    if misses:
+        print("缺口清单  : 近期查不到条款/案例的发现 Top —— " +
+              "、".join(f"{code}×{n}" for code, n in misses) + "(补这类材料收益最大)")
+    else:
+        print("缺口清单  : 无记录")
+    if not status.attached:
+        print(f"[error] 知识库未接入:{status.reason}")
+        return 2
+    return 2 if pending else 0
+
+
+# ---------------------------------------------------------------- main
+
+def build_parser() -> argparse.ArgumentParser:
+    import kb_cite
+
+    parser = argparse.ArgumentParser(
+        prog="kb.py",
+        description="GaussDB 客户知识库(查询):检索 · 大盘 · 引用核对。导入与索引在 gaussdb-kb-import。",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("query", help="检索:--q 自然语言,或 --from-findings findings.json")
+    p.add_argument("--kb")
+    p.add_argument("--q", help="问题文本")
+    p.add_argument("--from-findings", help="skill 输出的 findings json 文件")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_query)
+
+    p = sub.add_parser("health", help="文本大盘:接入状态、条款/案例/边数、覆盖率、待处理、缺口清单")
+    p.add_argument("--kb")
+    p.set_defaults(func=cmd_health)
+
+    p = sub.add_parser("search", help="检索知识库(errata 优先;不含已废止条款)")
+    p.add_argument("keyword")
+    p.add_argument("--kb")
+    p.add_argument("--include-archived", action="store_true",
+                   help="连 archive/ 里的已废止条款一并列出(仅供人工追溯,不得用于判定)")
+    p.set_defaults(func=cmd_search)
+
+    kb_cite.add_subcommands(sub)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    import kb_cite
+    try:
+        return args.func(args)
+    except (KbError, kb_cite.CiteCmdError, kbconfig.KbConfigError) as exc:
+        print(f"错误:{exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

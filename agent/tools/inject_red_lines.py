@@ -5,7 +5,7 @@
 所以正文只有一份,副本由本工具注入、由 tests/test_red_lines_units.py 保证逐字一致。
 
 用法:
-    python3 tools/inject_red_lines.py            # 注入 / 刷新 17 个 SKILL.md 与 AGENTS.md
+    python3 tools/inject_red_lines.py            # 注入 / 刷新 18 个 SKILL.md 与 AGENTS.md
     python3 tools/inject_red_lines.py --check    # 只核对,不一致退出 1(单测与交付前用)
 """
 from __future__ import annotations

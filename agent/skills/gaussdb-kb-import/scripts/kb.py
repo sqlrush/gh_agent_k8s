@@ -842,69 +842,6 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 2 if errors else 0
 
 
-# ---------------------------------------------------------------- search
-
-def _grep_file(path: pathlib.Path, kb: pathlib.Path, needle: str,
-               prefix: str = "") -> list[str]:
-    """Literal, case-insensitive line matches — the same thing the skills' grep does."""
-    try:
-        content = read_text_file(path)
-    except OSError as exc:
-        print(f"{path.relative_to(kb)}: 读取失败:{exc}", file=sys.stderr)
-        return []
-    return [f"{prefix}{path.relative_to(kb)}:{lineno}: {line.strip()}"
-            for lineno, line in enumerate(content.splitlines(), 1)
-            if needle in line.lower()]
-
-
-def cmd_search(args: argparse.Namespace) -> int:
-    kb = resolve_kb_dir(args.kb)
-    if not kb.is_dir():
-        raise KbError(f"KB 目录不存在:{kb}")
-    needle = args.keyword.lower()
-
-    # Mirrors the skills' grep range exactly — archive/ is not in it.
-    hits: list[str] = []
-    for sub, suffixes in _SEARCHABLE:
-        for path in iter_files(kb, sub, suffixes):
-            hits += _grep_file(path, kb, needle)
-
-    archived = [h for p in iter_files(kb, "archive", (".yaml", ".yml"))
-                for h in _grep_file(p, kb, needle, prefix="[已废止] ")]
-
-    with_archive = bool(getattr(args, "include_archived", False))
-    shown = hits + (archived if with_archive else [])
-    for line in shown[:SEARCH_HIT_CAP]:
-        print(line)
-    if len(shown) > SEARCH_HIT_CAP:
-        print(f"(命中超过 {SEARCH_HIT_CAP} 条,已截断——换更具体的关键词)")
-
-    if hits:
-        return 0
-
-    # Nothing *current* matched. Which line to print depends on whether we just
-    # listed withdrawn ones: saying 「未命中」 directly under a list of hits is a
-    # self-contradiction, and 「未命中」 is the line carrying the discipline (never
-    # pass your own knowledge off as the customer's spec), so it must land on the
-    # right case rather than being sprayed at both.
-    miss = (f"未命中:'{args.keyword}'(KB={kb})。"
-            "知识库未覆盖时必须如实说明,不得用自带知识冒充规范。")
-
-    if with_archive and archived:
-        print(f"现行条款未命中:'{args.keyword}' —— 上列 {len(archived)} 行均为"
-              "**已废止**条款,仅供追溯,不得用于判定。")
-    elif archived:
-        # The re-import trap: without this note the model concludes 「知识库没这条」
-        # while a withdrawn clause on exactly that topic sits in archive/. Say that it
-        # exists; never print its text, or it becomes usable for judging.
-        print(miss)
-        print(f"注:archive/ 中另有 {len(archived)} 行**已废止**条款命中该关键词"
-              "(不得用于判定;确需查阅历史加 --include-archived)。")
-    else:
-        print(miss)
-    return 0
-
-
 # ---------------------------------------------------------------- contract
 
 def load_contract_template() -> str:
@@ -1021,12 +958,12 @@ def cmd_contract(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     import kb_cases
-    import kb_cite
     import kb_store
 
     parser = argparse.ArgumentParser(
         prog="kb.py",
-        description="GaussDB 客户知识库:规范/工单导入 · 选择列表确认 · 索引进高斯/PG 与 Neo4j · 检索 · 契约注入",
+        description="GaussDB 客户知识库(导入):规范/工单导入 · 选择列表确认 · 索引进高斯/PG 与 Neo4j · 契约注入。"
+                    "查询、大盘、引用核对在 gaussdb-kb。",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1044,20 +981,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_index.add_argument("--rebuild", action="store_true", help="清两库重灌(文件是真相)")
     p_index.add_argument("--fill-missing", action="store_true", help="只补没向量的块")
     p_index.set_defaults(func=cmd_index_all)
-    kb_store.add_subcommands(sub)
+    kb_store.add_admin_subcommands(sub)
     kb_cases.add_subcommands(sub)
-    kb_cite.add_subcommands(sub)
 
     p_validate = sub.add_parser("validate", help="校验 ID/schema/INDEX 一致性")
     p_validate.add_argument("--kb")
     p_validate.set_defaults(func=cmd_validate)
-
-    p_search = sub.add_parser("search", help="检索知识库(errata 优先;不含已废止条款)")
-    p_search.add_argument("keyword")
-    p_search.add_argument("--kb")
-    p_search.add_argument("--include-archived", action="store_true",
-                          help="连 archive/ 里的已废止条款一并列出(仅供人工追溯,不得用于判定)")
-    p_search.set_defaults(func=cmd_search)
 
     p_contract = sub.add_parser("contract", help="向做规范/阈值判断的 skill 注入知识库参考契约")
     p_contract.add_argument("--apply", action="store_true", help="实际写入(默认只扫描)")
@@ -1105,12 +1034,11 @@ def cmd_index_all(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     import kb_cases
-    import kb_cite
     import kb_store
     from common.kb import config as kbconfig
     try:
         return args.func(args)
-    except (KbError, kb_store.StoreCmdError, kb_cases.CaseCmdError, kb_cite.CiteCmdError,
+    except (KbError, kb_store.StoreCmdError, kb_cases.CaseCmdError,
             kbconfig.KbConfigError) as exc:
         print(f"错误:{exc}", file=sys.stderr)
         return 1

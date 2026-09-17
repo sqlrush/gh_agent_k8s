@@ -1,7 +1,7 @@
 ---
 name: gaussdb-kb-import
 version: 3.0.0
-description: "客户知识库(原 kbimport):把客户的 GaussDB/OpenGauss 规范文档(txt/md/docx/doc/pdf)与故障工单/问题分析报告(md/docx/csv/xlsx)导入知识库——规范条款化进 rules/guides/errata,工单结构化成案例并抽成图谱关系,关键数据写入前一律生成编号选择列表交用户确认;向量进高斯/PG 向量库、关系进 Neo4j,各诊断 skill 按发现检索并优先引用客户先例。脚本负责转换、快照、校验、索引、检索、契约注入;你负责条款分类、案例抽取、呈现选择列表与收集确认。用户说「导入规范 / 导入工单 / 建知识库 / 把 xxx 加进知识库 / 更新规范库 / 知识库里有没有类似案例 / 让 skill 按我们的经验来」即用。"
+description: "知识库导入(管理员用,原 kbimport;查询与引用核对在 gaussdb-kb):把客户的 GaussDB/OpenGauss 规范文档(txt/md/docx/doc/pdf)与故障工单/问题分析报告(md/docx/csv/xlsx)导入知识库——规范条款化进 rules/guides/errata,工单结构化成案例并抽成图谱关系,关键数据写入前一律生成编号选择列表交用户确认;向量进高斯/PG 向量库、关系进 Neo4j,各诊断 skill 按发现检索并优先引用客户先例。脚本负责转换、快照、校验、索引、检索、契约注入;你负责条款分类、案例抽取、呈现选择列表与收集确认。用户说「导入规范 / 导入工单 / 建知识库 / 把 xxx 加进知识库 / 更新规范库 / 知识库里有没有类似案例 / 让 skill 按我们的经验来」即用。"
 allowed-tools: ["exec", "read", "write"]
 compatibility: opencode
 metadata:
@@ -23,7 +23,7 @@ metadata:
 ## 0. 预检
 
 ```bash
-python3 {baseDir}/scripts/kb.py health
+python3 {baseDir}/../gaussdb-kb/scripts/kb.py health
 ```
 
 状态行第一行说明一切,`模式:` 是脚本按环境自动感知的,三种都正常:
@@ -87,17 +87,10 @@ python3 {baseDir}/scripts/kb.py health
 
 案例格式见 `{baseDir}/references/case-format.md`,图的 kind/rel 见 `{baseDir}/references/graph-schema.md`。
 
-## 3. 查询(用户直接问"以前有没有类似情况")
+## 3. 查询与引用核对(不在本 skill)
 
-```bash
-python3 {baseDir}/scripts/kb.py query --q "<用户的问题>"
-```
-
-输出就是各诊断 skill 里同款的「客户知识库参照」小节:贵行规范 / 历史相似(带结论强度与处置)/ 本行历史路径
-(只含客户确认过的边,标几个案例支持)/ 原始工单。**引用必带 ID 与出处**;写着「无」就如实说「本行无先例,以下为通用做法」;
-绝不编案例或规范。有 findings 的 skill(health / sqltune / …)不用你查——它们的脚本已经把这一节写进输出了。
-三种模式输出同一格式;文件模式的状态行写「模式:文件(原因)」,引用要求不变。要看案例全文时先读 `<kb>/CASES.md`
-(案例逐条清单)再读 `<kb>/cases/` 的文件,不要整目录灌进上下文。
+`query` / `search` / `health` / `cite-check` 在查询 skill `gaussdb-kb`(`{baseDir}/../gaussdb-kb/scripts/kb.py`)。
+导入完成后要验证命中,调它的 `query --q`;本 skill 的 `health` 也在那边。
 
 ## 4. 契约注入(让做判断的 skill 先查知识库)
 
@@ -117,9 +110,8 @@ python3 {baseDir}/scripts/kb.py contract --apply    # 用户确认后执行
   ——这是纯词法检索(文件模式 / 未配 embedding)下「路径:无」的头号原因,按提示在 `graph/canonical.yaml` 里归一;
 - `kb.py health`:状态行、覆盖率、待处理、**缺口清单**(近期查不到条款/案例的发现——提示该补哪类材料);
 - `kb.py eval`:跑 `<kb>/eval/queries.yaml` 的黄金查询与金丝雀案例(与通用做法**故意相反**的客户处置),recall 不达标退出 2;
-- `kb.py cite-check --text "<回答>"`(或 `--file`、stdin):核对回答里引用的案例 ID / 条款 ID 是否真在库里——未找到的标「疑似编造」
-  并退出 2,已废止条款标 ⚠。用户要求复核时跑它;你自己作答引用了 ID,交稿前也先跑一遍,未找到的 ID 从回答里删掉;
-- 挑 1–2 条新入库案例演示 `kb.py query --q` 能命中;建议客户埋 2–3 个金丝雀案例定期抽查各 skill 是否真按知识库作答。
+- 引用核对 `cite-check` 与 `health` 大盘在查询 skill `gaussdb-kb` 里;
+- 挑 1–2 条新入库案例,用 `{baseDir}/../gaussdb-kb/scripts/kb.py query --q` 演示能命中;建议客户埋 2–3 个金丝雀案例定期抽查各 skill 是否真按知识库作答。
 
 ## 退出码语义
 

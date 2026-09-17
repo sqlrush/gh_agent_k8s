@@ -29,6 +29,13 @@ kb = importlib.util.module_from_spec(spec)
 sys.modules["kb"] = kb
 spec.loader.exec_module(kb)
 
+# search 在查询 skill(gaussdb-kb)里;读文件的辅助两边共用同一份 common/kb/rulesfile。
+# 模块名故意不叫 "kb":那个名字是导入侧的,别顶掉。
+_qspec = importlib.util.spec_from_file_location(
+    "gaussdb_kb_kb", _ROOT / "skills" / "gaussdb-kb" / "scripts" / "kb.py")
+kbq = importlib.util.module_from_spec(_qspec)
+_qspec.loader.exec_module(kbq)
+
 
 def _template() -> str:
     return kb.load_contract_template()
@@ -166,10 +173,15 @@ def test_validate_tolerates_a_gbk_guide(tmp_path):
 
 
 def test_search_tolerates_a_gbk_file(tmp_path, capsys):
+    # search 在查询 skill(gaussdb-kb)里;读文件的辅助两边共用同一份 common/kb/rulesfile
+    qspec = importlib.util.spec_from_file_location(
+        "gaussdb_kb_kb", _ROOT / "skills" / "gaussdb-kb" / "scripts" / "kb.py")
+    kbq = importlib.util.module_from_spec(qspec)
+    qspec.loader.exec_module(kbq)
     d = _kb_dir(tmp_path)
     (d / "errata" / "e.md").write_bytes("索引必须以 idx_ 开头\n".encode("gb18030"))
     args = type("A", (), {"kb": str(d), "keyword": "idx_"})()
-    assert kb.cmd_search(args) == 0
+    assert kbq.cmd_search(args) == 0
     assert "idx_" in capsys.readouterr().out
 
 
@@ -537,7 +549,7 @@ def test_search_does_not_reach_archived_rules(tmp_path, capsys):
     d = _kb_dir(tmp_path)
     _write_archive(d, [_DEPRECATED])
     args = type("A", (), {"kb": str(d), "keyword": "外键", "include_archived": False})()
-    assert kb.cmd_search(args) == 0
+    assert kbq.cmd_search(args) == 0
     out = capsys.readouterr().out
     assert "禁止使用外键约束" not in out
     assert "未命中" in out
@@ -548,7 +560,7 @@ def test_search_can_reach_the_archive_when_explicitly_asked(tmp_path, capsys):
     d = _kb_dir(tmp_path)
     _write_archive(d, [_DEPRECATED])
     args = type("A", (), {"kb": str(d), "keyword": "外键", "include_archived": True})()
-    assert kb.cmd_search(args) == 0
+    assert kbq.cmd_search(args) == 0
     out = capsys.readouterr().out
     assert "禁止使用外键约束" in out
     assert "已废止" in out
@@ -603,7 +615,7 @@ def test_search_does_not_claim_a_miss_when_it_just_showed_archived_hits(tmp_path
     d = _kb_dir(tmp_path)
     _write_archive(d, [_DEPRECATED])
     args = type("A", (), {"kb": str(d), "keyword": "外键", "include_archived": True})()
-    kb.cmd_search(args)
+    kbq.cmd_search(args)
     out = capsys.readouterr().out
     assert "禁止使用外键约束" in out
     # 光秃秃的「未命中:'外键'(KB=...)」那一行不能出现——它跟上面刚列出的命中行打架。

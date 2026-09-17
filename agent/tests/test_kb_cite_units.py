@@ -9,12 +9,11 @@ import sys
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
-_SCRIPTS = _ROOT / "skills" / "gaussdb-kb-import" / "scripts"
+_SCRIPTS = _ROOT / "skills" / "gaussdb-kb" / "scripts"      # cite-check 在查询 skill 里
 sys.path.insert(0, str(_SCRIPTS))
 
 spec = importlib.util.spec_from_file_location("kb", _SCRIPTS / "kb.py")
-kbmain = importlib.util.module_from_spec(spec)
-sys.modules["kb"] = kbmain
+kbmain = importlib.util.module_from_spec(spec)      # 查询 skill 的 kb.py;不注册成 sys.modules["kb"],那个名字是导入侧的
 spec.loader.exec_module(kbmain)
 
 import kb_cite  # noqa: E402

@@ -57,7 +57,8 @@ bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-ver
 - 2026-09-17 阶段 1 完成（`agent-v0.1`）：技能侧 Pod 适配，gh_skill 同步发布 `skills-v12.10`。
 - 2026-09-17 阶段 2 完成（`agent-v0.2`）：`gaussdb-agent-runtime` / `gaussdb-agent-kb-import` 两个镜像（x86_64 + aarch64）可构建，13 项冒烟通过。
 - 2026-09-17 阶段 3 完成（`agent-v0.3`）：k8s 清单、`provision.py`、OrbStack 集群 13 项验证通过（含 NetworkPolicy 生效）。
-- 下一步阶段 4：契约与交付文档收口、离线镜像包。路线图见 `docs/plans/2026-09-17-roadmap.md`。
+- 2026-09-17 Web 路径端到端通过（`agent-v0.3.1`）：`opencode serve` 自带的 Web 界面经基本认证可用，API 建会话 → 模型经中间件诊断 → 导入引导 → 会话落 NAS；顺带修了只读根文件系统下配置加载失败的问题。
+- 下一步：阶段 4 契约与交付文档收口、离线镜像包；frontend 改造看客户要求。路线图见 `docs/plans/2026-09-17-roadmap.md`。
 
 ## 安全
 

@@ -1,5 +1,6 @@
-# Mac 本地覆盖:中间件 mock 在宿主上,Pod 经 OrbStack 的宿主网关 0.250.250.254 访问 8781(scripts/tcp-forward.py)。
-# 只放行这一个端口——8779(mock 本身)与其他端口仍被挡,verify-cluster.sh 用这一点验证策略确实在生效。
+# Mac 本地覆盖:中间件 mock 在宿主上,Pod 经 OrbStack 的宿主网关 0.250.250.254 访问 8781(scripts/tcp-forward.py);
+# 模型服务用真实的 HTTPS 端点(本地端到端),所以放行 443。
+# 只放行这些——8779(mock 本身)与其他端口仍被挡,verify-cluster.sh 用这一点验证策略确实在生效。
 # 客户环境不要用这个文件,用 base 里的地址段。
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -20,6 +21,8 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主网关:中间件 mock 的转发入口
       ports: [{port: 8781, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS);客户环境换成实际地址段
+      ports: [{port: 443, protocol: TCP}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -38,3 +41,5 @@ spec:
   egress:
     - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS)
+      ports: [{port: 443, protocol: TCP}]

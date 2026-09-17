@@ -20,7 +20,7 @@
 | `NAS_ME` / `NAS_KB` | 否 | 默认 `/nas/me`、`/nas/kb` | — | 挂载点变了才需要改 |
 | `GSDB_KB_INBOX` | kb-import 内置 | `/nas/kb/inbox/uploads` | 镜像 | 用户上传待导入文件的收件目录 |
 
-entrypoint 自己设置、平台**不要**覆盖的：`XDG_DATA_HOME=$NAS_ME/xdg-data`、`XDG_STATE_HOME=$NAS_ME/xdg-state`、`XDG_CONFIG_HOME=/opt/agent/config`、`XDG_CACHE_HOME=/opt/agent/cache`、`GSDB_HOME=$NAS_ME/gdaa`、`GSDB_KB_DIR=$NAS_KB`、`HOME=/data/home`、`OPENCODE_CONFIG=/data/oc/opencode.json`。
+entrypoint 自己设置、平台**不要**覆盖的：`XDG_DATA_HOME=$NAS_ME/xdg-data`、`XDG_STATE_HOME=$NAS_ME/xdg-state`、`XDG_CONFIG_HOME=/data/config`（启动时从镜像 `/opt/agent/config` 复制，因为 opencode 加载配置要往这里写 `.gitignore`）、`XDG_CACHE_HOME=/data/cache`（同理，从 `/opt/agent/cache` 复制）、`GSDB_HOME=$NAS_ME/gdaa`、`GSDB_KB_DIR=$NAS_KB`、`HOME=/data/home`、`OPENCODE_CONFIG=/data/oc/opencode.json`。
 
 ## 挂载
 

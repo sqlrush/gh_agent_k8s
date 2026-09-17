@@ -1,4 +1,5 @@
-# Mac 本地覆盖:中间件 = 宿主上的 GRMP mock(经 scripts/tcp-forward.py 8781 → 8779);模型服务给个不可达的占位。
+# Mac 本地覆盖:中间件 = 宿主上的 GRMP mock(经 scripts/tcp-forward.py 8781 → 8779);
+# 模型服务 = DeepSeek 的 OpenAI 兼容端点(密钥在 Secret model-api,由 scripts/k8s/e2e-web.sh 从本机 0600 文件创建,不进仓库)。
 # 客户环境不要用这个文件。
 apiVersion: v1
 kind: ConfigMap
@@ -8,6 +9,6 @@ metadata:
 data:
   GRMP_API_HOST: host.docker.internal
   GRMP_API_PORT: "8781"
-  MODEL_BASE_URL: http://host.docker.internal:9
-  MODEL_ID: none
-  MODEL_PROVIDER_NAME: model-service
+  MODEL_BASE_URL: https://api.deepseek.com/v1
+  MODEL_ID: deepseek-flash
+  MODEL_PROVIDER_NAME: deepseek

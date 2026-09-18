@@ -88,3 +88,13 @@ def test_runtime_template_injects_optional_sm2_private_key_and_kb_import_does_no
     kb = next(d for d in _docs("kb-import", USER_ID="u2001", IMAGE="i", IMAGE_PULL_POLICY="IfNotPresent", SUBPATH_ROOT="admins")
               if d["kind"] == "Deployment")
     assert "GRMP_SM2_PRIVATE_KEY" not in {e["name"] for e in kb["spec"]["template"]["spec"]["containers"][0]["env"]}
+
+
+def test_kb_import_template_blanks_the_shared_appkey():
+    """kb-import 不调中间件也不拿私钥;共享 ConfigMap 的 GRMP_APPKEY 若漏进来,podctl 会因缺私钥拒绝启动
+    (2026-09-18 模型级 e2e 抓到:平台一填 Appkey,管理员 Pod 就起不来)。模板必须显式置空。"""
+    kb = next(d for d in _docs("kb-import", USER_ID="u2001", IMAGE="i", IMAGE_PULL_POLICY="IfNotPresent", SUBPATH_ROOT="admins")
+              if d["kind"] == "Deployment")
+    env = {e["name"]: e for e in kb["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["GRMP_APPKEY"]["value"] == ""
+    assert env["GRMP_API_HOST"]["value"] == "unused"

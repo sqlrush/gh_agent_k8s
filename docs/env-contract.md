@@ -63,7 +63,7 @@ NAS 目录对 uid 1000 可写（镜像以 `agent`，uid 1000 运行）。NFS 要
 
 | | runtime | kb-import |
 |---|---|---|
-| skills | 16 个诊断 skill + `gaussdb-kb`（查询） | `gaussdb-kb` + `gaussdb-kb-import` |
+| skills | 16 个诊断 skill + `gaussdb-kb`（查询） | `gaussdb-kb` + `gaussdb-kb-import` + `gaussdb-kb-init`（入库前标准化） |
 | `/nas/kb` | 只读 | 读写 |
 | `GRMP_API_HOST` / `GRMP_AUTH_TOKEN` | 必填 | 不需要（给个占位值即可，不接触数据库） |
 | 出站网络 | 中间件、模型服务、DNS | 模型服务、DNS |

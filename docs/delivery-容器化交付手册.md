@@ -65,6 +65,7 @@
 | 知识库只读 | 输入「帮我导入工单」 | 回答「本环境不含知识库导入功能，请联系知识库管理员」 |
 | 重建不丢 | 删 Pod，等 Ready，刷新界面 | 会话还在；NAS `users/<工号>/backup/` 多一份 |
 | 管理员 | 管理员登录后有 kb-import Pod | `kb.py health` 不报只读；导入后 runtime 的 `kb.py search` 能命中 |
+| 入库前标准化 | 在 kb-import Pod 的界面里说「把收件目录里这几份材料标准化」（word / pdf / 照片混放） | 模型调 gaussdb-kb-init：scan 点名照片要看图、不支持的格式留在清单；写完草稿 render 出 `init/<批次>/std/*.md`（六要素：时间、系统、现场、判断、处置、复发标志）；runtime Pod 里没有这个 skill |
 
 本仓库自带的自动化版本：`scripts/k8s/verify-cluster.sh`（13 项）、`scripts/k8s/e2e-web.sh`（7 项，走 Web 界面同一套 API）。
 

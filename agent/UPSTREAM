@@ -2,3 +2,4 @@ gh_skill skills-v12.9 6190e4acfef81077f6e690edd311f27379f1acd4
 vendored 2026-09-17
 synced 2026-09-18: gh_skill skills-v12.11 0462f43 — common/kb/query.py cjk_phrase_hits(文件模式中文短语检索)、common/kb/config.py 注释、tests/test_kb_query_units.py、sample-kb 黄金查询集 +3;gaussdb-kb 版本本仓库 3.0.1 / gh_skill 2.3.3
 synced 2026-09-18: gh_skill skills-v12.12 021e3d2 — 中间件签名鉴权:common/grmp/{sm3,sm2,signing,client}.py、common/{config,access}.py、grmp_middleware/grmp_mock/{signature,server,__main__}.py、tests/test_{sm3,sm2,grmp_signing,grmp_mock_signature}_units.py(两仓库同一份)
+synced 2026-09-18: gh_skill skills-v12.13 08dd03b — 新 skill gaussdb-kb-init(入库前标准化):common/kb/{initstd,extract}.py、skills/gaussdb-kb-init/、tests/test_kb_{initstd,init_skill}_units.py;kb-import 的 kb.py 抽文本改为从 common/kb/extract 重导出(gh_skill 那边是 gaussdb-kb/scripts/kb.py 同一改法);SKILL.md 下游路径按各自布局(本仓库 ../gaussdb-kb-import,gh_skill ../gaussdb-kb)

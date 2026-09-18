@@ -43,6 +43,8 @@ out=$(X "$ADM" "printf -- '- id: GS-K8S-001\n  severity: warn\n  check: advisory
 check "3a kb-import Pod 写入条款并重建清单,锁已释放"                   'has "已重建" && has "No such file"'
 out=$(X "$A" "python3 $S/gaussdb-kb/scripts/kb.py search cluster-smoke-token")
 check "3b runtime Pod 下一次 search 就能命中"                          'has "k8s-smoke.yaml" && has "cluster-smoke-token"'
+# 验证条款的 ID 不合 GS-<域>-NNN 格式,留下会让之后的 validate 报 error——验完即删并重建清单
+X "$ADM" "rm -f /nas/kb/rules/k8s-smoke.yaml; python3 $S/gaussdb-kb-import/scripts/kb.py index --kb /nas/kb >/dev/null 2>&1" >/dev/null
 
 # 4 只读
 out=$(X "$A" "touch /nas/kb/probe 2>&1; echo rc=\$?; python3 $S/gaussdb-kb/scripts/kb.py health | grep 只读")

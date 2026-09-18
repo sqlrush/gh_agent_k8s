@@ -9,6 +9,8 @@ metadata:
 data:
   GRMP_API_HOST: host.docker.internal
   GRMP_API_PORT: "8781"
+  # 本地的 mock 开着签名校验(scripts/k8s/local-grmp-signing.sh 起 8782 并把 8781 转发过去,私钥进 Secret grmp-sm2)
+  GRMP_APPKEY: gaussdb-agent
   MODEL_BASE_URL: https://api.deepseek.com/v1
   MODEL_ID: deepseek-flash
   MODEL_PROVIDER_NAME: deepseek

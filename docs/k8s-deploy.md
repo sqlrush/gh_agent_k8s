@@ -17,7 +17,8 @@
 ```bash
 kubectl apply -k k8s/base
 kubectl -n gaussdb-agent create secret generic model-api --from-literal=MODEL_API_KEY='<模型服务密钥>'
-kubectl -n gaussdb-agent edit configmap agent-config      # GRMP_API_HOST/PORT、MODEL_BASE_URL、MODEL_ID
+kubectl -n gaussdb-agent create secret generic grmp-sm2 --from-file=GRMP_SM2_PRIVATE_KEY=<客户签发的 SM2 私钥文件>   # 中间件开了签名校验才需要
+kubectl -n gaussdb-agent edit configmap agent-config      # GRMP_API_HOST/PORT、GRMP_APPKEY 与 GRMP_SIGN_*、MODEL_BASE_URL、MODEL_ID
 kubectl -n gaussdb-agent edit configmap agent-roles       # 没有 AD 组时:知识库管理员工号列表
 kubectl -n gaussdb-agent edit networkpolicy runtime-policy kb-import-policy   # 把占位网段改成中间件与模型服务的实际地址段
 ```
@@ -69,7 +70,7 @@ python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.4.1-o
 scripts/build-images.sh dev
 kubectl --context orbstack apply -k k8s/local            # base + hostPath PV + 本地 agent-config + 放行宿主网关的策略
 kubectl --context orbstack -n gaussdb-agent create secret generic model-api --from-literal=MODEL_API_KEY=local-dummy
-nohup python3 scripts/tcp-forward.py 8781 8779 &          # mock 只绑 127.0.0.1
+bash scripts/k8s/local-grmp-signing.sh                    # 起开签名校验的 mock 8782、8781 转发过去、Secret grmp-sm2(测试密钥对);mock 只绑 127.0.0.1
 mkdir -p /tmp/agent-nas-k8s/users/u1001 /tmp/agent-nas-k8s/users/u1002 /tmp/agent-nas-k8s/users/u2001 /tmp/agent-nas-k8s/admins/u2001
 cp -R ~/kb-verify/modes/kb /tmp/agent-nas-k8s/kb && chmod -R a+rwX /tmp/agent-nas-k8s
 for u in u1001 u1002 u2001; do python3 scripts/k8s/provision.py $u --auto-role; done

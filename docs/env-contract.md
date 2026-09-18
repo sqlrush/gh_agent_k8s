@@ -11,6 +11,9 @@
 | `GRMP_API_HOST` | runtime 是 | 中间件主机名或 IP | ConfigMap | 每次启动重新渲染进 `config.yaml`，改地址重建 Pod 即生效 |
 | `GRMP_API_PORT` | 否 | 默认 `8080` | ConfigMap | |
 | `GRMP_AUTH_TOKEN` | runtime 是 | 本人令牌 | Secret，按人 | 只存在环境变量里；镜像与 NAS 都不落盘 |
+| `GRMP_APPKEY` | 中间件开了签名校验时是 | 与中间件约定的应用名（整个智能体一个） | ConfigMap | 2026-09-18 中间件加固：请求头再带 Appkey / Timestamp / Signature；为空 = 不签名 |
+| `GRMP_SM2_PRIVATE_KEY` | 配了 `GRMP_APPKEY` 时是 | 该 Appkey 的 SM2 私钥（64 位 hex 或 PEM），客户签发 | Secret `grmp-sm2`，全体 runtime 共用 | 模板里 `optional: true`；配了 Appkey 没私钥则 Pod 启动即失败并说明。kb-import 不需要 |
+| `GRMP_SIGN_USER_ID` / `GRMP_SIGN_TIMESTAMP` / `GRMP_SIGN_FORMAT` / `GRMP_SIGN_ENCODING` / `GRMP_SIGN_PAYLOAD` | 否 | 签名旋钮：userId（默认国标 `1234567812345678`，OpenSSL 默认是空串）、`ms`/`s`、`raw`/`der`、`hex`/`base64`、原文模板（默认 `{path}+{timestamp}`） | ConfigMap | 按中间件口径填；值不认识时建连接即报错 |
 | `MODEL_BASE_URL` | 是 | 模型服务的 OpenAI 兼容地址（含 `/v1`） | ConfigMap | |
 | `MODEL_API_KEY` | 是 | 模型服务密钥 | Secret | 渲染进 `/data/oc/opencode.json`（0600，emptyDir，随 Pod 消失） |
 | `MODEL_ID` | 是 | 模型 id | ConfigMap | opencode 默认模型 = `<MODEL_PROVIDER_NAME>/<MODEL_ID>` |

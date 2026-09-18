@@ -1,16 +1,16 @@
 # 容器化交付手册
 
-版本对应：本仓库标签 **agent-v0.4**，技能代码基于 gh_skill `skills-v12.9` 加 `skills-v12.10` 的三项通用修复（`agent/UPSTREAM`），opencode **1.18.27**。设计与验证记录见 `docs/specs/`、`docs/plans/`。
+版本对应：本仓库标签 **agent-v0.4.1**，技能代码基于 gh_skill `skills-v12.9` 加 `skills-v12.10` 的三项通用修复与 `skills-v12.11` 的知识库检索修复（`agent/UPSTREAM`），opencode **1.18.27**。设计与验证记录见 `docs/specs/`、`docs/plans/`。
 
 ## 1. 交付物
 
 | 文件 | 内容 |
 |---|---|
-| `gaussdb-agent-v0.4-oc1.18.27-amd64.tar.gz` / `-arm64.tar.gz`（+ `.sha256`，各约 150 MB） | 两个后端镜像：`gaussdb-agent-runtime`（每用户一个 Pod）、`gaussdb-agent-kb-import`（知识库管理员）。x86_64 与鲲鹏各一包 |
-| `gaussdb-agent-v0.4-oc1.18.27-k8s.tar.gz`（+ `.sha256`） | `k8s/base` 一次性清单、`k8s/templates` 按工号渲染的模板、`docs/env-contract.md` 环境契约、`docs/k8s-deploy.md` 部署手册、本手册、设计文档 |
+| `gaussdb-agent-v0.4.1-oc1.18.27-amd64.tar.gz` / `-arm64.tar.gz`（+ `.sha256`，各约 150 MB） | 两个后端镜像：`gaussdb-agent-runtime`（每用户一个 Pod）、`gaussdb-agent-kb-import`（知识库管理员）。x86_64 与鲲鹏各一包 |
+| `gaussdb-agent-v0.4.1-oc1.18.27-k8s.tar.gz`（+ `.sha256`） | `k8s/base` 一次性清单、`k8s/templates` 按工号渲染的模板、`docs/env-contract.md` 环境契约、`docs/k8s-deploy.md` 部署手册、本手册、设计文档 |
 | `MANIFEST.txt` | 镜像 id、大小、仓库提交号、导入命令 |
 
-由 `scripts/package-images.sh agent-v0.4-oc1.18.27` 生成到 `dist/gaussdb-agent-v0.4-oc1.18.27/`；发布前的验证是删掉本地镜像、从包 `docker load` 回来、再跑 `scripts/smoke-image.sh`（14 项，只读根文件系统）。镜像里**没有**：令牌、密钥、客户地址、`auth.json`、任何会话数据。
+由 `scripts/package-images.sh agent-v0.4.1-oc1.18.27` 生成到 `dist/gaussdb-agent-v0.4.1-oc1.18.27/`；发布前的验证是删掉本地镜像、从包 `docker load` 回来、再跑 `scripts/smoke-image.sh`（14 项，只读根文件系统）。镜像里**没有**：令牌、密钥、客户地址、`auth.json`、任何会话数据。
 
 ## 2. 平台必做
 
@@ -28,6 +28,7 @@
 3. 渲染 `k8s/templates/runtime.yaml`（管理员再加 `kb-import.yaml`），apply，等 `availableReplicas == 1`。
 4. 代理到 Service `runtime-<工号>:4096`，带 `Authorization: Basic base64(opencode:<口令>)`；浏览器落地页 `/L25hcy9tZS93b3Jrc3BhY2U`。
 5. 回收：对话结束删 Deployment/Service/Secret，或闲置超时 `scale --replicas=0`。同一工号同一时刻只能有一个 runtime Pod。
+6. 文件上传：网关直接写 NAS——普通用户 `users/<工号>/workspace/uploads/`，知识库管理员另有 `kb/inbox/uploads/`；uid 1000、文件名白名单、大小上限、回给用户 Pod 内路径（`docs/k8s-deploy.md` §3）。
 
 `scripts/k8s/provision.py` 是 2–3–回收的参考实现，可直接改造进网关。
 

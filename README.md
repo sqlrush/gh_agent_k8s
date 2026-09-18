@@ -60,6 +60,7 @@ bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-ver
 - 2026-09-17 Web 路径端到端通过（`agent-v0.3.1`）：`opencode serve` 自带的 Web 界面经基本认证可用，API 建会话 → 模型经中间件诊断 → 导入引导 → 会话落 NAS；顺带修了只读根文件系统下配置加载失败的问题。
 - 2026-09-17 `agent-v0.3.2`：工作目录首次启动 git 初始化，Web 界面按项目路由落地（无头浏览器截图验证）。
 - 2026-09-17 阶段 4 完成（`agent-v0.4`）：`scripts/package-images.sh` 出离线交付包（两架构镜像 tar.gz + sha256 + k8s 清单与文档），从包里装回镜像再跑冒烟 14/14；`docs/delivery-容器化交付手册.md`（交付物、平台必做、SQLite/NAS 客户确认表、压测方案、冒烟、回滚）。
+- 2026-09-18 `agent-v0.3.3`：CLI `opencode attach` 与管理员经模型导入两条路径端到端验证；`agent-v0.4.1`：知识库文件模式检索缺口修复（纯中文现象提问命中案例；gh_skill 同步 `skills-v12.11`）、网关文件上传契约定稿、镜像 trivy 扫描与加固（`docs/security/trivy-scan.md`）。
 - 剩下的在客户侧：NFS 压测 5 天、客户确认、网关（阶段 5）；frontend 改造看客户要求。路线图见 `docs/plans/2026-09-17-roadmap.md`。
 
 ## 安全

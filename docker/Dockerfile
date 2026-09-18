@@ -8,7 +8,9 @@ FROM python:3.12-slim-bookworm AS base
 ARG OPENCODE_VERSION
 ARG TARGETARCH
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Shanghai LANG=C.UTF-8
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl ripgrep git tzdata \
+# upgrade:基础镜像里 libpcre2 / liblzma 等有 deb12u 安全更新,构建时一并拿到(trivy 记录见 docs/security/)
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends ca-certificates curl ripgrep git tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 1000 --user-group --create-home --shell /bin/bash agent
 
@@ -24,7 +26,11 @@ RUN mkdir -p /opt/agent/cache/opencode/bin \
     && cp /usr/bin/rg /opt/agent/cache/opencode/bin/rg
 
 # Python 依赖(白名单三项;psycopg2-binary 与 psycopg2 同模块名)
-RUN pip install --no-cache-dir "psycopg2-binary==2.9.10" "cryptography>=41" "PyYAML>=6"
+# 装完依赖就把 pip 连同 ensurepip 自带的 pip 轮子删掉:运行时用不到,而 trivy 报的 python 包漏洞全部来自
+# pip 自带的 vendored msgpack / pkg_resources(setuptools),不是我们的依赖
+RUN pip install --no-cache-dir "psycopg2-binary==2.9.10" "cryptography>=41" "PyYAML>=6" \
+    && pip uninstall -y pip && rm -rf /usr/local/lib/python3.12/ensurepip/_bundled \
+    && python3 -c "import psycopg2, cryptography, yaml"
 
 # 技能代码:用仓库自己的安装脚本装进 opencode 的技能目录(common/、scripts/registry/ 一起)
 COPY agent/ /opt/agent/src/

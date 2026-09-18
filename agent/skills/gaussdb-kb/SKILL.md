@@ -1,6 +1,6 @@
 ---
 name: gaussdb-kb
-version: 3.0.0
+version: 3.0.1
 description: "客户知识库查询:用户问「以前有没有类似情况 / 知识库里有没有类似案例 / 贵行规范怎么说 / 核对一下回答里的引用」时用。输出「客户知识库参照」小节(贵行规范 / 历史相似案例 / 本行历史路径),引用必带 ID 与出处,查不到就如实说「本行无先例」。各诊断 skill(health / sqltune / …)的脚本已自动把这一节写进输出,不用你再查。导入规范、导入工单、建知识库、更新规范库不在本 skill,那些在 gaussdb-kb-import,只有知识库管理员的环境才有。"
 allowed-tools: ["exec", "read"]
 compatibility: opencode

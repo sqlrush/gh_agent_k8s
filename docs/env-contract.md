@@ -27,7 +27,9 @@ entrypoint 自己设置、平台**不要**覆盖的：`XDG_DATA_HOME=$NAS_ME/xdg
 | 容器路径 | 来源 | 权限 | 内容 |
 |---|---|---|---|
 | `/nas/me` | NAS PVC，`subPath: users/<工号>`（kb-import 用 `admins/<工号>`） | 读写 | `xdg-data/opencode/opencode.db`（会话、对话、压缩摘要）、`xdg-state/`、`workspace/`（上传文件、报告）、`gdaa/`（登录会话、每次启动重生成的 `config.yaml`）、`backup/`（退出备份，3 份）、`.owner` |
-| `/nas/kb` | NAS PVC，`subPath: kb` | runtime **只读**；kb-import 读写 | 知识库文件 |
+| `/nas/kb` | NAS PVC，`subPath: kb` | runtime **只读**；kb-import 读写 | 知识库文件；`inbox/uploads/` 是管理员上传待导入文件的收件目录（网关写入） |
+
+用户上传的文件由**网关**直接写进 NAS（普通用户 `users/<工号>/workspace/uploads/`，管理员另有 `kb/inbox/uploads/`），Pod 只读到结果；镜像不提供上传接口。
 | `/data` | emptyDir | 读写 | 渲染出的配置、`HOME`、`env.sh`；随 Pod 消失 |
 
 NAS 目录对 uid 1000 可写（镜像以 `agent`，uid 1000 运行）。NFS 要求见 spec §4：`nfsvers=4.1`、`hard`、`local_lock=all`。

@@ -149,6 +149,8 @@ Deployment runtime-<工号>   replicas: 1   strategy: Recreate
 | `GSDB_USER_ID` | 工号 | 平台 |
 | `GRMP_API_HOST` | 中间件地址 | ConfigMap |
 | `GRMP_AUTH_TOKEN` | 本人令牌 | Secret，按人 |
+| `GRMP_APPKEY`、`GRMP_SIGN_*` | 中间件签名校验（2026-09-18 加固）：应用名与签名旋钮，整个智能体一份 | ConfigMap |
+| `GRMP_SM2_PRIVATE_KEY` | 该 Appkey 的 SM2 私钥，客户签发，整个智能体一把 | Secret `grmp-sm2`，全体 runtime 共用（optional） |
 | `MODEL_API_KEY`、`MODEL_BASE_URL` | 模型服务 | Secret / ConfigMap |
 | `OPENCODE_SERVER_PASSWORD` | 本 Pod 随机口令 | 网关生成，只有网关知道 |
 | `GSDB_KB_INBOX` | 仅 kb-import：`/nas/kb/inbox/uploads` | entrypoint 固定 |
@@ -304,6 +306,7 @@ gh_skill 收到 #2、#3、#4 后发布 `skills-v12.10`；本仓库 `agent/` 的�
 - 非 root；Secret 只以环境变量注入；`share` 禁用；无 `auth.json`。
 - 网关的 k8s RBAC 只限本命名空间内 Deployment 的创建 / 删除 / 查询；`OPENCODE_SERVER_PASSWORD` 只有网关知道。
 - 库的隔离仍依赖 GRMP 按人令牌与授权；Pod 负责把本人令牌送到中间件。
+- **中间件签名校验（2026-09-18 客户加固）**：每个请求在 `auth` 之外带 `Appkey` / `Timestamp` / `Signature`（SM2 签名「路径 + 时间戳」），由 skill 脚本在 `common/grmp/client.py` 统一加，模型碰不到私钥。四个头的分工：`auth` 认人（按工号），其余三个认应用、防重放、防改路径。Appkey 与密钥对整个智能体一份（客户拍板），私钥以共享 Secret `grmp-sm2` 注入全体 runtime Pod；kb-import 不调中间件，不给。SM2/SM3 为纯 Python 实现（`common/grmp/sm2.py`，白名单不加包），签名旋钮（userId / 时间戳单位 / 编码 / 格式 / 原文拼法）全部可配。**私钥进用户容器的残余风险**：用户可让模型在 Pod 内读环境变量；拿到私钥也仍需本人令牌才能调用，多出的是「冒充本应用」而非「冒充他人」。要彻底不进用户容器，第二版做签名边车（私钥只挂给边车，skill 请求发 127.0.0.1 由边车补头），skill 代码不用改。
 - 本仓库公开：不放客户名称、地址、令牌；Secret / ConfigMap 只有样例。
 
 ## 12. 验证

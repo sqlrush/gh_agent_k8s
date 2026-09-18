@@ -203,3 +203,15 @@ def test_cli_render_writes_files_and_reports_missing_vars(tmp_path, monkeypatch,
     assert podctl.main(["render-gdaa-config", "--out", str(tmp_path / "config.yaml")]) == 0
     assert json.loads((tmp_path / "oc.json").read_text())["share"] == "disabled"
     assert oct((tmp_path / "oc.json").stat().st_mode & 0o777) == "0o600"       # 里面有 key
+
+
+def test_render_gdaa_config_appkey_requires_private_key():
+    """2026-09-18 中间件加固:平台配了 GRMP_APPKEY 却没注入 SM2 私钥,启动时就拒——
+    否则表现成每个请求被中间件拒,排查方向被带到中间件那边。"""
+    env = {"GRMP_API_HOST": "grmp.internal", "GRMP_APPKEY": "gaussdb-agent"}
+    with pytest.raises(podctl.ConfigError) as info:
+        podctl.render_gdaa_config(env)
+    assert "GRMP_SM2_PRIVATE_KEY" in str(info.value) and "grmp-sm2" in str(info.value)
+    text = podctl.render_gdaa_config({**env, "GRMP_SM2_PRIVATE_KEY": "ab" * 32})
+    assert "appkey_env: GRMP_APPKEY" in text
+    assert "appkey_env" not in podctl.render_gdaa_config({"GRMP_API_HOST": "grmp.internal"})   # 没开签名不写这行

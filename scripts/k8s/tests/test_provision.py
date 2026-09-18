@@ -75,3 +75,16 @@ def test_read_token_accepts_export_prefix_and_quotes():
     assert provision.read_token(text) == "abc-123"
     assert provision.read_token("GRMP_AUTH_TOKEN='x'\n") == "x"
     assert provision.read_token("KIMI_API_KEY=zzz\n") is None
+
+
+def test_runtime_template_injects_optional_sm2_private_key_and_kb_import_does_not():
+    """2026-09-18 中间件加固:SM2 私钥整个应用一把,runtime 从共享 Secret grmp-sm2 取且 optional(没建时照常起、不签名);
+    kb-import 不调中间件,不给它。"""
+    rt = next(d for d in _docs("runtime", USER_ID="u1001", IMAGE="i", IMAGE_PULL_POLICY="IfNotPresent", SUBPATH_ROOT="users")
+              if d["kind"] == "Deployment")
+    env = {e["name"]: e for e in rt["spec"]["template"]["spec"]["containers"][0]["env"]}
+    ref = env["GRMP_SM2_PRIVATE_KEY"]["valueFrom"]["secretKeyRef"]
+    assert ref["name"] == "grmp-sm2" and ref["key"] == "GRMP_SM2_PRIVATE_KEY" and ref["optional"] is True
+    kb = next(d for d in _docs("kb-import", USER_ID="u2001", IMAGE="i", IMAGE_PULL_POLICY="IfNotPresent", SUBPATH_ROOT="admins")
+              if d["kind"] == "Deployment")
+    assert "GRMP_SM2_PRIVATE_KEY" not in {e["name"] for e in kb["spec"]["template"]["spec"]["containers"][0]["env"]}

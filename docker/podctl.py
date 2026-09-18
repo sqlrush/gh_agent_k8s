@@ -93,12 +93,18 @@ def render_gdaa_config(env: Mapping[str, str]) -> str:
     if not host:
         raise ConfigError("缺少环境变量 GRMP_API_HOST(中间件地址由平台注入)")
     port = int(env.get("GRMP_API_PORT") or 8080)
+    # 2026-09-18 中间件加固:配了 Appkey 就必须有 SM2 私钥,启动时就拒——拖到第一次请求会表现成
+    # 中间件鉴权失败,排查方向被带到中间件那边。旋钮(GRMP_SIGN_*)由 skill 直接读环境变量,这里不落盘。
+    appkey = env.get("GRMP_APPKEY", "")
+    if appkey and not env.get("GRMP_SM2_PRIVATE_KEY"):
+        raise ConfigError("配了 GRMP_APPKEY=%s 却没有 GRMP_SM2_PRIVATE_KEY(SM2 私钥由平台以 Secret grmp-sm2 注入)" % appkey)
     return ("# 由 podctl 在 Pod 启动时按环境变量生成;不要手工改,重启即覆盖。\n"
             "connection_mode: api\n"
             "api_connection:\n"
             "  - host: %s\n"
             "    port: %d\n"
-            "    token_env: GRMP_AUTH_TOKEN\n" % (host, port))
+            "    token_env: GRMP_AUTH_TOKEN\n" % (host, port)
+            + ("    appkey_env: GRMP_APPKEY\n" if appkey else ""))
 
 
 def _write_private(path: pathlib.Path, text: str) -> None:

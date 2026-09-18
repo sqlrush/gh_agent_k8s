@@ -18,8 +18,9 @@
 
 1. 镜像导入内网仓库，两种架构。
 2. NAS：RWX 卷，NFSv4.1；PV `mountOptions: [nfsvers=4.1, hard, local_lock=all]`；导出目录对 uid 1000 可写；预建 `users/<工号>/`、`admins/<工号>/`、`kb/`。
-3. `kubectl apply -k k8s/base`；创建 Secret `model-api`；填 `agent-config`（中间件、模型服务地址与模型 id）；`agent-roles`（没有 AD 组时的知识库管理员名单）；把 NetworkPolicy 的占位网段改成实际地址段。CNI 必须支持 NetworkPolicy。
+3. `kubectl apply -k k8s/base`（或 `k8s/overlays/test` / `prod`：同一镜像，只换 ConfigMap）；创建 Secret `model-api`；填 `agent-config`（中间件、模型服务地址与模型 id）；`agent-roles`（没有 AD 组时的知识库管理员名单）；把 NetworkPolicy 的占位网段改成实际地址段。CNI 必须支持 NetworkPolicy。
 4. 中间件 GRMP 按人签发令牌、按人授权（库这一层的隔离靠它）。
+5. **中间件签名校验**（2026-09-18 加固）：向中间件方登记本智能体的 Appkey（一个即可）并取得该 Appkey 的 SM2 密钥对；私钥 `kubectl create secret generic grmp-sm2 --from-file=GRMP_SM2_PRIVATE_KEY=<文件>`，`agent-config` 填 `GRMP_APPKEY` 与签名旋钮（`GRMP_SIGN_*`，见 `docs/env-contract.md`）。旋钮的值必须与中间件方逐项确认（第 7 节表）。
 
 **按工号**（网关，`docs/k8s-deploy.md` §3–4）
 
@@ -82,3 +83,4 @@
 | NFS 压测与 `mountOptions` 生效 | 客户环境（第 4 节） |
 | NetworkPolicy 在客户 CNI 上生效 | 客户环境；本仓库在 OrbStack 上验过策略生效 |
 | 向量库 / 图谱库 Pod | 未做；runtime 走知识库文件模式，与带库模式首选结果一致 |
+| 中间件签名口径 | 代码与本地对照（mock）已就绪、全部可配；以下项需中间件方书面确认，任一项不符表现为全部请求被拒：① Signature 是 SM2 签名（SM3 摘要）还是「公钥加密」；② userId（国标默认 `1234567812345678`，OpenSSL 默认空串）；③ 原文拼法（`{path}+{timestamp}` 里的 `+` 是否字面、path 是否含完整路径 / 查询串）；④ 时间戳单位与允许偏差；⑤ 签名编码（hex / base64）与格式（raw / DER）；⑥ 私钥文件格式；⑦ 生效日期与兼容期；⑧ 校验失败的响应形态。建议中间件方提供一条可通过的样例请求或其校验代码 |

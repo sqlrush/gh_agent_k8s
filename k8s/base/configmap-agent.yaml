@@ -8,6 +8,15 @@ metadata:
 data:
   GRMP_API_HOST: grmp.example.internal
   GRMP_API_PORT: "8080"
+  # 2026-09-18 中间件加固:请求头带 Appkey / Timestamp / Signature。GRMP_APPKEY 为空 = 不签名。
+  # 私钥在 Secret grmp-sm2。下面四个旋钮按中间件口径填,缺省 = 国标 / Java BouncyCastle 常见形态;
+  # 注意 OpenSSL 签出来的默认 userId 是空串,客户用什么必须问清(docs/env-contract.md)。
+  GRMP_APPKEY: ""
+  GRMP_SIGN_USER_ID: "1234567812345678"
+  GRMP_SIGN_TIMESTAMP: ms
+  GRMP_SIGN_FORMAT: raw
+  GRMP_SIGN_ENCODING: hex
+  GRMP_SIGN_PAYLOAD: "{path}+{timestamp}"
   MODEL_BASE_URL: http://llm.example.internal/v1
   MODEL_ID: qwen3-32b
   MODEL_PROVIDER_NAME: model-service

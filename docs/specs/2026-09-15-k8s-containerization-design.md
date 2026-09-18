@@ -237,6 +237,7 @@ SQLite 在网络文件系统上出问题只有两个机制：
 2. 查 k8s：`runtime-<工号>` 是否存在且 Ready。不存在则创建 Deployment：`subPath users/<工号>`、`GSDB_USER_ID`、本人 GRMP 令牌的 Secret 引用、随机 `OPENCODE_SERVER_PASSWORD`；等待 Ready（冷启动约 10 秒）。
 3. 反向代理到该 Pod 的 4096 端口，带基本认证。`opencode attach` 的连接走同一条路。
 4. 按生命周期模式回收 Pod。
+5. **文件上传**（2026-09-18 定）：用户要给 agent 的文件（待导入的规范 / 工单、SQL 文件、报告）由网关直接写到 NAS，Pod 不动：普通用户写 `users/<工号>/workspace/uploads/<文件名>`（Pod 内 `/nas/me/workspace/uploads/`），知识库管理员多一个目标 `kb/inbox/uploads/<文件名>`（kb-import Pod 内 `/nas/kb/inbox/uploads/`，即 `GSDB_KB_INBOX`）。网关以 uid 1000 落盘、文件名只留 `[A-Za-z0-9._-]` 与中文、单文件上限平台定（建议 50 MB）、同名覆盖前先备份；上传成功后把 **Pod 内路径**回给用户，用户在对话里说「导入 /nas/kb/inbox/uploads/xxx.xlsx」即可。opencode 界面自带的「附件」是喂给模型的消息内容、不落 NAS，只适合几百行以内的文本材料（SKILL.md 已写明由模型写进收件目录再 ingest）。
 
 **没有「还原」步骤**：用户的会话、对话记录、压缩摘要、上传文件、skill 登录会话全在 NAS `users/<工号>/`。新 Pod 挂上这个目录，opencode 打开其中的 `opencode.db`，历史会话自动出现。网关不复制、不恢复任何数据；「按用户名确定历史」= 用工号拼出挂载路径。
 

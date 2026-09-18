@@ -6,7 +6,7 @@
 
 | 项 | 要求 |
 |---|---|
-| 镜像 | 把 `gaussdb-agent-runtime`、`gaussdb-agent-kb-import`（标签 `agent-v0.4-oc1.18.27`，x86_64 / aarch64）推到内网镜像仓库 |
+| 镜像 | 把 `gaussdb-agent-runtime`、`gaussdb-agent-kb-import`（标签 `agent-v0.4.1-oc1.18.27`，x86_64 / aarch64）推到内网镜像仓库 |
 | NAS | 一个 RWX 卷，NFSv4.1；PV `mountOptions: [nfsvers=4.1, hard, local_lock=all]`；导出目录对 uid 1000 可写；目录结构 `users/<工号>/`、`admins/<工号>/`、`kb/` 由平台建好（uid 1000） |
 | StorageClass | `nas`（或静态 PV 带 `storageClassName: nas`），能满足 `k8s/base/nas-pvc.yaml` 的 claim |
 | CNI | 支持 NetworkPolicy（Calico / Cilium 等）。不支持时策略不生效，隔离只剩 Pod 与 subPath |
@@ -29,7 +29,7 @@ kubectl -n gaussdb-agent edit networkpolicy runtime-policy kb-import-policy   # 
 网关在用户登录后要做的四件事，等价于：
 
 ```bash
-python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.4-oc1.18.27 --pull-policy Always \
+python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.4.1-oc1.18.27 --pull-policy Always \
     --token-env-file <含 GRMP_AUTH_TOKEN= 的文件>
 ```
 
@@ -39,6 +39,8 @@ python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.4-oc1
 4. 等 Deployment `availableReplicas == 1`（冷启动约 10 秒），再把流量代理到 Service `runtime-<工号>:4096`，请求头带 `Authorization: Basic base64(opencode:<口令>)`。
 
 **浏览器落地页**：opencode serve 自带 Web 界面。把用户带到项目路由 `/<base64url("/nas/me/workspace")>`（即 `/L25hcy9tZS93b3Jrc3BhY2U`），打开的就是「新建会话」页（输入框 + 模型选择器），该项目的历史会话在侧栏；某条会话的地址是 `/L25hcy9tZS93b3Jrc3BhY2U/session/<会话 id>`。不要落在 `/`——那一页的「项目」列表是浏览器本地记的，新浏览器为空，用户得手动「添加项目」。entrypoint 首次启动会把 `/nas/me/workspace` 初始化成 git 仓库，opencode 以此识别项目。
+
+**文件上传**（网关的第五件事）：网关提供上传入口，直接写 NAS，Pod 不参与——普通用户 → `users/<工号>/workspace/uploads/<文件名>`（Pod 内 `/nas/me/workspace/uploads/`）；知识库管理员另有目标 `kb/inbox/uploads/<文件名>`（kb-import Pod 内 `/nas/kb/inbox/uploads/`）。要求：以 uid 1000 写入；文件名白名单（字母数字 `._-` 与中文）；单文件上限平台定（建议 50 MB）；同名先备份再覆盖；上传成功后把 Pod 内路径回给用户，用户在对话里引用该路径。界面自带的「附件」不落 NAS，只适合短文本。
 
 **CLI 接入**：用户本机装同版本 opencode，`OPENCODE_SERVER_PASSWORD=<口令> opencode attach http://<网关给的地址> --dir /nas/me/workspace`（口令也可 `--password`；`--dir` 必须是 Pod 内的工作目录）。CLI 与 Web 共用 NAS 上同一个 `opencode.db`，两边建的会话互相可见；`attach -c` 续接上一条会话。网关对 CLI 的要求与 Web 相同：代理到 4096 并处理基本认证（已验证，见阶段 3 记录的追加）。
 

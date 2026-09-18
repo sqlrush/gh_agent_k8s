@@ -61,6 +61,9 @@ out=$(X smoke-rt "python3 $S/gaussdb-kb/scripts/kb.py ingest /tmp/x.xlsx; echo r
 check "runtime 里 ingest 是桩:指向 kb-import,退出码 2"          'has "gaussdb-kb-import" && has "rc=2"'
 out=$(X smoke-rt "touch /nas/kb/probe 2>&1; echo rc=\$?")
 check "runtime 对 /nas/kb 只读"                                 'has "Read-only" || has "rc=1"'
+# 入库前标准化只属于管理员镜像;runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
+out=$(X smoke-rt "ls $S/gaussdb-kb-init 2>&1; echo rc=\$?")
+check "runtime 里没有 kb-init"                                  'has "No such file" && has "rc=2"'
 
 # 4 .owner 冲突:同一用户目录第二个 Pod 必须等待,不打开 db
 run_rt smoke-rt2 15097; sleep 8
@@ -85,7 +88,11 @@ docker run -d --name smoke-ki "${RO[@]}" -e GSDB_USER_ID=$U -e POD_NAME=kb-impor
   -e GRMP_API_HOST=unused -v "$NAS/admins/$U:/nas/me" -v "$NAS/kb:/nas/kb" -p 15098:4096 "$KI" >/dev/null
 wait_ready 15098 || { out=$(docker logs smoke-ki 2>&1); bad "kb-import 40 秒内没就绪"; }
 out=$(X smoke-ki "ls $S | grep gaussdb- | tr '\n' ' '; python3 $S/gaussdb-kb-import/scripts/kb.py validate --kb /nas/kb | tail -1; python3 $S/gaussdb-kb/scripts/kb.py health | head -3")
-check "kb-import 只有两个 kb skill,validate 可跑,health 不报只读"  'has "gaussdb-kb-import" && ! has "gaussdb-health" && ! has "知识库只读"'
+check "kb-import 只有三个 kb skill,validate 可跑,health 不报只读"  'has "gaussdb-kb-import" && has "gaussdb-kb-init" && ! has "gaussdb-health" && ! has "知识库只读"'
+
+# 入库前标准化:只在导入镜像里;runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
+out=$(X smoke-ki "printf '%s\n' '# 偶现单条 update 慢' '2026-01-08 CBST 库,单条 update 耗时 3s。' > /tmp/t.txt; python3 $S/gaussdb-kb-init/scripts/kb_init.py scan /tmp/t.txt --kb /nas/kb; echo rc=\$?")
+check "kb-init 能建批次并开工作单(退出 2 = 草稿待写)"            'has "工作单" && has "rc=2"'
 
 echo "== 汇总: PASS $pass, FAIL $fail"
 [ $fail -eq 0 ]

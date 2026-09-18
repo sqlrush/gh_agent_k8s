@@ -117,7 +117,7 @@ def test_data_skills_all_mention_login():
 
     知识库的查询 / 导入两个 skill 都不连库，login 自己不必自指。
     """
-    exempt = {"gaussdb-kb", "gaussdb-kb-import", "gaussdb-login"}
+    exempt = {"gaussdb-kb", "gaussdb-kb-import", "gaussdb-kb-init", "gaussdb-login"}
     missing = [p.parent.name for p in _SKILLS
                if p.parent.name not in exempt
                and "gaussdb-login" not in p.read_text(encoding="utf-8")]

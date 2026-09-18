@@ -31,6 +31,9 @@ spec:
             - {name: OPENCODE_SERVER_PASSWORD, valueFrom: {secretKeyRef: {name: pod-auth-${USER_ID}, key: OPENCODE_SERVER_PASSWORD}}}
             - {name: MODEL_API_KEY, valueFrom: {secretKeyRef: {name: model-api, key: MODEL_API_KEY}}}
             - {name: GRMP_API_HOST, value: unused}   # 不接触数据库;podctl 渲染 config.yaml 需要非空值,显式覆盖 agent-config 里的
+            # 同理:共享 ConfigMap 里的 GRMP_APPKEY 会让 podctl 要求 SM2 私钥,而本 Pod 不调中间件、也不给它私钥——
+            # 显式置空,否则平台一填 Appkey 管理员 Pod 就起不来(2026-09-18 e2e 抓到的)
+            - {name: GRMP_APPKEY, value: ""}
           envFrom:
             - configMapRef: {name: agent-config}
           volumeMounts:

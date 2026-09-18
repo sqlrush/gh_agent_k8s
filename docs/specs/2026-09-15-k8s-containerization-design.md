@@ -106,7 +106,7 @@ frontend 不挂 NAS、不带 skill，只把浏览器和某个用户的 `opencode
 | | `gaussdb-agent-runtime` | `gaussdb-agent-kb-import` |
 |---|---|---|
 | 基础层（共用） | Python 3.9+、psycopg2、cryptography、PyYAML、opencode、ripgrep、`models.json`、`opencode.jsonc`、AGENTS.md、`common/`、`scripts/registry/`、`entrypoint.sh` | 同左 |
-| skills | 16 个诊断 skill + `gaussdb-kb`（查询） | `gaussdb-kb`（查询）+ `gaussdb-kb-import` |
+| skills | 16 个诊断 skill + `gaussdb-kb`（查询） | `gaussdb-kb`（查询）+ `gaussdb-kb-import`（导入）+ `gaussdb-kb-init`（入库前标准化，2026-09-18 加） |
 | `kb/` 挂载 | 只读 | 读写 |
 | GRMP 令牌 | 有 | 没有，不接触任何数据库 |
 | 出站网络 | GRMP、模型服务、DNS | 模型服务、DNS |

@@ -51,7 +51,9 @@ ENTRYPOINT ["/opt/agent/entrypoint.sh"]
 # ---------------------------------------------------------------- runtime:诊断 skill + 知识库查询
 FROM base AS runtime
 USER root
+# 知识库的导入与入库前标准化只属于管理员镜像:runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
 RUN rm -rf /opt/agent/config/opencode/skills/gaussdb-kb-import \
+           /opt/agent/config/opencode/skills/gaussdb-kb-init \
     && test "$(ls -d /opt/agent/config/opencode/skills/gaussdb-* | wc -l)" = "17"
 USER agent
 LABEL org.opencontainers.image.title="gaussdb-agent-runtime" \
@@ -60,9 +62,9 @@ LABEL org.opencontainers.image.title="gaussdb-agent-runtime" \
 # ---------------------------------------------------------------- kb-import:知识库查询 + 导入
 FROM base AS kb-import
 USER root
-RUN cd /opt/agent/config/opencode/skills && for d in gaussdb-*; do case "$d" in gaussdb-kb|gaussdb-kb-import) ;; *) rm -rf "$d" ;; esac; done \
-    && test "$(ls -d gaussdb-* | wc -l)" = "2"
+RUN cd /opt/agent/config/opencode/skills && for d in gaussdb-*; do case "$d" in gaussdb-kb|gaussdb-kb-import|gaussdb-kb-init) ;; *) rm -rf "$d" ;; esac; done \
+    && test "$(ls -d gaussdb-* | wc -l)" = "3"
 USER agent
 ENV GSDB_KB_INBOX=/nas/kb/inbox/uploads
 LABEL org.opencontainers.image.title="gaussdb-agent-kb-import" \
-      org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import; kb/ mounted read-write; no GRMP token"
+      org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import + gaussdb-kb-init; kb/ mounted read-write; no GRMP token"

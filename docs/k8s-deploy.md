@@ -40,6 +40,8 @@ python3 scripts/k8s/provision.py <工号> --auto-role --image-tag agent-v0.4-oc1
 
 **浏览器落地页**：opencode serve 自带 Web 界面。把用户带到项目路由 `/<base64url("/nas/me/workspace")>`（即 `/L25hcy9tZS93b3Jrc3BhY2U`），打开的就是「新建会话」页（输入框 + 模型选择器），该项目的历史会话在侧栏；某条会话的地址是 `/L25hcy9tZS93b3Jrc3BhY2U/session/<会话 id>`。不要落在 `/`——那一页的「项目」列表是浏览器本地记的，新浏览器为空，用户得手动「添加项目」。entrypoint 首次启动会把 `/nas/me/workspace` 初始化成 git 仓库，opencode 以此识别项目。
 
+**CLI 接入**：用户本机装同版本 opencode，`OPENCODE_SERVER_PASSWORD=<口令> opencode attach http://<网关给的地址> --dir /nas/me/workspace`（口令也可 `--password`；`--dir` 必须是 Pod 内的工作目录）。CLI 与 Web 共用 NAS 上同一个 `opencode.db`，两边建的会话互相可见；`attach -c` 续接上一条会话。网关对 CLI 的要求与 Web 相同：代理到 4096 并处理基本认证（已验证，见阶段 3 记录的追加）。
+
 回收：`provision.py <工号> --delete` —— 删 Deployment / Service / Secret，**不删 PVC 与 NAS 目录**。
 
 模板里已经定死的（网关不用管）：`strategy: Recreate`、`terminationGracePeriodSeconds: 60`、uid 1000、`readOnlyRootFilesystem`、subPath 挂载、探针、`preStop: sleep 5`、资源配额。

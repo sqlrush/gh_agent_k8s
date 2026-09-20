@@ -63,6 +63,8 @@ bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-ver
 - 2026-09-18 `agent-v0.3.3`：CLI `opencode attach` 与管理员经模型导入两条路径端到端验证；`agent-v0.4.1`：知识库文件模式检索缺口修复（纯中文现象提问命中案例；gh_skill 同步 `skills-v12.11`）、网关文件上传契约定稿、镜像 trivy 扫描与加固（`docs/security/trivy-scan.md`）。
 - 2026-09-18 `agent-v0.5`：客户中间件加固——GRMP 请求头带 Appkey / Timestamp / Signature（纯 Python SM2/SM3，旋钮全可配，gh_skill 同步 `skills-v12.12`）；私钥走共享 Secret `grmp-sm2`；`k8s/overlays/{test,prod}` 样例（同一镜像只换 ConfigMap）；签名 e2e 10/10 含场景矩阵 60/60。
 - 2026-09-18 `agent-v0.6`：新 skill `gaussdb-kb-init`（入库前标准化：word / pdf / txt / 照片 / 表格 → 六要素统一 md，再交 kb-import 入库；照片由模型看图，不做 OCR），**只在 kb-import 镜像里**；抽文本逻辑搬到 `common/kb/extract.py` 共用；gh_skill 同步 `skills-v12.13`。
+- 2026-09-18 `agent-v0.6.1`：标准化→导入的交接（案例出处指回客户原件、已定字段核对）。
+- 2026-09-19 `agent-v0.7`：SM2 签名换雅可比坐标 + 固定基点预计算 + 缓存公钥/ZA，单次 10.3 ms → 0.72 ms（**14x**，纯 Python 零依赖）；gh_skill 同步 `skills-v12.15`。
 - 剩下的在客户侧：NFS 压测 5 天、客户确认、网关（阶段 5）、**签名口径逐项确认**（交付手册 §7）；frontend 改造看客户要求。路线图见 `docs/plans/2026-09-17-roadmap.md`。
 
 ## 安全

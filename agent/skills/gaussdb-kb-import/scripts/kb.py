@@ -64,6 +64,7 @@ from common.kb.rulesfile import (  # noqa: E402,F401  —— 旧名字继续可�
     SEVERITIES, STATUS_ACTIVE, STATUS_DEPRECATED, STATUSES, first_heading, iter_active_rules, iter_files,
     load_rule_file, read_text_file, rule_status, split_frontmatter)
 from common.kb import lock as kblock  # noqa: E402
+from common.kb import store_pg as spg  # noqa: E402
 from common.kb.atomic import write_text_atomic  # noqa: E402
 
 CONTRACT_BEGIN = "<!-- KB-CONTRACT:BEGIN"
@@ -912,7 +913,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"错误:{exc}", file=sys.stderr)   # 别人正在写:退出码 2(有活没干完),不是 1(坏了)
         return 2
     except (KbError, kb_store.StoreCmdError, kb_cases.CaseCmdError,
-            kbconfig.KbConfigError) as exc:
+            kbconfig.KbConfigError, spg.PgStoreError) as exc:
+        # PgStoreError 也要在这里收住:换 embedding 模型那道闸从索引深处抛上来,
+        # 漏掉它就会给用户一整屏 traceback —— 看着像崩了,而它其实是在正确地拦着。
         print(f"错误:{exc}", file=sys.stderr)
         return 1
 

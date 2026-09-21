@@ -60,8 +60,14 @@ spec:
             limits: {cpu: "2", memory: 2Gi}
       volumes:
         - {name: nas, persistentVolumeClaim: {claimName: nas}}
-        - {name: data, emptyDir: {}}
-        - {name: tmp, emptyDir: {}}
+        # /data 现在还装**本地态**(/data/state:opencode.db、git 快照、workspace),
+        # 2026-09-21 状态策略变更之后它不只是配置缓存了。
+        #   · 不写 medium → 用节点磁盘,**不是 tmpfs**。写 medium: Memory 会让用户的库
+        #     吃进 Pod 的内存配额,几百 MB 的历史就能把 2Gi 撑爆。
+        #   · sizeLimit 给足:撑爆会让 Pod 被**驱逐**,而驱逐是非优雅终止,
+        #     等于丢掉最后一个同步周期的对话。宁可占磁盘。
+        - {name: data, emptyDir: {sizeLimit: 10Gi}}
+        - {name: tmp, emptyDir: {sizeLimit: 1Gi}}
 ---
 apiVersion: v1
 kind: Service

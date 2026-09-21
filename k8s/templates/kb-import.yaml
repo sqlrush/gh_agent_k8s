@@ -59,8 +59,10 @@ spec:
             limits: {cpu: "2", memory: 2Gi}
       volumes:
         - {name: nas, persistentVolumeClaim: {claimName: nas}}
-        - {name: data, emptyDir: {}}
-        - {name: tmp, emptyDir: {}}
+        # 同 runtime:/data 装本地态(/data/state),节点磁盘而非 tmpfs;
+        # 限额给足 —— 撑爆会驱逐 Pod,而驱逐是非优雅终止,丢一个同步周期。
+        - {name: data, emptyDir: {sizeLimit: 10Gi}}
+        - {name: tmp, emptyDir: {sizeLimit: 1Gi}}
 ---
 apiVersion: v1
 kind: Service

@@ -279,6 +279,11 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("log-prune")
     p.add_argument("--dir", required=True)
     p.add_argument("--days", type=int, default=7)
+    # 2026-09-21 本地态策略:启动 load、运行中定期 sync、收尾 finish。详见 statesync.py
+    for name in ("state-load", "state-sync", "state-finish"):
+        p = sub.add_parser(name)
+        p.add_argument("--nas", required=True, help="$NAS_ME")
+        p.add_argument("--local", required=True, help="本地态根目录(/data/state)")
     return ap
 
 
@@ -306,6 +311,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif a.cmd == "log-prune":
             n = len(log_prune(pathlib.Path(a.dir), a.days))
             print("日志清理: 删除 %d 个超过 %d 天的 .log" % (n, a.days))
+        elif a.cmd in ("state-load", "state-sync", "state-finish"):
+            import statesync
+            lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))
+            if a.cmd == "state-load":
+                statesync.load(lay)
+                statesync.mark_dirty(lay)     # load 之后才打标记:load 失败时不要留下假痕迹
+            elif a.cmd == "state-sync":
+                print(statesync.sync(lay).line())
+            else:
+                statesync.finish(lay)
     except ConfigError as exc:
         print("配置错误: %s" % exc, file=sys.stderr)
         return 2

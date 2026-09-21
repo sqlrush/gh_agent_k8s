@@ -60,3 +60,20 @@ def test_vectordb_base_image_is_packaged_and_version_matches():
     # 清单里可能带内网仓库前缀,只比对「名字:标签」这一段
     assert used.group(1).rsplit("/", 1)[-1] == packaged.rsplit("/", 1)[-1], \
         "打包的是 %s,清单要的是 %s" % (packaged, used.group(1))
+
+
+def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
+    """文档清单写死过一次,加了两份手册却忘了加进那一行 —— 客户拿到的包里没有最重要的
+    两份,而打包脚本一声不响地成功了。改成整个 docs/ 打进去,只排除内部用的。
+    """
+    body = _PACKAGER.read_text(encoding="utf-8")
+    assert re.search(r"tar czf .*-k8s\.tar\.gz.*\\\n(.*\\\n)*\s*k8s docs\s*$", body, re.MULTILINE), \
+        "k8s 包应该整个打 docs/,不要再列具体文件名"
+    for internal in ("docs/plans", "docs/security"):
+        assert "--exclude='%s'" % internal in body, "内部文档 %s 应该排除在交付包外" % internal
+
+
+def test_customer_facing_docs_exist_where_the_package_expects_them():
+    """两份手册必须在 docs/ 下 —— 它们是客户照着做的那两份。"""
+    for name in ("接入手册-SSO与K8s.md", "部署手册-从零到上线.md"):
+        assert (_ROOT / "docs" / name).is_file(), "缺 docs/%s" % name

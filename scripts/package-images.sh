@@ -55,7 +55,12 @@ for ARCH in ${ARCHS//,/ }; do
 done
 
 # 清单与文档
-tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" k8s docs/env-contract.md docs/k8s-deploy.md docs/delivery-容器化交付手册.md docs/specs
+# **文档清单不要再写死。** 写死的后果是:加了新文档却忘了加进这一行,客户拿到的包里
+# 没有最重要的那两份,而打包脚本一声不响地成功了。改成整个 docs/ 目录打进去,
+# 只排除内部用的(plans/ 是我们的实施计划,security/ 是扫描报告)。
+tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
+    --exclude='docs/plans' --exclude='docs/security' \
+    k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")
 cat >> "$DIST/MANIFEST.txt" <<EOF
   → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/(契约、部署手册、交付手册、设计)

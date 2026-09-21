@@ -306,7 +306,7 @@ gh_skill 收到 #2、#3、#4 后发布 `skills-v12.10`；本仓库 `agent/` 的�
 - 非 root；Secret 只以环境变量注入；`share` 禁用；无 `auth.json`。
 - 网关的 k8s RBAC 只限本命名空间内 Deployment 的创建 / 删除 / 查询；`OPENCODE_SERVER_PASSWORD` 只有网关知道。
 - 库的隔离仍依赖 GRMP 按人令牌与授权；Pod 负责把本人令牌送到中间件。
-- **中间件签名校验（2026-09-18 客户加固）**：每个请求在 `auth` 之外带 `Appkey` / `Timestamp` / `Signature`（SM2 签名「路径 + 时间戳」），由 skill 脚本在 `common/grmp/client.py` 统一加，模型碰不到私钥。四个头的分工：`auth` 认人（按工号），其余三个认应用、防重放、防改路径。Appkey 与密钥对整个智能体一份（客户拍板），私钥以共享 Secret `grmp-sm2` 注入全体 runtime Pod；kb-import 不调中间件，不给。SM2/SM3 为纯 Python 实现（`common/grmp/sm2.py`，白名单不加包），签名旋钮（userId / 时间戳单位 / 编码 / 格式 / 原文拼法）全部可配。**私钥进用户容器的残余风险**：用户可让模型在 Pod 内读环境变量；拿到私钥也仍需本人令牌才能调用，多出的是「冒充本应用」而非「冒充他人」。要彻底不进用户容器，第二版做签名边车（私钥只挂给边车，skill 请求发 127.0.0.1 由边车补头），skill 代码不用改。
+- **中间件签名校验（2026-09-18 客户加固）**：每个请求在 `auth` 之外带 `Appkey` / `Timestamp` / `Signature`（SM2 签名「路径 + 时间戳」），由 skill 脚本在 `common/grmp/client.py` 统一加，模型碰不到私钥。四个头的分工：这三个认应用、防重放、防改路径；`auth` 认「调用方」。**令牌按不按人签发，客户未明说**——现有材料里数据库侧只见到单一「中间件执行账号」，不要把用户身份寄托在这四个头上。调用人工号由 `common/grmp/userid.py` 按客户给的字段单独发（2026-09-20 客户确认要收，见 `GRMP_USER_ID_HEADER` / `GRMP_USER_ID_PARAM`）。Appkey 与密钥对整个智能体一份（客户拍板），私钥以共享 Secret `grmp-sm2` 注入全体 runtime Pod；kb-import 不调中间件，不给。SM2/SM3 为纯 Python 实现（`common/grmp/sm2.py`，白名单不加包），签名旋钮（userId / 时间戳单位 / 编码 / 格式 / 原文拼法）全部可配。**私钥进用户容器的残余风险**：用户可让模型在 Pod 内读环境变量；拿到私钥也仍需本人令牌才能调用，多出的是「冒充本应用」而非「冒充他人」。要彻底不进用户容器，第二版做签名边车（私钥只挂给边车，skill 请求发 127.0.0.1 由边车补头），skill 代码不用改。
 - 本仓库公开：不放客户名称、地址、令牌；Secret / ConfigMap 只有样例。
 
 ## 12. 验证

@@ -6,14 +6,16 @@
 
 | 变量 | 必填 | 值 | 来源 | 说明 |
 |---|---|---|---|---|
-| `GSDB_USER_ID` | 是 | 工号 | 平台 | 写进 findings 信封与 health 报告的「执行人」 |
+| `GSDB_USER_ID` | 是 | 工号 | 平台 | 写进 findings 信封与 health 报告的「执行人」；配了 `GRMP_USER_ID_*` 时也是发给中间件的那个工号（**同一个来源**，两处取值不一致比不传更糟） |
 | `POD_NAME` | 建议 | Pod 名 | downward API `metadata.name` | `.owner` 独占标记里的持有者；缺省用 `hostname` |
 | `GRMP_API_HOST` | runtime 是 | 中间件主机名或 IP | ConfigMap | 每次启动重新渲染进 `config.yaml`，改地址重建 Pod 即生效 |
 | `GRMP_API_PORT` | 否 | 默认 `8080` | ConfigMap | |
 | `GRMP_AUTH_TOKEN` | runtime 是 | 本人令牌 | Secret，按人 | 只存在环境变量里；镜像与 NAS 都不落盘 |
 | `GRMP_APPKEY` | 中间件开了签名校验时是 | 与中间件约定的应用名（整个智能体一个） | ConfigMap | 2026-09-18 中间件加固：请求头再带 Appkey / Timestamp / Signature；为空 = 不签名 |
-| `GRMP_SM2_PRIVATE_KEY` | 配了 `GRMP_APPKEY` 时是 | 该 Appkey 的 SM2 私钥（64 位 hex 或 PEM），客户签发 | Secret `grmp-sm2`，全体 runtime 共用 | 模板里 `optional: true`；配了 Appkey 没私钥则 Pod 启动即失败并说明。kb-import 不需要 |
+| `GRMP_SIGN_MODE` | 否 | `full`（默认，三个头）/ `headers-only`（只 Appkey + Timestamp） | ConfigMap | 2026-09-20 客户过渡期：密钥审批未下来，先只加 Appkey 与 Timestamp。`headers-only` 时不读私钥。**拿不到私钥不会自动降级**——降级必须显式配置，否则生产上 Secret 挂载失败会悄悄变成不签名 |
+| `GRMP_SM2_PRIVATE_KEY` | `GRMP_APPKEY` 非空且 `GRMP_SIGN_MODE=full` 时是 | 该 Appkey 的 SM2 私钥（64 位 hex 或 PEM），客户签发 | Secret `grmp-sm2`，全体 runtime 共用 | 模板里 `optional: true`；该配而拿不到时 Pod 启动即失败并提示可改用 `headers-only`。kb-import 不需要 |
 | `GRMP_SIGN_USER_ID` / `GRMP_SIGN_TIMESTAMP` / `GRMP_SIGN_FORMAT` / `GRMP_SIGN_ENCODING` / `GRMP_SIGN_PAYLOAD` | 否 | 签名旋钮：userId（默认国标 `1234567812345678`，OpenSSL 默认是空串）、`ms`/`s`、`raw`/`der`、`hex`/`base64`、原文模板（默认 `{path}+{timestamp}`） | ConfigMap | 按中间件口径填；值不认识时建连接即报错 |
+| `GRMP_USER_ID_HEADER` / `GRMP_USER_ID_PARAM` | 中间件要收工号时填其一 | 请求头名（如 `X-User-Id`）/ 报文顶层键名（如 `userId`） | ConfigMap | 2026-09-20 客户确认要显式收调用人工号，但字段名与位置未给，故两处都做成开关。值取自 `GSDB_USER_ID`。两个都为空 = 不发工号（行为与加此特性前一致）。**填了字段名而 `GSDB_USER_ID` 为空时建连接即报错，绝不发空工号** |
 | `MODEL_BASE_URL` | 是 | 模型服务的 OpenAI 兼容地址（含 `/v1`） | ConfigMap | |
 | `MODEL_API_KEY` | 是 | 模型服务密钥 | Secret | 渲染进 `/data/oc/opencode.json`（0600，emptyDir，随 Pod 消失） |
 | `MODEL_ID` | 是 | 模型 id | ConfigMap | opencode 默认模型 = `<MODEL_PROVIDER_NAME>/<MODEL_ID>` |

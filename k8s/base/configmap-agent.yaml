@@ -11,12 +11,23 @@ data:
   # 2026-09-18 中间件加固:请求头带 Appkey / Timestamp / Signature。GRMP_APPKEY 为空 = 不签名。
   # 私钥在 Secret grmp-sm2。下面四个旋钮按中间件口径填,缺省 = 国标 / Java BouncyCastle 常见形态;
   # 注意 OpenSSL 签出来的默认 userId 是空串,客户用什么必须问清(docs/env-contract.md)。
+  # 2026-09-20 客户过渡期:密钥审批周期紧张,先只发 Appkey + Timestamp,不发 Signature。
+  #   过渡期填:GRMP_APPKEY: F-GAUSS-AGENT / GRMP_SIGN_MODE: headers-only / GRMP_SIGN_TIMESTAMP: s
+  #   密钥到位后:GRMP_SIGN_MODE 改回 full,并建 Secret grmp-sm2。
+  # headers-only 时不读私钥,平台不必挂一个用不上的 Secret;full 时拿不到私钥会直接报错,
+  # **不会因为拿不到私钥就自动降级**——降级必须是这里写明的决定。
   GRMP_APPKEY: ""
+  GRMP_SIGN_MODE: full
   GRMP_SIGN_USER_ID: "1234567812345678"
   GRMP_SIGN_TIMESTAMP: ms
   GRMP_SIGN_FORMAT: raw
   GRMP_SIGN_ENCODING: hex
   GRMP_SIGN_PAYLOAD: "{path}+{timestamp}"
+  # 2026-09-20 客户确认中间件要显式收调用人工号。工号取自 GSDB_USER_ID(模板按 Pod 注入),
+  # 这里只说放哪儿:请求头名 / 报文顶层键名,按客户给的字段填,两个都留空 = 不发工号。
+  # 填了字段名而 GSDB_USER_ID 为空时,建连接就报错——不会悄悄发一个空工号。
+  GRMP_USER_ID_HEADER: ""
+  GRMP_USER_ID_PARAM: ""
   MODEL_BASE_URL: http://llm.example.internal/v1
   MODEL_ID: qwen3-32b
   MODEL_PROVIDER_NAME: model-service

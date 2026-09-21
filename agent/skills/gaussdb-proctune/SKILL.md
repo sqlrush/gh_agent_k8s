@@ -63,6 +63,8 @@ metadata:
    `tune-cursor` 对每个只读游标产 `## Cursor <name>`、`## Variable Substitution`、`## SQL`、`## Execution Plan`、`## Verified Index Candidates`，并把不合规游标列进 `## Skipped Cursors`。
    **不要向用户索要游标变量的值。** 需要精确选择性时用 `--bind <var=value>`（命名式，可重复）。
 
+2b. **系统自带的过程 —— 直接结束。** 若输出是「# Proc Tune — 系统自带过程,按策略跳过」（脚本**正常退出**，不是报错），说明目标过程在 GaussDB/openGauss 自带的 schema 下（`pg_catalog`、`dbe_perf`、`pkg_service`、`snapshot`、`dbe_*`、`sys` 等）。**到此为止**：把跳过的原因和过程名如实转达给用户，不要重跑、不要换 `tune-cursor` 再试、不要绕开脚本自己读源码分析，也不要给出任何索引/改写/参数建议。可以提示排查方向在调用频率与系统整体负载，但那不属于本技能的调优输出。用户想调优自己的过程时，请他给出**用户 schema 下**的过程名。
+
 3. **合成值提醒。** `## Variable Substitution` 一节说明游标变量被按声明类型填了合成值——计划「形状」可靠，行数/选择性是近似值。把这点说清楚，并提示可用 `--bind` 传真实值做精确验证。
 
 4. **加载方法论。** 阅读 `{baseDir}/references/proc-tuning-methodology.md`，对照证据各节按其检查清单分析。涉及 OpenGauss 内幕（嵌套语句统计、子事务成本、A 兼容游标语义）查 `{baseDir}/references/proc-internals.md`。**游标 SELECT 的优化等同单 SQL**，按需查 GaussDB 专项知识：CBO 与诊断 → `{baseDir}/references/gaussdb-cbo-and-diagnosis.md`；改写候选 → `{baseDir}/references/gaussdb-rewrite-patterns.md`；A 兼容 → `{baseDir}/references/gaussdb-a-compat-gotchas.md`；分区/分布 → `{baseDir}/references/gaussdb-partition-distribution.md`。
@@ -102,6 +104,7 @@ metadata:
 
 ## 规则
 
+- **只调优用户自己的过程；系统自带的不调优（策略）。** 目标过程在 GaussDB/openGauss 自带的 schema 下（`pg_catalog`、`dbe_perf`、`pkg_service`、`snapshot`、`information_schema`、`dbe_*`、`pkg_*`、`sys`、`cstore` 等）时，脚本会在采集前识别并输出「系统自带过程,按策略跳过」后**正常退出**（不是报错）。见到该输出就如实转达并结束：不要绕过脚本手工读源码、不要重试、不要给系统过程任何索引/改写/参数建议。系统过程的实现由内核维护，用户既不能也不应改写它；这类慢通常反映调用频率或系统整体压力，应从调用方与负载入手。用户坚持要分析时也只解释这一策略，不产出优化建议。`public` 下的过程**算用户的**，照常分析。
 - 自动改写**仅限只读游标 SELECT**，且必须有 `verify.py` ACCEPTED 背书。任何会写数据的逻辑（DML、循环结构、游标 FOR UPDATE）**只给建议，绝不当成确定优化呈现**。
 - 一次 `proctune.py collect` + 一次 `proctune.py tune-cursor` 产出整个证据包。绝不中途停下来索要变量值。
 - 不要编造统计信息：每个结论都要引用脚本输出里的某个数字。`## Runtime Attribution` 不可用时，**不要**用「假设每游标 N 行」之类估算冒充证据——如实声明运行时数据缺失并降级为纯静态结构分析。

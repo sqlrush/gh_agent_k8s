@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import http.client
+import time
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 # 逐跳头:按 RFC 7230 不能转发。Content-Length 也要去掉 —— 我们按块转发,长度会变。
@@ -57,6 +58,10 @@ def response_headers(raw: Iterable[Tuple[str, str]]) -> List[Tuple[str, str]]:
     return [(k, v) for k, v in raw if k.lower() not in _HOP_BY_HOP]
 
 
+CONNECT_RETRIES = 4
+CONNECT_BACKOFF = 1.0
+
+
 class Upstream:
     """一次转发。connect_timeout 有值,**读响应不设超时**(SSE 永不结束)。"""
 
@@ -67,24 +72,50 @@ class Upstream:
 
     def send(self, method: str, path: str, headers: List[Tuple[str, str]],
              body: Optional[bytes]) -> http.client.HTTPResponse:
-        conn = http.client.HTTPConnection(self.host, self.port, timeout=self.connect_timeout)
-        conn.request(method, path, body=body, headers=dict(headers))
-        resp = conn.getresponse()
-        # 拿到响应头之后把超时摘掉:后面读的可能是一条挂几小时的 SSE 流。
-        if conn.sock is not None:
-            conn.sock.settimeout(None)
-        return resp
+        """**第一次连接要重试。**
+
+        Pod 报就绪(availableReplicas=1)和「Service 名字能解析、kube-proxy 规则已下发」
+        不是同一时刻。新用户第一次进来时,Deployment 可能 3 秒就可用,而 CoreDNS 还没
+        收到新 Service —— 这时直接回 502,用户看到的是「无法连接到您的环境」,再刷一次
+        就好了。与其让用户去刷,不如在这里等几秒(2026-09-21 真跑时就是这么 502 的)。
+        只对**连接阶段**重试:请求已经发出去就不能重发(可能不是幂等的)。
+        """
+        last = None
+        for attempt in range(CONNECT_RETRIES):
+            conn = http.client.HTTPConnection(self.host, self.port, timeout=self.connect_timeout)
+            try:
+                conn.connect()
+            except OSError as exc:
+                last = exc
+                conn.close()
+                if attempt == CONNECT_RETRIES - 1:
+                    break
+                time.sleep(CONNECT_BACKOFF * (attempt + 1))
+                continue
+            conn.request(method, path, body=body, headers=dict(headers))
+            resp = conn.getresponse()
+            # 拿到响应头之后把超时摘掉:后面读的可能是一条挂几小时的 SSE 流。
+            if conn.sock is not None:
+                conn.sock.settimeout(None)
+            return resp
+        raise OSError("连不上 %s:%s(重试 %d 次):%s" % (self.host, self.port, CONNECT_RETRIES, last))
 
 
 def pump(resp: http.client.HTTPResponse, write: Callable[[bytes], None],
          flush: Callable[[], None], on_bytes: Optional[Callable[[int], None]] = None) -> int:
     """按块转发响应体,**每块都 flush**。返回转发的字节数。
 
-    不 flush 的话 SSE 的心跳会被攒在缓冲里,页面表现为一直转圈。
+    两处都必须对,少一处 SSE 就废:
+
+    ① **必须用 read1 而不是 read。** `http.client` 的 `read(n)` 在分块响应上会阻塞到
+       攒满 n 字节**或流结束**;SSE 一条事件才几十字节,于是它一路等到上游结束 ——
+       心跳全被攒住,页面一直转圈。`read1` 只取底层一次读到的东西,有多少给多少。
+       (2026-09-21:第一版就是写成 read(CHUNK),被裸 socket 的时序测试抓出来。)
+    ② **每块都 flush。** 不 flush 的话攒在本层的发送缓冲里,效果和 ① 一样。
     """
     total = 0
     while True:
-        chunk = resp.read(CHUNK)
+        chunk = resp.read1(CHUNK)
         if not chunk:
             break
         write(chunk)

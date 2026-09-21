@@ -37,6 +37,13 @@ KIND_RUNTIME = "runtime"
 KIND_KB_IMPORT = "kb-import"
 
 
+class PrerequisiteMissing(Exception):
+    """平台该先准备好的东西缺了(按人签发的 GRMP 令牌 Secret)。
+
+    与「启动慢」严格区分:这是配置缺失,等下去也不会好,必须原样告诉运维缺的是什么。
+    """
+
+
 @dataclass(frozen=True)
 class PodState:
     user_id: str
@@ -91,6 +98,23 @@ class Manager:
 
     def kinds_for(self, kb_admin: bool) -> List[str]:
         return [KIND_RUNTIME] + ([KIND_KB_IMPORT] if kb_admin else [])
+
+    def require_prerequisites(self, user_id: str, kb_admin: bool) -> None:
+        """建 Pod 之前先确认平台该准备的东西在不在,**不在就当场说清楚是什么不在**。
+
+        runtime 要本人的 GRMP 令牌 Secret(`grmp-token-<工号>`)。网关**不创建**它 ——
+        令牌由客户的中间件按人签发,网关不可能知道。但如果缺了它,Pod 会一直起不来,
+        而网关只会报「120 秒内未就绪」,把人往「启动慢 / 镜像大」的方向带
+        (2026-09-21 真跑时就是这样)。所以在这里先查、先报。
+        """
+        if KIND_RUNTIME not in self.kinds_for(kb_admin):
+            return
+        name = "grmp-token-%s" % user_id
+        if self.kube.get(CORE, "secrets", name) is None:
+            raise PrerequisiteMissing(
+                "缺 Secret %s —— 这是该用户本人的 GRMP 中间件令牌,由平台在开通时创建,"
+                "网关不创建它(令牌按人签发,网关无从得知)。"
+                "没有它 runtime Pod 起不来。请先创建再让该用户登录。" % name)
 
     def ensure(self, user_id: str, kb_admin: bool) -> str:
         """幂等:建齐该有的对象,返回这个人的 Pod 口令。"""

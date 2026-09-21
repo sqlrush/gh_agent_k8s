@@ -5,7 +5,9 @@ resources:
   - nas-pvc.yaml
   - configmap-agent.yaml
   - configmap-agent-roles.yaml
+  - configmap-gateway.yaml
   - networkpolicy.yaml
   - vectordb.yaml
-# secret-model.example.yaml / secret-grmp-sm2.example.yaml / secret-vectordb.example.yaml 都是样例;
-# 平台用 kubectl create secret 创建真实的 model-api / grmp-sm2 / vectordb-auth
+  - gateway.yaml
+# 四个 *.example.yaml 都是样例;平台用 kubectl create secret 创建真实的
+# model-api / grmp-sm2 / vectordb-auth / gateway-auth

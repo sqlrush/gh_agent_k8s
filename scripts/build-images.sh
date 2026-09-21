@@ -19,4 +19,8 @@ for T in runtime kb-import; do
   # shellcheck disable=SC2086
   docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile" --target "$T" -t "gaussdb-agent-$T:$TAG" "$HERE"
 done
-echo "built: gaussdb-agent-runtime:$TAG gaussdb-agent-kb-import:$TAG"
+# 网关是独立 Dockerfile:它不带 skill、不装 psycopg2、也不要 opencode 二进制,
+# 跟两个用户镜像没有可复用的层,放一起只会让用户镜像多背 100 MB。
+# shellcheck disable=SC2086
+docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile.gateway" -t "gaussdb-agent-gateway:$TAG" "$HERE"
+echo "built: gaussdb-agent-runtime:$TAG gaussdb-agent-kb-import:$TAG gaussdb-agent-gateway:$TAG"

@@ -145,3 +145,31 @@ def test_throttle_is_per_user():
     m.touch("u1234", now=1000.0)
     m.touch("u5678", now=1001.0)
     assert len(k.patched) == 2, "一个人的活动不能把另一个人的记录压掉"
+
+
+# --- 前置条件:按人签发的 GRMP 令牌 --------------------------------------------
+
+def test_missing_grmp_token_secret_is_named_explicitly():
+    """**2026-09-21 真跑时踩到。**
+
+    runtime 要本人的 grmp-token-<工号> Secret,那是客户中间件按人签发的,网关不创建它。
+    缺了它 Pod 永远起不来,而网关原来只报「120 秒内未就绪」—— 把人往「启动慢 / 镜像大」
+    的方向带,真原因(少一个 Secret)没人看得到。
+    """
+    k = FakeKube()
+    with pytest.raises(pods.PrerequisiteMissing) as exc:
+        _mgr(k).require_prerequisites("u1234", kb_admin=False)
+    msg = str(exc.value)
+    assert "grmp-token-u1234" in msg, "要点名缺的是哪个 Secret"
+    assert "网关不创建" in msg, "要说明为什么不是网关的责任,否则运维会去找网关的 bug"
+
+
+def test_prerequisites_pass_when_the_token_exists():
+    k = FakeKube({("secrets", "grmp-token-u1234"): {"data": {"GRMP_AUTH_TOKEN": "x"}}})
+    _mgr(k).require_prerequisites("u1234", kb_admin=False)      # 不抛就是通过
+
+
+def test_kb_admin_only_user_needs_no_grmp_token():
+    """kb-import 不调中间件,所以没有令牌也能开 —— 但 kinds_for 里总有 runtime,
+    所以这条实际上等价于「只要建 runtime 就必须有令牌」。这里钉住语义别被改坏。"""
+    assert pods.KIND_RUNTIME in _mgr(FakeKube()).kinds_for(kb_admin=True)

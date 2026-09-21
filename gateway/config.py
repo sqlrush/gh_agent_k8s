@@ -18,6 +18,13 @@ DEFAULT_USER_HEADER = "X-Agent-User"
 DEFAULT_ROLES_HEADER = "X-Agent-Roles"
 DEFAULT_PORT = 8080
 
+# 监听端口的变量名**刻意不叫 GATEWAY_PORT**:k8s 会给命名空间里每个 Service 自动注入
+# 一组发现变量 `<SVCNAME>_PORT` / `<SVCNAME>_SERVICE_PORT` / `<SVCNAME>_SERVICE_HOST`。
+# Service 叫 gateway,于是 GATEWAY_PORT 被注入成 `tcp://10.x.x.x:80` —— 2026-09-21 真部署
+# 时网关因此拒绝启动(fail closed 在这里救了场:它没有悄悄用错端口)。
+# Pod 里还额外设了 enableServiceLinks: false 把那组变量整个关掉,这里是第二道。
+ENV_PORT = "GATEWAY_LISTEN_PORT"
+
 
 class ConfigError(Exception):
     """配置不完整或不合法。启动时抛,不要留到运行时。"""
@@ -93,7 +100,7 @@ def load(env: Mapping[str, str]) -> Config:
     return Config(
         namespace=ns, image_tag=tag,
         pull_policy=(env.get("GATEWAY_PULL_POLICY") or "IfNotPresent").strip(),
-        port=_int(env, "GATEWAY_PORT", DEFAULT_PORT, minimum=1),
+        port=_int(env, ENV_PORT, DEFAULT_PORT, minimum=1),
         user_header=(env.get("GATEWAY_USER_HEADER") or DEFAULT_USER_HEADER).strip(),
         roles_header=(env.get("GATEWAY_ROLES_HEADER") or DEFAULT_ROLES_HEADER).strip(),
         trust_secret=secret, trust_cidrs=cidrs,

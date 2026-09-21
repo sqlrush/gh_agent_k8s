@@ -1,0 +1,32 @@
+# 网关的非密配置。密的两样(信任密钥、运维密钥)在 Secret gateway-auth 里。
+#
+# **USER_IMAGE_TAG 是升级开关。** 网关按它给用户建 Pod;改这个值 + 重启网关 =
+# 下一次登录的人用新镜像,已经在用的人不受影响(他们的 Pod 不动)。
+# 故意不给默认值:默认成 latest 会让「升级」悄悄发生在某个人下次登录的时候。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: gaussdb-agent
+data:
+  USER_IMAGE_TAG: "agent-v0.9.3-oc1.18.27"
+  PULL_POLICY: "IfNotPresent"
+
+  # 上游 SSO / WAF 把工号放在哪个请求头里。按客户实际填。
+  USER_HEADER: "X-Agent-User"
+  # 角色/组,逗号分隔。为空时网关退回读 ConfigMap agent-roles 判定谁是知识库管理员。
+  ROLES_HEADER: "X-Agent-Roles"
+  # 哪些角色值算「知识库管理员」(会多建一个 kb-import Pod)。逗号分隔,大小写不敏感。
+  KB_ADMIN_ROLES: "kb-admin"
+
+  # 回收模式:
+  #   scale   缩到 0 副本,重连再拉起 —— 省掉镜像拉取与冷启动,代价是占着 Deployment(默认)
+  #   delete  删 Deployment/Service/Secret,下次登录重建。NAS 数据在,不需要「还原」
+  REAP_MODE: "scale"
+  # 闲置多久算没人用。**下限 300 秒**(gateway/config.py 强制):模型跑长任务时
+  # 几分钟不产生流量是正常的,配太短会在用户等结果时把 Pod 收掉。
+  IDLE_SECONDS: "1800"
+
+  # 允许携带工号头的来源网段(上游 SSO / Ingress 的地址),逗号分隔。
+  # 与 Secret 里的 TRUST_SECRET 两道门任一即可,但**两者不能都为空** —— 都空网关拒绝启动。
+  TRUST_CIDRS: ""

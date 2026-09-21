@@ -31,6 +31,12 @@ COPY gateway/ /opt/gateway/gateway/
 COPY k8s/templates/ /opt/gateway/templates/
 RUN chown -R gateway:gateway /opt/gateway
 
+# image.source 让 GHCR 把镜像关联到仓库,关联后镜像继承仓库的访问权限 ——
+# 授权就变成「把人加成仓库只读协作者」,不用另发令牌。
+LABEL org.opencontainers.image.title="gaussdb-agent-gateway" \
+      org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \
+      org.opencontainers.image.description="接入网关:认身份、按工号建/收 Pod、反向代理"
+
 USER gateway
 WORKDIR /opt/gateway
 ENV GATEWAY_TEMPLATES=/opt/gateway/templates PYTHONPATH=/opt/gateway

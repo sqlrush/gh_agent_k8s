@@ -34,6 +34,9 @@ spec:
             # 同理:共享 ConfigMap 里的 GRMP_APPKEY 会让 podctl 要求 SM2 私钥,而本 Pod 不调中间件、也不给它私钥——
             # 显式置空,否则平台一填 Appkey 管理员 Pod 就起不来(2026-09-18 e2e 抓到的)
             - {name: GRMP_APPKEY, value: ""}
+            # 知识库向量库:**读写**用户(建表、写索引)。optional:没建 vectordb-auth 时退回文件模式
+            - {name: KB_PG_USER, value: kb_rw}
+            - {name: KB_PG_PASSWORD, valueFrom: {secretKeyRef: {name: vectordb-auth, key: KB_RW, optional: true}}}
           envFrom:
             - configMapRef: {name: agent-config}
           volumeMounts:

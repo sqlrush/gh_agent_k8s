@@ -33,6 +33,10 @@ spec:
             # 2026-09-18 中间件加固:SM2 私钥整个应用一把,由共享 Secret grmp-sm2 注入(Appkey 与签名旋钮在 agent-config 里)。
             # optional:没建这个 Secret 时 Pod 照常起、请求不带签名——中间件还没开校验的环境用得上
             - {name: GRMP_SM2_PRIVATE_KEY, valueFrom: {secretKeyRef: {name: grmp-sm2, key: GRMP_SM2_PRIVATE_KEY, optional: true}}}
+            # 知识库向量库:**只读**用户。runtime 对 kb/ 是只读挂载,这里给读写用户就等于绕开了它。
+            # optional:没建 vectordb-auth 时 Pod 照常起,知识库退回文件模式(kb.yaml 里也别配 store.pg)
+            - {name: KB_PG_USER, value: kb_ro}
+            - {name: KB_PG_PASSWORD, valueFrom: {secretKeyRef: {name: vectordb-auth, key: KB_RO, optional: true}}}
           envFrom:
             - configMapRef: {name: agent-config}
           volumeMounts:

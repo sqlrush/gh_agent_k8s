@@ -1,0 +1,77 @@
+# 知识库向量存储:openGauss 7(DataVec)。全体用户共用一套,不是按工号一个。
+#
+# 为什么用 openGauss 7 而不是 PG+pgvector:`vector` 类型是 7.0 内核自带的,不用 CREATE EXTENSION
+# (已在 opengauss/opengauss:7.0.0-RC1 上实测:vector 类型在、`<=>` 余弦距离算子可用)。
+# 客户现场若已有高斯 7 实例,可以不部署本文件,直接把 kb.yaml 的 store.pg 指过去。
+#
+# 为什么是 StatefulSet:要稳定的存储与稳定的网络标识。向量索引重建一次代价不小,
+# Pod 换名字换盘都会让它重来。
+#
+# **数据是派生的**:真相在 NAS 的 <kb>/ 目录,这里的表随时能用 `kb.py index` 重建。
+# 所以这个 PVC 丢了不算数据事故,但重建要跑一遍全量 embedding,按语料量算时间。
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectordb
+  namespace: gaussdb-agent
+  labels: {app: vectordb}
+spec:
+  clusterIP: None            # headless:StatefulSet 的稳定 DNS vectordb-0.vectordb
+  selector: {app: vectordb}
+  ports:
+    - {name: postgres, port: 5432, targetPort: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vectordb
+  namespace: gaussdb-agent
+spec:
+  serviceName: vectordb
+  replicas: 1                # 单实例。要高可用请接客户现有的高斯集群,别在这里堆副本
+  selector:
+    matchLabels: {app: vectordb}
+  template:
+    metadata:
+      labels: {app: vectordb}
+    spec:
+      securityContext:
+        fsGroup: 1000        # 数据盘要让容器里的 omm 写得动
+      containers:
+        - name: opengauss
+          image: opengauss/opengauss:7.0.0-RC1
+          imagePullPolicy: IfNotPresent
+          env:
+            # 镜像用这个变量初始化超级用户(gaussdb)口令。口令只在 Secret 里,不进清单。
+            - {name: GS_PASSWORD, valueFrom: {secretKeyRef: {name: vectordb-auth, key: GS_PASSWORD}}}
+            - {name: GS_PORT, value: "5432"}
+            - {name: GS_DB, value: kb}
+          ports:
+            - {containerPort: 5432, name: postgres}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/opengauss}
+          # 探针用真查询:进程起来了不等于能接连接,openGauss 首次初始化要几十秒。
+          # **必须 `su - omm`**:gsql 只在 omm 的 PATH 与环境里,容器主进程是 root,
+          # 直接跑是 127(command not found),而 `bash -lc` 会拿不到 $GAUSSLOG 报一串
+          # 看不懂的 WARNING 然后失败 —— 两种写法都会让 Pod 永远 not ready。
+          readinessProbe:
+            exec:
+              command: ["bash", "-c", "su - omm -c \"gsql -d postgres -p 5432 -Atc 'select 1'\" >/dev/null 2>&1"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30       # 首次初始化慢,给足 5 分钟
+          livenessProbe:
+            exec:
+              command: ["bash", "-c", "su - omm -c \"gsql -d postgres -p 5432 -Atc 'select 1'\" >/dev/null 2>&1"]
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "2", memory: 4Gi}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 20Gi}}

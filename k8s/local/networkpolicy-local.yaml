@@ -1,7 +1,10 @@
 # Mac 本地覆盖:中间件 mock 在宿主上,Pod 经 OrbStack 的宿主网关 0.250.250.254 访问 8781(scripts/tcp-forward.py);
-# 模型服务用真实的 HTTPS 端点(本地端到端),所以放行 443。
+# 模型服务用真实的 HTTPS 端点(本地端到端),所以放行 443;embedding 用宿主上的 Ollama(11434)。
 # 只放行这些——8779(mock 本身)与其他端口仍被挡,verify-cluster.sh 用这一点验证策略确实在生效。
 # 客户环境不要用这个文件,用 base 里的地址段。
+#
+# **这个文件整份覆盖 base 的同名策略**(kustomize 按 name 合并):base 里新加的放行条目
+# 必须在这里也加一份,否则本地就是连不通而 base 看着是对的 —— 2026-09-21 加向量库时踩过。
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -23,6 +26,10 @@ spec:
       ports: [{port: 8781, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS);客户环境换成实际地址段
       ports: [{port: 443, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: vectordb}}}]   # 知识库向量库(只读用户)
+      ports: [{port: 5432, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:runtime 也要算**查询**向量
+      ports: [{port: 11434, protocol: TCP}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -43,3 +50,7 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS)
       ports: [{port: 443, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: vectordb}}}]   # 知识库向量库(读写用户)
+      ports: [{port: 5432, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:索引时算文档向量
+      ports: [{port: 11434, protocol: TCP}]

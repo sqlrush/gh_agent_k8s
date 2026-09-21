@@ -6,4 +6,6 @@ resources:
   - configmap-agent.yaml
   - configmap-agent-roles.yaml
   - networkpolicy.yaml
-# secret-model.example.yaml 是样例;平台用 kubectl create secret 创建真实的 model-api
+  - vectordb.yaml
+# secret-model.example.yaml / secret-grmp-sm2.example.yaml / secret-vectordb.example.yaml 都是样例;
+# 平台用 kubectl create secret 创建真实的 model-api / grmp-sm2 / vectordb-auth

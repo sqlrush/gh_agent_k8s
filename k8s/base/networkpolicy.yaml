@@ -1,5 +1,6 @@
-# runtime:入站只放行网关(标签 app=agent-gateway,或命名空间 agent-gateway);出站只放行 DNS、中间件、模型服务。
-# kb-import:入站同上;出站只放行 DNS 与模型服务(不接触任何数据库)。
+# runtime:入站只放行网关(标签 app=agent-gateway,或命名空间 agent-gateway);出站只放行 DNS、中间件、模型服务、向量库。
+# kb-import:入站同上;出站只放行 DNS、模型服务、向量库(不接触任何**业务**数据库)。
+# 向量库(app=vectordb):入站只放行上面两类 Pod,不对外。
 # 中间件与模型服务的地址段是占位(10.0.0.0/8),平台按实际填写。CNI 必须支持 NetworkPolicy(Calico / Cilium);
 # OrbStack 本地集群不强制执行,只做清单校验。
 apiVersion: networking.k8s.io/v1
@@ -23,6 +24,8 @@ spec:
       ports: [{port: 8080, protocol: TCP}]
     - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 模型服务:平台改成实际地址段与端口
       ports: [{port: 443, protocol: TCP}, {port: 80, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: vectordb}}}]    # 知识库向量库(只读用户,见 secret-vectordb)
+      ports: [{port: 5432, protocol: TCP}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -43,3 +46,25 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 模型服务:平台改成实际地址段与端口
       ports: [{port: 443, protocol: TCP}, {port: 80, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: vectordb}}}]    # 知识库向量库(读写用户)
+      ports: [{port: 5432, protocol: TCP}]
+---
+# 向量库只对这两类 Pod 开放。它不需要出站(embedding 是 Pod 侧算好再写进来的),
+# 所以 egress 只留 DNS——漏了这条会让「库被当跳板」这件事变得可能。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vectordb-policy
+  namespace: gaussdb-agent
+spec:
+  podSelector:
+    matchLabels: {app: vectordb}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: gaussdb-agent, role: runtime}}
+        - podSelector: {matchLabels: {app: gaussdb-agent, role: kb-import}}
+      ports: [{port: 5432, protocol: TCP}]
+  egress:
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]

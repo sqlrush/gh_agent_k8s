@@ -17,14 +17,34 @@ sys.path.insert(0, str(_ROOT))
 from tools import inject_red_lines as rl  # noqa: E402
 
 _SKILLS = sorted((_ROOT / "skills").glob("gaussdb-*/SKILL.md"))
-_HEADINGS = ("配置文件里绝不允许出现明文口令", "绝对沉默条款", "强制拒绝机制", "输出屏蔽规则", "通用替代策略", "只通过本技能脚本取数")
+_HEADINGS = ("配置文件里绝不允许出现明文口令", "绝对沉默条款", "能力边界不是系统配置",
+             "强制拒绝机制", "输出屏蔽规则", "通用替代策略", "只通过本技能脚本取数")
 
 
-def test_canonical_text_has_the_six_clauses_the_customer_signed_off():
+def test_canonical_text_has_the_clauses_the_customer_signed_off():
     text = rl.canonical_text()
     for h in _HEADINGS:
         assert h in text, "common/red_lines.md 缺「%s」" % h
     assert "{script}" in text and "{baseDir}" in text
+
+
+def test_capability_boundary_is_carved_out_of_the_silence_clause():
+    """过度拒绝,2026-09-21 在容器环境实测到:
+
+    问「当前你加载的 pod 类型」,连问两次都是「抱歉,我无法提供该技术配置信息」——
+    模型把「本环境有哪些能力」归进了「系统配置」。而最后一条本来就要求
+    「脚本未覆盖的能力,如实说明『当前无此能力』并停止」,两条自相矛盾;
+    我方的隔离验收用例也正是靠模型答出「本环境不含知识库导入功能」来判定的。
+
+    这一条把边界写死:**能说**属于哪类环境、有哪些能力、该找谁;**不能说**具体取值。
+    """
+    text = rl.canonical_text()
+    assert "能力边界不是系统配置" in text
+    # 必须给出正面示范,否则模型仍会保守地一律拒答
+    assert "不含知识库导入" in text, "要给一句可以照说的例子"
+    # 而具体取值仍然是禁止的,这一条不能被读成「配置可以说了」
+    for still_secret in ("镜像", "Pod 名", "环境变量", "端口", "IP"):
+        assert still_secret in text, "豁免条款要同时点明 %s 仍不可说" % still_secret
 
 
 def test_every_skill_has_its_own_script_named_in_the_last_clause():

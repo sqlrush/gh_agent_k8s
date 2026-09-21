@@ -47,8 +47,16 @@ def test_capability_boundary_is_carved_out_of_the_silence_clause():
         assert still_secret in text, "豁免条款要同时点明 %s 仍不可说" % still_secret
 
 
+def test_every_skill_directory_has_a_skill_md():
+    """原来写死「19 个」—— 容器线 19 个、非容器线 18 个(没有独立的 kb-import),
+    同一份测试在两个仓之间搬就会红。真正要守的是「没有哪个 skill 目录丢了 SKILL.md」,
+    跟总数多少无关。"""
+    dirs = sorted(p.name for p in (_ROOT / "skills").glob("gaussdb-*") if p.is_dir())
+    have = sorted(p.parent.name for p in _SKILLS)
+    assert dirs and have == dirs, "这些 skill 目录没有 SKILL.md:%s" % (set(dirs) - set(have))
+
+
 def test_every_skill_has_its_own_script_named_in_the_last_clause():
-    assert len(_SKILLS) == 19
     for path in _SKILLS:
         script = rl.main_script(path.parent)
         assert (path.parent / "scripts" / script).is_file(), "%s 的主脚本 %s 不存在" % (path.parent.name, script)

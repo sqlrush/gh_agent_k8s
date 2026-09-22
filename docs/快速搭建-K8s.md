@@ -253,4 +253,5 @@ kubectl -n gaussdb-agent logs -l app=agent-gateway --tail=30
 
 把这两条的完整输出发我方。
 
-详细排查见 `命令卡-测试环境搭建.md`，架构与 SSO 对接见 `接入手册-SSO与K8s.md`。
+详细排查见 `命令卡-测试环境搭建.md`，架构与 SSO 对接见 `接入手册-SSO与K8s.md`，
+各团队分工与验收见 `对接清单-各方要做什么.md`，参数逐项说明见 `参数手册.md`。

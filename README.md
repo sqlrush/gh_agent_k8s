@@ -41,8 +41,23 @@ agent/       技能代码(common/ skills/ scripts/ tools/ tests/ …),来自 gh_
 docker/      Dockerfile(base → runtime / kb-import)、entrypoint.sh、podctl.py(+tests)、opencode.jsonc.tmpl
 k8s/         base/(命名空间、NAS PVC、ConfigMap、角色表、NetworkPolicy) templates/(按工号渲染的 runtime / kb-import) local/(Mac 专用覆盖)
 scripts/     vendor-from-gh-skill.sh、build-images.sh、smoke-image.sh(+tcp-forward.py)、k8s/provision.py(网关建 Pod 的参考实现)、k8s/verify-cluster.sh
-docs/        specs/ 设计、plans/ 计划、env-contract.md 环境契约、k8s-deploy.md 平台部署手册
+docs/        交付文档(见下) + 内部件:specs/ 设计、plans/ 计划、security/ 扫描报告、env-contract.md 环境契约
+gateway/     接入网关(认工号、按工号建/收容器、反向代理),第四个镜像
 ```
+
+## 交付文档
+
+`docs/` 下这几份会随交付包发出去（`specs/`、`plans/`、`security/` 不发）：
+
+| 文档 | 给谁 | 内容 |
+|---|---|---|
+| `快速搭建-K8s.md` | 实施 | 最简路径，每条命令带预期输出 |
+| `命令卡-测试环境搭建.md` | 实施 | 逐条操作 + 排查，不要求懂 K8s |
+| `部署手册-从零到上线.md` | 实施 / 运维 | 十个阶段，从拉镜像到上线检查表 |
+| `接入手册-SSO与K8s.md` | 架构 / 安全 | 架构、隔离三层、生命周期、待确认事项 |
+| `对接清单-各方要做什么.md` | 各团队 | 按团队分节的接口契约与验收，可单独转发 |
+| `参数手册.md` | 运维 | 全部参数、默认值、下限、配错的后果 |
+| `功能清单-容器版.md` | 决策 | 相对非容器版新增的能力，与三条如实说明 |
 
 ## 构建与冒烟（Mac + OrbStack）
 

@@ -57,13 +57,17 @@ done
 # 清单与文档
 # **文档清单不要再写死。** 写死的后果是:加了新文档却忘了加进这一行,客户拿到的包里
 # 没有最重要的那两份,而打包脚本一声不响地成功了。改成整个 docs/ 目录打进去,
-# 只排除内部用的(plans/ 是我们的实施计划,security/ 是扫描报告)。
+# 只排除内部用的:
+#   plans/     我们的实施计划
+#   security/  扫描报告
+#   specs/     设计 spec —— 里面有备选方案、退路、残余风险、未定项与决策过程。
+#              交付文档不写我们的讨论过程,这一份从头到尾都是讨论过程。
 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
-    --exclude='docs/plans' --exclude='docs/security' \
+    --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' \
     k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")
 cat >> "$DIST/MANIFEST.txt" <<EOF
-  → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/(契约、部署手册、交付手册、设计)
+  → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/(快速搭建、命令卡、部署手册、接入手册、对接清单、参数手册、功能清单)
 
 导入镜像:
   docker:      gunzip -c $PKG-<arch>.tar.gz | docker load

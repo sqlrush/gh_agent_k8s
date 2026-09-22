@@ -69,11 +69,15 @@ def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
     body = _PACKAGER.read_text(encoding="utf-8")
     assert re.search(r"tar czf .*-k8s\.tar\.gz.*\\\n(.*\\\n)*\s*k8s docs\s*$", body, re.MULTILINE), \
         "k8s 包应该整个打 docs/,不要再列具体文件名"
-    for internal in ("docs/plans", "docs/security"):
+    # specs/ 里是备选方案、退路、残余风险与未定项 —— 交付文档不写我们的讨论过程,
+    # 而那一份从头到尾都是讨论过程。它随包发出去过,发现时补上这条守卫。
+    for internal in ("docs/plans", "docs/security", "docs/specs"):
         assert "--exclude='%s'" % internal in body, "内部文档 %s 应该排除在交付包外" % internal
 
 
 def test_customer_facing_docs_exist_where_the_package_expects_them():
-    """两份手册必须在 docs/ 下 —— 它们是客户照着做的那两份。"""
-    for name in ("接入手册-SSO与K8s.md", "部署手册-从零到上线.md"):
+    """客户照着做的那几份必须都在 docs/ 下。"""
+    for name in ("接入手册-SSO与K8s.md", "部署手册-从零到上线.md",
+                 "命令卡-测试环境搭建.md", "快速搭建-K8s.md",
+                 "参数手册.md", "对接清单-各方要做什么.md", "功能清单-容器版.md"):
         assert (_ROOT / "docs" / name).is_file(), "缺 docs/%s" % name

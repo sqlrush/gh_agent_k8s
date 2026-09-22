@@ -133,6 +133,13 @@ def test_runtime_exposes_reports_port_and_policies_allow_it():
     assert "4097" in gw_pol.split("egress:")[1], "gateway-policy 出站没到 4097"
     ki = (_ROOT / "k8s" / "templates" / "kb-import.yaml").read_text(encoding="utf-8")
     assert "4097" not in ki, "kb-import 没有大盘,不开报告端口"
+    # 本地覆盖层按名字**整个替换** runtime-policy 与 gateway-policy —— base 加了端口它不会跟着有。
+    # 2026-09-22 e2e 前发现:base 改完本地 apply 后网关照样到不了 4097。
+    lp = (_ROOT / "k8s" / "local" / "networkpolicy-local.yaml").read_text(encoding="utf-8")
+    l_runtime = lp[lp.index("name: runtime-policy"):lp.index("name: kb-import-policy")]
+    assert "4097" in l_runtime.split("egress:")[0], "local 覆盖层的 runtime-policy 入站没放行 4097"
+    l_gw = lp[lp.index("name: gateway-policy"):]
+    assert "4097" in l_gw.split("egress:")[1], "local 覆盖层的 gateway-policy 出站没到 4097"
 
 
 def test_gateway_rbac_has_no_exec():

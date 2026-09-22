@@ -75,6 +75,26 @@ def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
         assert "--exclude='%s'" % internal in body, "内部文档 %s 应该排除在交付包外" % internal
 
 
+def test_deploy_doc_handles_the_arch_suffix_the_packager_actually_writes():
+    """**离线包里的标签带不带 `-<arch>` 后缀,取决于在哪台机器上打的包。**
+
+    package-images.sh 里 `SUFFIX=""; [ "$ARCH" != "$HOST_ARCH" ] && SUFFIX="-$ARCH"` ——
+    在 Mac(arm64)上打包时,arm64 那份没有后缀、amd64 那份是
+    `gaussdb-agent-runtime:<TAG>-amd64`。而部署手册原来写的期望输出与重打标签
+    命令都用不带后缀的标签:客户在 x86 集群上照着做,到 `docker tag` 那一步
+    就是 "No such image",而前一步 `docker load` 是成功的。
+    """
+    pkg = _PACKAGER.read_text(encoding="utf-8")
+    assert 'SUFFIX="-$ARCH"' in pkg, "打包脚本的架构后缀规则变了,这条守卫要跟着改"
+
+    doc = (_ROOT / "docs" / "部署手册-从零到上线.md").read_text(encoding="utf-8")
+    load = doc[doc.index("### 1.2"):doc.index("### 1.4")]
+    assert "-amd64" in load, "部署手册没提离线包标签带架构后缀"
+    assert "MANIFEST.txt" in load, "应指向 MANIFEST.txt —— 那里写的是实际标签"
+    assert re.search(r"docker tag gaussdb-agent-\$img:\$TAG\$SFX\s+gaussdb-agent-\$img:\$TAG",
+                     load), "缺「先去掉架构后缀」那一步"
+
+
 def test_customer_facing_docs_exist_where_the_package_expects_them():
     """客户照着做的那几份必须都在 docs/ 下。"""
     for name in ("接入手册-SSO与K8s.md", "部署手册-从零到上线.md",

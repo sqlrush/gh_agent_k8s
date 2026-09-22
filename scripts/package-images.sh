@@ -62,8 +62,13 @@ done
 #   security/  扫描报告
 #   specs/     设计 spec —— 里面有备选方案、退路、残余风险、未定项与决策过程。
 #              交付文档不写我们的讨论过程,这一份从头到尾都是讨论过程。
-tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
+# COPYFILE_DISABLE=1:在 macOS 上打包时,bsdtar 会为每个带扩展属性的文件额外塞一个
+# `._<原名>` 的资源叉文件(客户解开后 docs/ 里会多出一堆 ._参数手册.md)。
+# 那些文件还带着本机的 com.apple.provenance 属性。交付给客户的包里不该有。
+# 这个变量在 Linux 的 GNU tar 上是无害的空操作。
+COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
     --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' \
+    --exclude='._*' --exclude='.DS_Store' \
     k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")
 cat >> "$DIST/MANIFEST.txt" <<EOF

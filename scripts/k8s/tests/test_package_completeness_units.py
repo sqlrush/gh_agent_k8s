@@ -75,6 +75,18 @@ def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
         assert "--exclude='%s'" % internal in body, "内部文档 %s 应该排除在交付包外" % internal
 
 
+def test_package_does_not_ship_macos_resource_forks():
+    """在 Mac 上打包时 bsdtar 会给每个带扩展属性的文件塞一个 `._<原名>`。
+
+    客户解开后 docs/ 里会多出 `._参数手册.md` 这一堆,还带着打包机的
+    com.apple.provenance 属性 —— 交付给客户的包里不该有这些。
+    """
+    body = _PACKAGER.read_text(encoding="utf-8")
+    assert "COPYFILE_DISABLE=1 tar czf" in body, "打包 tar 前要设 COPYFILE_DISABLE=1"
+    for pat in ("._*", ".DS_Store"):
+        assert "--exclude='%s'" % pat in body, "还要显式排除 %s" % pat
+
+
 def test_deploy_doc_handles_the_arch_suffix_the_packager_actually_writes():
     """**离线包里的标签带不带 `-<arch>` 后缀,取决于在哪台机器上打的包。**
 

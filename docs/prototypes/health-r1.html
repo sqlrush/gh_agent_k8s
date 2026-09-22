@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>健康检查大盘 · R1 设计稿</title>
+<link rel="stylesheet" href="proto.css"></head>
+<body><div class="app">
+<aside class="side">
+  <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
+  <div class="sec">大盘</div>
+  <div class="nav">
+    <a class="on" href="health-r1.html">◎ 健康检查<span class="b warn">告警</span></a>
+    <a href="topsql-r1.html">▤ Top SQL</a>
+    <a href="wdr-r1.html">◔ WDR 分析<span class="b crit">严重</span></a>
+    <a href="kb-r1.html">▥ 知识库<span class="b">3 待处理</span></a>
+  </div>
+  <div class="sec">对话</div>
+  <div class="nav"><a href="#">⊕ 新对话 ↗</a><a href="#">◌ 最近对话（7）↗</a></div>
+  <div class="sec">当前</div>
+  <div class="nav"><a href="#">工号 u1234</a><a href="#">10.0.0.9 · postgres</a></div>
+</aside>
+<main class="main">
+  <div class="crumb">大盘 › <b>健康检查</b></div>
+  <div class="head">
+    <div>
+      <h1>健康检查 <span class="badge warn" id="overall">告警</span></h1>
+      <div class="meta">目标 <b>10.0.0.9 / postgres</b> · openGauss 5.0 · 执行人 <b>u1234</b> · 报告时间 <b>09-22 14:03</b> · 耗时 41 s</div>
+    </div>
+    <div class="right">上一次：09-21 09:07 · 关注<br>比上次 <span class="up">新增 2 条告警</span></div>
+  </div>
+
+  <!-- ① 一眼看全：维度环 + 状态带 -->
+  <div class="grid g32">
+    <div class="card">
+      <h2>11 个维度 · 一眼看全</h2>
+      <div class="ring">
+        <svg width="96" height="96" viewBox="0 0 96 96" id="ring"></svg>
+        <div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:6px">2 个维度告警 · 1 个关注 · 7 个正常 · 1 个不可用</div>
+          <div class="band" id="band"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>子技能执行</h2>
+      <div class="sub">health 汇总三个子技能，任一失败也出报告（退出码 3）</div>
+      <div class="kv"><span>gaussdb-lockwait</span><span class="ok">✓ 正常</span></div>
+      <div class="kv"><span>gaussdb-waitevent</span><span class="ok">✓ 正常</span></div>
+      <div class="kv"><span>gaussdb-vacuum</span><span class="crit">✗ 超时 60 s</span></div>
+      <div style="font-size:12.5px;color:var(--dim);margin-top:8px">「膨胀」维度因此不可用，不进综合结论</div>
+    </div>
+  </div>
+
+  <!-- ② 一眼结论：越过阈值的发现 -->
+  <div class="card">
+    <h2>越过阈值的发现 <span class="tag">脚本按阈值判定 · 模型不改级别</span><span class="dig">在会话里深挖 →</span></h2>
+    <div id="findings"></div>
+  </div>
+
+  <!-- ③ 各维度卡 -->
+  <div class="grid g3" id="dims"></div>
+
+  <!-- ④ 历史 -->
+  <div class="grid g2">
+    <div class="card">
+      <h2>最近 12 次巡检</h2>
+      <div class="sub">每次的综合级别；点一根柱切到那份报告</div>
+      <div class="tl" id="tl"></div>
+      <div class="tlx"><span>09-10</span><span>今天</span></div>
+    </div>
+    <div class="card">
+      <h2>发现数趋势</h2>
+      <div class="sub">按级别，最近 12 次</div>
+      <svg width="100%" height="70" viewBox="0 0 400 70" id="trend"></svg>
+      <div class="legend"><span style="--c:var(--crit)">严重</span><span style="--c:var(--warn)">告警</span><span style="--c:var(--notice)">关注</span></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>设计说明（给确认用，实现时不出现）</h3>
+    <ul>
+      <li><b>数据来源</b>：<code>gaussdb-health</code> 的 evidence JSON（<code>dims[]</code> / <code>findings[]</code> / <code>overall</code> / <code>sub_skills[]</code>），一份报告出全页；历史两卡读最近 12 份报告的 <code>overall</code> 与 findings 计数。</li>
+      <li><b>11 个维度 = 真实维度</b>：health 自带 8 个（总览 / 慢 SQL / 事务 / 连接 / 日志 / 复制 / 对象 / 并发）+ 子技能 3 个（锁等待 / 等待事件·LWLock / 膨胀）。维度不可用时（视图缺失、无权限、子技能失败）灰显并划线，<b>不算进综合结论</b>。</li>
+      <li><b>与 dsh-k8s 数据库大盘的差别</b>：那边 8 项 KPI 的 24h 曲线来自持续采集器；<b>我们没有采集器</b>，所以没有分钟级曲线，只有「按巡检次数」的趋势。这是架构差异，不是遗漏——要曲线就得加采集，那是另一个镜像。</li>
+      <li><b>零按钮</b>：只有「在会话里深挖 →」文字链（决策 ② 待定：跳到 opencode 对话并带上下文）。</li>
+      <li>「比上次新增 N 条」按 finding 的 <code>code</code> 对比两份报告得出。</li>
+    </ul>
+  </div>
+</main></div>
+
+<script>
+// 示例数据的形状 = gaussdb-health evidence JSON 的真实形状（字段名一致）
+const DATA = {
+  overall: 2,
+  dims: [
+    {dimension:'overview',    title:'总览',        available:true, worst:0, headline:'缓存命中 99.1% · 连接 61/1000 · 非恢复态', rows:[['cache_hit%','99.1'],['connections','61 / 1000'],['最老事务','12 s']]},
+    {dimension:'slowsql',     title:'慢 SQL',      available:true, worst:2, headline:'3 条语句平均耗时 > 1 s，最慢 8.4 s', rows:[['1a9f…c2','8,412 ms · 214 次'],['77e0…9b','2,105 ms · 1,880 次'],['b3d1…44','1,330 ms · 62 次']]},
+    {dimension:'xact',        title:'事务',        available:true, worst:1, headline:'1 个空闲中事务已持续 6 分钟', rows:[['idle in transaction','1 · 6 min'],['最长活动事务','41 s'],['prepared','0']]},
+    {dimension:'conn',        title:'连接',        available:true, worst:0, headline:'active 14 · idle 47 · 占用 6%', rows:[['active','14'],['idle','47'],['idle in transaction','1']]},
+    {dimension:'logs',        title:'日志',        available:true, worst:0, headline:'近 1h 无 FATAL / PANIC', rows:[['ERROR','3'],['FATAL','0'],['PANIC','0']]},
+    {dimension:'repl',        title:'主备复制',    available:true, worst:0, headline:'1 个备机 · 延迟 0.2 s', rows:[['备机','1'],['replay lag','0.2 s'],['状态','Streaming']]},
+    {dimension:'schema',      title:'对象与索引',  available:true, worst:2, headline:'2 个无效索引 · 1 张表无主键且 > 5 GB', rows:[['无效索引','idx_orders_tmp, idx_ev_2'],['无主键大表','fact_sales 6.1 GB'],['未使用索引','7']]},
+    {dimension:'concurrency', title:'事务并发',    available:true, worst:0, headline:'TPS 27 · 回滚率 0.3%', rows:[['xact_commit','27.1 /s'],['xact_rollback','0.08 /s'],['死锁','0']]},
+    {dimension:'locks',       title:'锁等待',      available:true, worst:0, headline:'无阻塞链', rows:[['等待锁','0'],['阻塞链','0'],['最长等待','—']]},
+    {dimension:'waits',       title:'等待事件',    available:true, worst:0, headline:'IO 事件 94% · LWLock 6%', rows:[['DataFileRead','61%'],['DataFilePrefetch','33%'],['BufferPin','4%']]},
+    {dimension:'bloat',       title:'膨胀',        available:false, worst:null, headline:'不可用：子技能 gaussdb-vacuum 超时 60 s', rows:[]},
+  ],
+  findings: [
+    {severity:2, dimension:'slowsql', code:'SLOW_AVG_MS', metric:'avg_ms', value:'8,412', threshold:'> 1,000', evidence:'sql_id 1a9f…c2 · 214 次', sql_id:'1a9f…c2'},
+    {severity:2, dimension:'schema',  code:'INVALID_INDEX', metric:'invalid_index', value:'2', threshold:'> 0', evidence:'idx_orders_tmp, idx_ev_2'},
+    {severity:2, dimension:'schema',  code:'NOPK_BIGTABLE', metric:'no_pk_gb', value:'6.1 GB', threshold:'> 5 GB', evidence:'public.fact_sales'},
+    {severity:1, dimension:'xact',    code:'IDLE_IN_XACT', metric:'idle_in_xact_min', value:'6', threshold:'> 5', evidence:'pid 140233 · app=batch-loader'},
+    {severity:1, dimension:'slowsql', code:'SLOW_AVG_MS', metric:'avg_ms', value:'2,105', threshold:'> 1,000', evidence:'sql_id 77e0…9b · 1,880 次', sql_id:'77e0…9b'},
+  ],
+  history: [0,0,1,0,0,1,1,0,2,1,1,2],
+  trend:   {crit:[0,0,0,0,0,0,0,0,0,0,0,0], warn:[0,0,1,0,0,1,1,0,3,1,1,3], notice:[1,2,1,0,1,2,2,1,2,2,1,2]},
+};
+const LV = ['ok','notice','warn','crit'], LVN = ['正常','关注','告警','严重'];
+const C = {ok:'#3fa552',notice:'#c9862d',warn:'#e07a1f',crit:'#d64545',na:'#dde0e5'};
+
+// 维度环
+(function(){const s=document.getElementById('ring');const n=DATA.dims.length,r=36,cx=48,cy=48;let h='';
+ DATA.dims.forEach((d,i)=>{const a0=(i/n)*2*Math.PI-Math.PI/2,a1=((i+.92)/n)*2*Math.PI-Math.PI/2;
+  const x0=cx+r*Math.cos(a0),y0=cy+r*Math.sin(a0),x1=cx+r*Math.cos(a1),y1=cy+r*Math.sin(a1);
+  const col=d.available?C[LV[d.worst]]:C.na;
+  h+=`<path d="M${x0} ${y0} A${r} ${r} 0 0 1 ${x1} ${y1}" stroke="${col}" stroke-width="12" fill="none"/>`;});
+ h+=`<text x="48" y="53" text-anchor="middle" font-size="15" font-weight="700" fill="#0f1115">11</text>`;s.innerHTML=h;})();
+// 状态带
+document.getElementById('band').innerHTML=DATA.dims.map(d=>`<span class="${d.available?LV[d.worst]:'na'}">${d.title}</span>`).join('');
+// 发现榜
+document.getElementById('findings').innerHTML=DATA.findings.map(f=>`<div class="verdict ${LV[f.severity]}"><i class="lv"></i>
+ <div class="t"><b>${LVN[f.severity]}</b> · ${DATA.dims.find(d=>d.dimension===f.dimension).title} · ${f.metric} = <b>${f.value}</b>（阈值 ${f.threshold}）<small>${f.evidence}</small></div>
+ <span class="dig">${f.sql_id?'看执行计划 →':'深挖 →'}</span></div>`).join('');
+// 维度卡
+document.getElementById('dims').innerHTML=DATA.dims.map(d=>`<div class="card" style="${d.available?'':'opacity:.6'}">
+ <h2>${d.title} <span class="pill ${d.available?LV[d.worst]:'dim'}">${d.available?LVN[d.worst]:'不可用'}</span><span class="dig ${d.available?'':'mute'}">${d.available?'深挖 →':''}</span></h2>
+ <div class="sub">${d.headline}</div>${d.rows.map(r=>`<div class="kv"><span>${r[0]}</span><span class="tnum">${r[1]}</span></div>`).join('')}</div>`).join('');
+// 历史
+document.getElementById('tl').innerHTML=DATA.history.map((l,i)=>`<i class="${LV[l]}${i===DATA.history.length-1?' now':''}" style="height:${28+l*5}px"></i>`).join('');
+// 趋势
+(function(){const s=document.getElementById('trend'),W=400,H=70,n=12;const line=(arr,col)=>{const mx=Math.max(4,...arr);
+ return `<polyline fill="none" stroke="${col}" stroke-width="2" points="${arr.map((v,i)=>`${i*(W/(n-1))},${H-6-v/mx*(H-14)}`).join(' ')}"/>`};
+ s.innerHTML=line(DATA.trend.notice,C.notice)+line(DATA.trend.warn,C.warn)+line(DATA.trend.crit,C.crit);})();
+</script>
+</body></html>

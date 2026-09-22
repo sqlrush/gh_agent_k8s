@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Top SQL 大盘 · R1 设计稿</title>
+<link rel="stylesheet" href="proto.css"></head>
+<body><div class="app">
+<aside class="side">
+  <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
+  <div class="sec">大盘</div>
+  <div class="nav">
+    <a href="health-r1.html">◎ 健康检查<span class="b warn">告警</span></a>
+    <a class="on" href="topsql-r1.html">▤ Top SQL</a>
+    <a href="wdr-r1.html">◔ WDR 分析<span class="b crit">严重</span></a>
+    <a href="kb-r1.html">▥ 知识库<span class="b">3 待处理</span></a>
+  </div>
+  <div class="sec">对话</div>
+  <div class="nav"><a href="#">⊕ 新对话 ↗</a><a href="#">◌ 最近对话（7）↗</a></div>
+  <div class="sec">当前</div>
+  <div class="nav"><a href="#">工号 u1234</a><a href="#">10.0.0.9 · postgres</a></div>
+</aside>
+<main class="main">
+  <div class="crumb">大盘 › <b>Top SQL</b></div>
+  <div class="head">
+    <div>
+      <h1>Top SQL <span class="badge warn">1 条吃掉 46%</span></h1>
+      <div class="meta">目标 <b>10.0.0.9 / postgres</b> · 统计视图自 <b>09-15 重置</b> 以来 · 取数 <b>09-22 14:10</b> · 已过滤系统对象</div>
+    </div>
+    <div class="right">Top 10 · 共 3,088 条唯一 SQL<br><span class="dig">在会话里深挖 →</span></div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <!-- ① 汇总 -->
+  <div class="grid g4">
+    <div class="kpi"><div class="l">唯一 SQL</div><div class="v tnum">3,088<small>条</small></div><div class="d">已过滤平台与系统查询</div></div>
+    <div class="kpi"><div class="l">总调用</div><div class="v tnum">4,798 万<small>次</small></div><div class="d">自视图重置</div></div>
+    <div class="kpi"><div class="l">总耗时</div><div class="v tnum">16.0<small>h</small></div><div class="d">= 57,668 s</div></div>
+    <div class="kpi warn"><div class="l">上榜 10 条合计</div><div class="v tnum">93<small>%</small></div><div class="d">占总耗时 · 其余 3,078 条 7%</div></div>
+  </div>
+
+  <!-- ② 资源占比 -->
+  <div class="card">
+    <h2>总耗时占比 <span class="tag">按当前维度</span></h2>
+    <div class="stack" id="stack"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <!-- ③ 榜单 -->
+  <div class="card">
+    <h2>榜单 <span class="tag">脚本按确定性口径排序 · 模型只写解读</span></h2>
+    <table><thead><tr><th>#</th><th>sql_id</th><th>语句摘要</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th style="width:140px">占比</th><th></th></tr></thead>
+    <tbody id="rows"></tbody></table>
+  </div>
+
+  <!-- ④ 一眼结论 -->
+  <div class="card soft">
+    <h2>一眼结论 <span class="tag">脚本按占比自动生成</span></h2>
+    <div class="verdict warn"><i class="lv"></i><div class="t"><b>1 条监控类 SQL 吃掉 45.9% 总耗时</b><small>S1 · 会话内存监控 GROUP BY sessid · 每 5 秒一次，来自监控平台，不是业务</small><span></span></div><span class="dig">深挖 →</span></div>
+    <div class="verdict warn"><i class="lv"></i><div class="t"><b>S3 单次平均 8.4 s，214 次</b><small>fact_sales ⋈ customers 按区域/门店聚合 · 全表扫描，见执行计划</small></div><span class="dig">看执行计划 →</span></div>
+    <div class="verdict notice"><i class="lv"></i><div class="t"><b>COMMIT 占调用次数 31%</b><small>短事务密集，本身不是问题；结合 WDR 的 WAL 写看</small></div><span class="dig mute"></span></div>
+  </div>
+
+  <!-- ⑤ 逐条卡 -->
+  <div class="grid g2" id="cards"></div>
+
+  <div class="note">
+    <h3>设计说明（给确认用，实现时不出现）</h3>
+    <ul>
+      <li><b>数据来源</b>：<code>gaussdb-topsql --format json</code>，行字段就是 <code>sql_id / query / calls / total_sec / avg_ms / rows</code>，六个，没有更多。<b>页面上所有数字都能从这六个字段算出来</b>（占比 = 单条 / 全部之和）。</li>
+      <li><b>五个维度页签 = 脚本的五个 <code>--by</code></b>：总耗时 / 平均耗时 / 调用次数 / 逻辑读 / 返回行。切页签 = 换排序重新取数（每次取 Top N + 全量合计）。</li>
+      <li><b>与 dsh-k8s sqlreview-r5 的差别</b>：那边有 DB Time / CPU / IO 三个维度的堆叠条，来自 <code>dbe_perf.statement</code> 的更多列；我们的 topsql 脚本目前只取六列，所以只有一根「当前维度」的堆叠条。要多维度就得扩脚本（白名单要加列，客户侧走版本 DML）——<b>这是一个要你拍板的取舍</b>。</li>
+      <li><b>逐条卡的「优化建议」来自 <code>gaussdb-sqltune</code></b>：某条 SQL 跑过调优就显示摘要与优化后 SQL，没跑过显示「尚未调优 · 调优 →」。系统对象的 SQL 不会出现（sysobjects 策略在取数侧已过滤）。</li>
+      <li>「自视图重置以来」是 <code>dbe_perf.statement</code> 的真实语义：它是累计视图，不是时间窗口。要看「最近一小时」应该去 WDR 大盘。</li>
+    </ul>
+  </div>
+</main></div>
+
+<script>
+const BY = [['time','总耗时'],['avg','平均耗时'],['calls','调用次数'],['reads','逻辑读'],['rows','返回行']];
+document.getElementById('tabs').innerHTML=BY.map((b,i)=>`<span class="${i===0?'on':''}">${b[1]}</span>`).join('');
+// 示例数据的形状 = topsql.py --format json 的真实行（六个字段）
+const ROWS = [
+  {sql_id:'0b1c…e7', query:'SELECT sessid, sum(usedsize) FROM gs_session_memory_detail GROUP BY sessid', calls:1728000, total_sec:26470, avg_ms:15.3, rows:1728000, tune:null, tag:'监控类'},
+  {sql_id:'9d40…13', query:'SELECT category, sum(amount) FROM fact_sales WHERE sale_date >= $1 GROUP BY category', calls:41200, total_sec:7420, avg_ms:180.1, rows:41200},
+  {sql_id:'1a9f…c2', query:'SELECT r.region, s.store, sum(f.amount) FROM fact_sales f JOIN customers c ON c.id=f.cust_id JOIN stores s ON s.id=f.store_id JOIN regions r ON r.id=s.region_id GROUP BY 1,2', calls:214, total_sec:1800, avg_ms:8412, rows:2140,
+   tune:{summary:'fact_sales 全表扫描 6.1 GB；缺 (store_id, sale_date) 复合索引；JOIN 顺序让 customers 先被扫。', sql:'CREATE INDEX CONCURRENTLY idx_fs_store_date ON fact_sales(store_id, sale_date);\n-- 改写：先按 store 聚合再 JOIN regions\nSELECT r.region, s.store, t.amt FROM (SELECT store_id, sum(amount) amt FROM fact_sales GROUP BY store_id) t JOIN stores s ON s.id=t.store_id JOIN regions r ON r.id=s.region_id;', gain:'预估耗时 8.4 s → 0.6 s'}},
+  {sql_id:'4c77…a0', query:'SELECT sale_date, sum(amount) FROM fact_sales GROUP BY sale_date', calls:8800, total_sec:1410, avg_ms:160.2, rows:8800},
+  {sql_id:'e2b9…55', query:'UPDATE accounts SET balance = balance - $1 WHERE id = $2', calls:9800000, total_sec:980, avg_ms:0.1, rows:9800000},
+  {sql_id:'77e0…9b', query:'SELECT balance FROM accounts WHERE id = $1', calls:1880, total_sec:395, avg_ms:210.5, rows:1880},
+  {sql_id:'b3d1…44', query:'INSERT INTO orders(id, cust_id, amount, created_at) VALUES ($1,$2,$3,now())', calls:6200000, total_sec:372, avg_ms:0.06, rows:6200000},
+  {sql_id:'c0de…01', query:'SELECT sum(amount) FROM fact_sales', calls:62, total_sec:83, avg_ms:1338, rows:62},
+  {sql_id:'f11a…8e', query:'SELECT * FROM orders WHERE cust_id = $1 ORDER BY created_at DESC LIMIT 20', calls:410000, total_sec:61, avg_ms:0.15, rows:8200000},
+  {sql_id:'2e2e…c9', query:'DELETE FROM sessions WHERE expires_at < now()', calls:17280, total_sec:35, avg_ms:2.0, rows:311000},
+];
+// 不能叫 top:浏览器里 window.top 是不可配置的全局属性,顶层 const top 是解析期 SyntaxError,整段脚本不跑
+const TOTAL = 57668, topSum = ROWS.reduce((a,r)=>a+r.total_sec,0), rest = TOTAL-topSum;
+const PAL = ['#4176e6','#2fa79a','#8b6be0','#e07a1f','#c9862d','#d64545','#3fa552','#61666b','#9aa3ad','#b8c0c8'];
+const pct = v => (v/TOTAL*100);
+document.getElementById('stack').innerHTML = ROWS.map((r,i)=>`<i style="width:${pct(r.total_sec)}%;background:${PAL[i]}" title="S${i+1}"></i>`).join('')+`<i style="width:${pct(rest)}%;background:#e9ecf0"></i>`;
+document.getElementById('legend').innerHTML = ROWS.slice(0,5).map((r,i)=>`<span style="--c:${PAL[i]}">S${i+1} ${pct(r.total_sec).toFixed(1)}%</span>`).join('')+`<span style="--c:#e9ecf0">其余 3,078 条 ${pct(rest).toFixed(1)}%</span>`;
+const fmt = n => n>=1e8?(n/1e8).toFixed(2)+' 亿':n>=1e4?(n/1e4).toFixed(1)+' 万':n.toLocaleString('en-US');
+const sec = s => s>=3600?(s/3600).toFixed(1)+' h':s>=60?(s/60).toFixed(1)+' min':s.toFixed(0)+' s';
+document.getElementById('rows').innerHTML = ROWS.map((r,i)=>`<tr><td class="tnum" style="color:var(--dim)">S${i+1}</td><td class="mono">${r.sql_id}</td>
+ <td style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.query}${r.tag?` <span class="pill dim">${r.tag}</span>`:''}</td>
+ <td class="r tnum">${fmt(r.calls)}</td><td class="r tnum">${sec(r.total_sec)}</td><td class="r tnum">${r.avg_ms>=1000?(r.avg_ms/1000).toFixed(1)+' s':r.avg_ms.toFixed(1)+' ms'}</td><td class="r tnum">${fmt(r.rows)}</td>
+ <td><div class="bar ${pct(r.total_sec)>30?'warn':''}"><i style="width:${Math.max(2,pct(r.total_sec)*2)}%"></i></div></td><td><span class="dig">${r.tune?'看建议 ↓':'调优 →'}</span></td></tr>`).join('');
+document.getElementById('cards').innerHTML = ROWS.slice(0,4).map((r,i)=>`<div class="card"><h2>S${i+1} <span class="mono" style="font-weight:400;color:var(--dim)">${r.sql_id}</span><span class="dig">${r.tune?'':'调优 →'}</span></h2>
+ <pre class="sql">${r.query}</pre>
+ <div class="grid g4" style="margin:0 0 8px"><div class="kpi"><div class="l">调用</div><div class="v tnum" style="font-size:17px">${fmt(r.calls)}</div></div><div class="kpi"><div class="l">总耗时</div><div class="v tnum" style="font-size:17px">${sec(r.total_sec)}</div></div><div class="kpi ${r.avg_ms>1000?'warn':''}"><div class="l">平均</div><div class="v tnum" style="font-size:17px">${r.avg_ms>=1000?(r.avg_ms/1000).toFixed(1)+' s':r.avg_ms.toFixed(1)+' ms'}</div></div><div class="kpi"><div class="l">返回行</div><div class="v tnum" style="font-size:17px">${fmt(r.rows)}</div></div></div>
+ ${r.tune?`<div style="font-size:13px;margin-top:6px"><b class="ok">✓ 已调优</b> · ${r.tune.gain}<div style="color:var(--sub);margin-top:4px">${r.tune.summary}</div></div><pre class="sql" style="border-left:3px solid var(--ok)">${r.tune.sql}</pre><div class="dig">看完整调优报告 →</div>`
+        :`<div style="font-size:13px;color:var(--dim)">尚未调优 · <span class="dig">在会话里调优这条 →</span> · <span class="dig">看执行计划 →</span></div>`}</div>`).join('');
+</script>
+</body></html>

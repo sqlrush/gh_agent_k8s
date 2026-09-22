@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>WDR 分析大盘 · R1 设计稿</title>
+<link rel="stylesheet" href="proto.css"></head>
+<body><div class="app">
+<aside class="side">
+  <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
+  <div class="sec">大盘</div>
+  <div class="nav">
+    <a href="health-r1.html">◎ 健康检查<span class="b warn">告警</span></a>
+    <a href="topsql-r1.html">▤ Top SQL</a>
+    <a class="on" href="wdr-r1.html">◔ WDR 分析<span class="b crit">严重</span></a>
+    <a href="kb-r1.html">▥ 知识库<span class="b">3 待处理</span></a>
+  </div>
+  <div class="sec">对话</div>
+  <div class="nav"><a href="#">⊕ 新对话 ↗</a><a href="#">◌ 最近对话（7）↗</a></div>
+  <div class="sec">当前</div>
+  <div class="nav"><a href="#">工号 u1234</a><a href="#">10.0.0.9 · postgres</a></div>
+</aside>
+<main class="main">
+  <div class="crumb">大盘 › <b>WDR 分析</b></div>
+  <div class="head">
+    <div>
+      <h1>WDR 窗口 <span class="badge crit">严重</span></h1>
+      <div class="meta">目标 <b>10.0.0.9</b> · 范围 <b>node</b> · 分析窗口 <b>snap 1915 → 1916</b> · 09-22 10:30 → 10:39 · <b>9 分钟</b></div>
+      <div class="meta">对比窗口 snap 1914 → 1915 · 09:39 → 10:30 · 51 分钟 <span class="tag">上一份报告</span></div>
+    </div>
+    <div class="right">原生 WDR 报告 <b class="ok">已生成</b> · 1.8 MB · <span class="dig">下载 HTML →</span><br>执行人 u1234 · 09-22 14:20</div>
+  </div>
+
+  <!-- ① 8 项 KPI，带对比 -->
+  <div class="grid g4" id="kpis"></div>
+
+  <!-- ② DB Time 构成 + 一眼结论 -->
+  <div class="grid g32">
+    <div class="card">
+      <h2>DB Time 构成 <span class="tag">5,803 s · 按等待类分解</span><span class="dig">在会话里深挖 →</span></h2>
+      <div class="stack" id="dbt"></div>
+      <div class="legend" id="dbtl"></div>
+      <div style="font-size:13px;color:var(--sub);margin-top:10px">其他等待 69%（AAS 7.5）主导，CPU 只占 20% —— <b>不是算力型负载，是等待型</b>。</div>
+    </div>
+    <div class="card soft">
+      <h2>一眼结论 <span class="tag">脚本按增量自动生成</span></h2>
+      <div class="verdict crit"><i class="lv"></i><div class="t"><b>物理读 ×9.3，命中率跌到 93.6%</b><small>三条串行大聚合把全表扫描压进本窗口</small></div><span class="dig">看这三条 →</span></div>
+      <div class="verdict warn"><i class="lv"></i><div class="t"><b>临时文件 19.3 GB，36 MB/s</b><small>work_mem 不够，排序/哈希下盘</small></div><span class="dig">深挖 →</span></div>
+      <div class="verdict ok"><i class="lv"></i><div class="t"><b>事务面平稳</b><small>TPS 27.2，与上窗持平；Checkpoint 全部定时触发</small></div><span></span></div>
+    </div>
+  </div>
+
+  <!-- ③ 窗口内 Top SQL + 等待事件 -->
+  <div class="grid g32">
+    <div class="card">
+      <h2>窗口内 Top SQL <span class="tag">按 DB Time</span></h2>
+      <table><thead><tr><th>#</th><th>语句摘要</th><th class="r">DB Time</th><th class="r">次数</th><th class="r">物理读</th><th style="width:110px"></th></tr></thead><tbody id="tsql"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>等待事件</h2>
+      <div id="waits"></div>
+    </div>
+  </div>
+
+  <!-- ④ Checkpoint / 缓存 / 文件 IO -->
+  <div class="grid g3">
+    <div class="card"><h2>Checkpoint</h2>
+      <div class="kv"><span>定时触发</span><span class="tnum">2</span></div><div class="kv"><span>被动触发</span><span class="tnum ok">0</span></div>
+      <div class="kv"><span>刷脏</span><span class="tnum">13.5 MB</span></div><div class="kv"><span>写耗时</span><span class="tnum">1.1 s</span></div></div>
+    <div class="card"><h2>缓存 · 按对象</h2>
+      <div class="rank"><span class="n">1</span><span class="mono">fact_sales</span><span class="tnum crit">1.9 M 物理读</span></div>
+      <div class="rank"><span class="n">2</span><span class="mono">customers</span><span class="tnum">140 K</span></div>
+      <div class="rank"><span class="n">3</span><span class="mono">idx_fs_date</span><span class="tnum">38 K</span></div></div>
+    <div class="card"><h2>文件 IO</h2>
+      <div class="kv"><span>数据文件读</span><span class="tnum">2.04 M 块</span></div><div class="kv"><span>数据文件写</span><span class="tnum">31 K 块</span></div>
+      <div class="kv"><span>临时文件写</span><span class="tnum warn">19.3 GB</span></div><div class="kv"><span>WAL 写</span><span class="tnum">30.6 MB</span></div></div>
+  </div>
+
+  <!-- ⑤ 历史窗口 -->
+  <div class="card">
+    <h2>最近 12 个分析过的窗口</h2>
+    <div class="sub">每个窗口的态势；点一根柱切换到那份报告，当前窗口加框</div>
+    <div class="tl" id="tl"></div>
+    <div class="tlx"><span>09-18</span><span>今天</span></div>
+  </div>
+
+  <div class="note">
+    <h3>设计说明（给确认用，实现时不出现）</h3>
+    <ul>
+      <li><b>数据来源</b>：<code>gaussdb-wdr collect --format json</code> 的 evidence（<code>window{begin_id,end_id,begin_ts,end_ts,duration_min}</code> / <code>dims[]</code> / <code>findings[]</code> / <code>overall</code> / <code>native{generated,bytes,saved_path}</code> / <code>wdr_enabled</code>）。</li>
+      <li><b>七个维度 = 真实维度</b>：负载概况 / 库统计 / 等待 / Top SQL / Checkpoint / 缓存 / 文件 IO。页面五个区块就是这七个维度的重排。</li>
+      <li><b>「对比窗口」= 上一份报告</b>。有就显示 ▲▼，没有（第一次跑）就显示「无对比窗口」，不造假。dsh-k8s 那边对比窗口是采集器按 cron 保证有的；我们靠报告历史。</li>
+      <li><b>原生 WDR 报告</b>：<code>native.generated</code> 为真时给「下载 HTML →」，那是 GaussDB 自己生成的 WDR，落在用户 NAS 目录里。</li>
+      <li><b>WDR 未开启</b>（<code>wdr_enabled=false</code>）时整页退化为一张卡：说明怎么开、要什么权限——不显示空表。</li>
+      <li>「深挖 →」跳 opencode 对话（决策 ②）。</li>
+    </ul>
+  </div>
+</main></div>
+
+<script>
+// KPI：来自 loadprofile / dbstat 两个维度；prev = 上一份报告同名指标
+const K = [
+  {l:'DB Time',v:'5,803',u:'s',prev:'2,972 s',delta:'▲ ×1.95',lv:'crit'},
+  {l:'平均活跃会话 AAS',v:'10.7',u:'',prev:'0.97',delta:'▲ ×11 · 18 核',lv:'crit'},
+  {l:'事务 TPS',v:'27.2',u:'/s',prev:'27.7 /s',delta:'▼ 2%',lv:'ok'},
+  {l:'缓存命中',v:'93.6',u:'%',prev:'96.4%',delta:'▼ 2.8 pt',lv:'warn'},
+  {l:'物理读',v:'3,771',u:'块/s',prev:'406 块/s',delta:'▲ ×9.3',lv:'crit'},
+  {l:'临时文件',v:'19.3',u:'GB',prev:'3.8 MB/s',delta:'▲ 36 MB/s',lv:'warn'},
+  {l:'WAL 写',v:'56.6',u:'KB/s',prev:'29.5 KB/s',delta:'▲ ×1.9',lv:'notice'},
+  {l:'Checkpoint',v:'定时',u:'',prev:'',delta:'被动 0 · 刷脏 13.5 MB',lv:'ok'},
+];
+document.getElementById('kpis').innerHTML=K.map(k=>`<div class="kpi ${k.lv}"><div class="l">${k.l}</div><div class="v tnum">${k.v}<small>${k.u}</small></div><div class="d"><span class="${k.delta.startsWith('▲')&&k.lv!=='ok'?'up':k.delta.startsWith('▼')&&k.lv==='ok'?'down':''}">${k.delta}</span>${k.prev?' · 上窗 '+k.prev:''}</div></div>`).join('');
+const DBT=[['CPU',19.5,'#4176e6'],['IO',7.5,'#2fa79a'],['PL 执行',1.7,'#8b6be0'],['解析/计划',1.4,'#c9862d'],['网络',0.8,'#9aa3ad'],['其他等待',69.1,'#e07a1f']];
+document.getElementById('dbt').innerHTML=DBT.map(d=>`<i style="width:${d[1]}%;background:${d[2]}"></i>`).join('');
+document.getElementById('dbtl').innerHTML=DBT.map(d=>`<span style="--c:${d[2]}">${d[0]} ${d[1]}%</span>`).join('');
+const TS=[['按区域/门店聚合 fact_sales ⋈ customers',2410,3,1.2e6],['整表 sum fact_sales',1180,2,610000],['按品类聚合 fact_sales',760,4,220000],['UPDATE accounts 余额',95,14800,1200],['COMMIT',88,15100,0]];
+document.getElementById('tsql').innerHTML=TS.map((r,i)=>`<tr><td style="color:var(--dim)">${i+1}</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[0]}</td><td class="r tnum">${r[1].toLocaleString()} s</td><td class="r tnum">${r[2].toLocaleString()}</td><td class="r tnum">${r[3]>=1e6?(r[3]/1e6).toFixed(1)+' M':r[3]>=1e3?(r[3]/1e3).toFixed(0)+' K':r[3]}</td><td><div class="bar ${i<3?'crit':''}"><i style="width:${r[1]/2410*100}%"></i></div></td></tr>`).join('');
+const W=[['DataFileRead','IO',61],['DataFilePrefetch','IO',33],['BufferPin','LWLock',4],['WALWrite','IO',1.5],['ClientRead','网络',0.5]];
+document.getElementById('waits').innerHTML=W.map((w,i)=>`<div class="rank"><span class="n">${i+1}</span><span><span class="mono">${w[0]}</span> <span class="pill dim">${w[1]}</span></span><span class="tnum">${w[2]}%</span></div>`).join('');
+const H=[0,1,0,0,1,2,1,0,1,2,2,3];const LV=['ok','notice','warn','crit'];
+document.getElementById('tl').innerHTML=H.map((l,i)=>`<i class="${LV[l]}${i===H.length-1?' now':''}" style="height:${28+l*5}px"></i>`).join('');
+</script>
+</body></html>

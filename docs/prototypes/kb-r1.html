@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>知识库大盘 · R1 设计稿</title>
+<link rel="stylesheet" href="proto.css"></head>
+<body><div class="app">
+<aside class="side">
+  <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
+  <div class="sec">大盘</div>
+  <div class="nav">
+    <a href="health-r1.html">◎ 健康检查<span class="b warn">告警</span></a>
+    <a href="topsql-r1.html">▤ Top SQL</a>
+    <a href="wdr-r1.html">◔ WDR 分析<span class="b crit">严重</span></a>
+    <a class="on" href="kb-r1.html">▥ 知识库<span class="b">3 待处理</span></a>
+  </div>
+  <div class="sec">对话</div>
+  <div class="nav"><a href="#">⊕ 新对话 ↗</a><a href="#">◌ 最近对话（7）↗</a></div>
+  <div class="sec">当前</div>
+  <div class="nav"><a href="#">工号 u1234</a><a href="#">10.0.0.9 · postgres</a></div>
+</aside>
+<main class="main">
+  <div class="crumb">大盘 › <b>知识库</b></div>
+  <div class="head">
+    <div>
+      <h1>知识库 <span class="badge notice">3 项待处理</span></h1>
+      <div class="meta">模式 <b>向量库</b>（高斯 DataVec · bge-m3 · 1024 维）· 本环境 <b>只读</b> · 上次索引 <b>09-21 22:10</b> · 文档新写 14 · 案例 3</div>
+    </div>
+    <div class="right">✓ 引用必有出处 · 出处指回客户原件<br>全体共享 · 导入由知识库管理员在导入环境完成</div>
+  </div>
+
+  <!-- ① 四顶卡 -->
+  <div class="grid g4">
+    <div class="kpi"><div class="l">知识总量</div><div class="v tnum">1,214<small>条</small></div><div class="d">案例 286 · 条款 412 · 图边 516</div></div>
+    <div class="kpi"><div class="l">覆盖引擎 / 环境</div><div class="v tnum">2<small>套</small></div><div class="d">openGauss 5 生产 · GaussDB 集中式</div></div>
+    <div class="kpi notice"><div class="l">健康度</div><div class="v">3 项待处理</div><div class="d">向量缺失 21 · 收件 4 · 缺口 6</div></div>
+    <div class="kpi"><div class="l">最近更新</div><div class="v">09-21</div><div class="d">昨天 · 24h 新增案例 3 · 条款 0</div></div>
+  </div>
+
+  <!-- ② 三类知识 -->
+  <div class="grid g3">
+    <div class="card" style="border-top:4px solid var(--c2);padding-top:12px">
+      <h2><span style="width:10px;height:10px;border-radius:3px;background:var(--c2)"></span>案例</h2>
+      <div class="sub">现场处理过的故障 / 工单：现象 → 根因 → 处置</div>
+      <div style="font-size:30px;font-weight:700;line-height:1.1;margin:6px 0 10px" class="tnum">286<small style="font-size:12.5px;font-weight:500;color:var(--dim);margin-left:5px">条 · 原始工单 341</small></div>
+      <div class="kv"><span>向量覆盖</span><span class="notice">93% · 缺 21</span></div>
+      <div class="bar notice" style="margin:4px 0 8px"><i style="width:93%"></i></div>
+      <div class="kv"><span>有现场摘录</span><span class="ok">100%</span></div>
+      <div class="kv"><span>按引擎</span><span>openGauss 5 · 231 / GaussDB 55</span></div>
+      <div class="kv"><span>按来源</span><span>工单 240 · 复盘 46</span></div>
+      <div style="margin-top:10px" class="dig">查看案例列表 →</div>
+    </div>
+    <div class="card" style="border-top:4px solid var(--c1);padding-top:12px">
+      <h2><span style="width:10px;height:10px;border-radius:3px;background:var(--c1)"></span>条款</h2>
+      <div class="sub">规范 / 标准 / 制度里可引用的条文</div>
+      <div style="font-size:30px;font-weight:700;line-height:1.1;margin:6px 0 10px" class="tnum">412<small style="font-size:12.5px;font-weight:500;color:var(--dim);margin-left:5px">条 · 来自 9 份文档</small></div>
+      <div class="kv"><span>向量覆盖</span><span class="ok">100%</span></div>
+      <div class="bar ok" style="margin:4px 0 8px"><i style="width:100%"></i></div>
+      <div class="kv"><span>引用可校验（cite-check）</span><span class="ok">412 / 412</span></div>
+      <div class="kv"><span>按文档</span><span>开发规范 188 · 运维手册 141 · 安全基线 83</span></div>
+      <div class="kv"><span>最近导入</span><span>09-18 · 安全基线 v3</span></div>
+      <div style="margin-top:10px" class="dig">查看条款列表 →</div>
+    </div>
+    <div class="card" style="border-top:4px solid var(--c3);padding-top:12px">
+      <h2><span style="width:10px;height:10px;border-radius:3px;background:var(--c3)"></span>关系图</h2>
+      <div class="sub">现象 / 根因 / 处置 / 条款 / 对象 之间的边</div>
+      <div style="font-size:30px;font-weight:700;line-height:1.1;margin:6px 0 10px" class="tnum">516<small style="font-size:12.5px;font-weight:500;color:var(--dim);margin-left:5px">条边 · 203 实体</small></div>
+      <div class="kv"><span>导致</span><span class="tnum">198</span></div>
+      <div class="kv"><span>处置</span><span class="tnum">172</span></div>
+      <div class="kv"><span>约束（条款→对象）</span><span class="tnum">104</span></div>
+      <div class="kv"><span>共现</span><span class="tnum">42</span></div>
+      <div class="kv"><span>待人审</span><span class="notice tnum">7</span></div>
+      <div class="kv"><span>存储</span><span>图文件（未配 Neo4j，无损失）</span></div>
+      <div style="margin-top:10px" class="dig">浏览图谱 →</div>
+    </div>
+  </div>
+
+  <!-- ③ 健康自检 + 缺口清单 -->
+  <div class="grid g2">
+    <div class="card">
+      <h2>健康自检 <span class="tag">降级即发现</span></h2>
+      <div class="verdict notice"><i class="lv"></i><div class="t"><b>21 条案例缺向量</b><small>09-21 索引时 embedding 端点超时 2 批 · 这些案例只能靠关键词命中</small></div><span class="dig">重建这 21 条 →</span></div>
+      <div class="verdict notice"><i class="lv"></i><div class="t"><b>收件目录有 4 个文件待处理</b><small>用户上传后尚未 ingest · 最早 09-19</small></div><span class="dig">通知管理员 →</span></div>
+      <div class="verdict ok"><i class="lv"></i><div class="t"><b>向量库连接正常 · 模型未变</b><small>kb_meta.embed_model = bge-m3，与配置一致（变了会拒绝索引）</small></div><span></span></div>
+      <div class="verdict ok"><i class="lv"></i><div class="t"><b>三条出处闸门全开</b><small>策略闸门 · 现场摘录必填 · cite-check</small></div><span></span></div>
+    </div>
+    <div class="card">
+      <h2>缺口清单 <span class="tag">近 7 天查不到条款/案例的发现</span><span class="dig">深挖 →</span></h2>
+      <div class="sub">这些是诊断给出了发现、但知识库里没有对应案例或条款的——最值得补的知识</div>
+      <div class="rank"><span class="n">1</span><span>NOPK_BIGTABLE · 无主键大表</span><span class="tnum">6 次</span></div>
+      <div class="rank"><span class="n">2</span><span>IDLE_IN_XACT · 空闲中事务</span><span class="tnum">4 次</span></div>
+      <div class="rank"><span class="n">3</span><span>WDR_TEMP_SPILL · 临时文件下盘</span><span class="tnum">3 次</span></div>
+      <div class="rank"><span class="n">4</span><span>INVALID_INDEX · 无效索引</span><span class="tnum">2 次</span></div>
+      <div class="rank"><span class="n">5</span><span>REPL_LAG · 复制延迟</span><span class="tnum">1 次</span></div>
+    </div>
+  </div>
+
+  <!-- ④ 最近检索 -->
+  <div class="card">
+    <h2>最近检索 <span class="tag">本人 · 近 7 天</span></h2>
+    <table><thead><tr><th>时间</th><th>查询</th><th class="r">命中案例</th><th class="r">命中条款</th><th>怎么命中的</th></tr></thead><tbody>
+      <tr><td class="tnum">09-22 14:05</td><td>慢 SQL 平均耗时超阈值 · 全表扫描</td><td class="r tnum">3</td><td class="r tnum">2</td><td><span class="pill ok">语义</span> <span class="pill dim">关键词</span></td></tr>
+      <tr><td class="tnum">09-22 11:40</td><td>无主键大表怎么处理</td><td class="r tnum crit">0</td><td class="r tnum">1</td><td><span class="pill dim">关键词</span> · 进缺口清单</td></tr>
+      <tr><td class="tnum">09-21 16:22</td><td>idle in transaction 6 分钟</td><td class="r tnum crit">0</td><td class="r tnum crit">0</td><td>未命中 · 进缺口清单</td></tr>
+      <tr><td class="tnum">09-21 09:10</td><td>缓存命中率下降 物理读增加</td><td class="r tnum">5</td><td class="r tnum">1</td><td><span class="pill ok">语义</span></td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="note">
+    <h3>设计说明（给确认用，实现时不出现）</h3>
+    <ul>
+      <li><b>三类知识 = 我们知识库的真实三层</b>：案例（cases）/ 条款（rules）/ 关系图（graph）。dsh-k8s 那边是记忆 / 向量 / 图，语义不同，这里按我们的模型重排，不硬套。</li>
+      <li><b>数据来源</b>：<code>gaussdb-kb health</code> 已经打印了这页几乎全部内容（模式 / 只读 / 收件目录 / 上次索引 / 待处理 / 缺口清单）——<b>但它现在是文本，没有 <code>--json</code></b>。要做这页，先给 health 加 JSON 输出（小改，纯技能侧）。</li>
+      <li><b>「最近检索」需要记检索日志</b>：现在 <code>kb query</code> 不落日志。要这张表就得让 query 追加一行到本人 NAS 目录（含命中数与命中方式）。要不要这张表——<b>你拍板</b>。</li>
+      <li>「怎么命中的」区分语义 / 关键词，是因为文件模式下只有关键词；用户应该知道自己看到的是哪一种。</li>
+      <li>全体共享的知识库只有一份，所以这页所有人看到的一样；只有「最近检索」是本人的。</li>
+    </ul>
+  </div>
+</main></div>
+</body></html>

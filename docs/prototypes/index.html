@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>前端镜像 · 四个大盘 · R1 设计稿</title>
+<link rel="stylesheet" href="proto.css">
+<style>
+ body{max-width:980px;margin:0 auto;padding:40px 24px 80px}
+ .shot{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0 30px}
+ .shot a{display:block;border:1px solid var(--line);border-radius:12px;padding:16px 18px;color:var(--ink);box-shadow:0 4px 12px rgba(0,0,0,.03)}
+ .shot a:hover{border-color:var(--blue)}
+ .shot b{font-size:16px;display:block;margin-bottom:4px}.shot small{color:var(--sub);font-size:12.5px;line-height:1.5;display:block}
+ h1{font-size:24px;margin:0 0 6px}.lead{color:var(--sub);font-size:14px}
+ h2{font-size:17px;margin:28px 0 8px}
+ .dec{border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:10px 0}
+ .dec b.q{display:block;font-size:14.5px;margin-bottom:6px}
+ .dec .rec{background:var(--fill);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:13px}
+ .dec .rec::before{content:"我的建议 · ";font-weight:600}
+ ul{padding-left:20px}li{margin:4px 0}
+</style></head>
+<body>
+<h1>前端镜像：四个大盘 · R1 设计稿</h1>
+<div class="lead">基于 deepseek-harness 0.1.7 的前端插件机制做，去掉它的 logo 与对话页；四个大盘参考 dsh-k8s 的知识库 / 健康 / Top SQL / WDR 四份设计，按<b>我们技能的真实产出</b>重排。每页底部有黄色「设计说明」，写清数据从哪来、哪些东西没有、为什么。</div>
+
+<div class="shot">
+  <a href="health-r1.html"><b>◎ 健康检查大盘</b><small>11 维度环 + 越阈值发现榜 + 各维度卡 + 子技能状态 + 12 次巡检历史。来源：gaussdb-health evidence JSON。</small></a>
+  <a href="topsql-r1.html"><b>▤ Top SQL 大盘</b><small>五维度页签 + 占比堆叠条 + 榜单 + 一眼结论 + 逐条卡（含 sqltune 建议）。来源：topsql --format json 六个字段。</small></a>
+  <a href="wdr-r1.html"><b>◔ WDR 分析大盘</b><small>8 KPI 带上窗对比 + DB Time 构成 + 窗口内 Top SQL / 等待 / Checkpoint / 缓存 / 文件 IO + 历史窗口。来源：wdr collect --format json。</small></a>
+  <a href="kb-r1.html"><b>▥ 知识库大盘</b><small>案例 / 条款 / 关系图三卡 + 健康自检 + 缺口清单 + 最近检索。来源：kb health（需加 --json）。</small></a>
+</div>
+
+<h2>看稿之前，三件事要你拍板</h2>
+
+<div class="dec"><b class="q">① 大盘的数字从哪来 —— 这是整个前端镜像最大的架构问题</b>
+dsh-k8s 的大盘读的是持续采集器写进 PG 的存档。<b>我们没有采集器</b>：技能在用户 Pod 里按需跑一次、把 JSON 打到标准输出，然后什么都不留。所以四个大盘要有数据，必须先回答「报告存在哪、前端怎么读到」。
+<ul>
+ <li><b>A. 技能落盘到本人 NAS 目录 + 用户 Pod 里多开一个只读端口</b>：health / topsql / wdr / kb 跑完各写一份 JSON 到 <code>/nas/me/reports/&lt;技能&gt;/&lt;时间&gt;.json</code>；podctl 起一个极小的静态 HTTP（4097）只读这个目录；网关把 <code>/reports/*</code> 也代理到用户 Pod。代价：多一个监听端口、NetworkPolicy 多一行、podctl 多一个子命令；好处：历史天然有（就是文件），隔离天然有（网关按工号代理，前端拿不到别人的）。</li>
+ <li><b>B. 前端 Pod 直接只读挂 NAS，按工号读目录</b>：少一个端口。代价：前端 Pod 能看到<b>所有人</b>的目录，隔离只剩「前端代码按网关传来的工号过滤」这一层软的——违反接入手册里「隔离靠不挂载而不是靠权限」那条。</li>
+ <li><b>C. 从 opencode 会话里解析工具输出</b>：不改技能。代价：要在会话消息里找 JSON，格式脆；只有本会话跑过才有；历史要扫全部会话。</li>
+</ul>
+<div class="rec">A。多一个端口换来的是隔离不打折、历史不用另做。C 我实测过 <code>GET /session/{id}/message</code> 能拿到 parts，但把大盘建在解析对话上，改一次提示词就可能全塌。</div></div>
+
+<div class="dec"><b class="q">② 「深挖 →」跳到哪 —— 去掉 deepseek-harness 的对话页之后，对话在哪发生</b>
+你要求去掉对话页面。四个大盘的每个「深挖 →」「调优 →」都需要一个能对话的地方。现在用户对话走的是 <b>opencode 自带的 Web 界面</b>（网关代理到用户 Pod）。
+<div class="rec">前端镜像只做大盘；「深挖」= 调 opencode API 建一个会话并发第一句（带上这条发现的上下文），然后<b>跳转到 opencode Web 的那个会话 URL</b>。两个界面并存，侧栏「对话」分组就是跳过去的链接。不在前端镜像里再做一套对话 UI。</div></div>
+
+<div class="dec"><b class="q">③ 两个功能取舍，各自要改技能侧</b>
+<ul>
+ <li><b>Top SQL 多维度占比</b>：dsh-k8s 有 DB Time / CPU / IO 三根堆叠条，我们的 topsql 只取六列。要的话白名单要加列，客户侧走版本 DML——现在设计稿只画了「当前维度」一根条。</li>
+ <li><b>知识库「最近检索」表</b>：要 <code>kb query</code> 落检索日志（本人目录一行一条）。不要的话这张表去掉。</li>
+</ul>
+<div class="rec">Top SQL 先按六列做，多维度等客户白名单能加列再说；「最近检索」要——它是「缺口清单」的来源，没有它缺口清单就只能从 findings 反推。</div></div>
+
+<h2>不用拍板、我会直接这样做的</h2>
+<ul>
+ <li>去 logo：上游有 <code>sidebar.brand.mark</code> / <code>sidebar.brand.name</code> 两个插槽，<code>ui-brand-official</code> 插件就是往里注册海豚 logo 的——我们不装它、装自己的一个。不用 CSS 硬盖。</li>
+ <li>去对话页：<code>ui-conversation</code> / <code>ui-chat</code> 是独立客户端插件，profile 里不装即可；主区用 <code>route</code> / <code>mainView</code> 插槽装四个大盘。</li>
+ <li>四个大盘 = 一个客户端插件包 <code>ui-gaussdb-dashboards</code>（四个页面共用取数层与 chart 组件），不拆四个包——dsh-k8s 拆得太碎，CLAUDE.md 里自己记了「新建插件包三处缺一不可」的坑。</li>
+ <li>图表沿用 dsh-k8s 的 <code>chart-kit</code> 思路（Bars / Gauge / Line / Pie / StackedBar / RankList / Sparkline），自绘 SVG，不引第三方图表库。</li>
+ <li>零按钮：只有文字链。数字全部来自技能脚本的确定性判定，模型不改级别。</li>
+ <li>前端镜像无状态、不挂 NAS（按方案 A）、不带技能，一个共享 Deployment，经网关拿工号。</li>
+</ul>
+
+<h2>看稿的顺序建议</h2>
+<ul><li>先看健康检查（信息最密，其它三页的语言都从它来）→ WDR（与它最像）→ Top SQL → 知识库。</li>
+<li>每页的黄色说明里写了「与 dsh-k8s 的差别」——那些差别都是因为数据来源不同，不是偷懒；你要是觉得某个差别不能接受，就是在说「要加采集器」，那是另一个镜像的事。</li></ul>
+</body></html>

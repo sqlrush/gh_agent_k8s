@@ -67,7 +67,7 @@ done
 # 那些文件还带着本机的 com.apple.provenance 属性。交付给客户的包里不该有。
 # 这个变量在 Linux 的 GNU tar 上是无害的空操作。
 COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
-    --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' \
+    --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' --exclude='docs/prototypes' \
     --exclude='._*' --exclude='.DS_Store' \
     k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")

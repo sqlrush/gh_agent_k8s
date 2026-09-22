@@ -71,7 +71,8 @@ def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
         "k8s 包应该整个打 docs/,不要再列具体文件名"
     # specs/ 里是备选方案、退路、残余风险与未定项 —— 交付文档不写我们的讨论过程,
     # 而那一份从头到尾都是讨论过程。它随包发出去过,发现时补上这条守卫。
-    for internal in ("docs/plans", "docs/security", "docs/specs"):
+    # prototypes/ 是大盘设计稿:示例数字、给 user 拍板的方案对比、我们的建议 —— 全是讨论过程
+    for internal in ("docs/plans", "docs/security", "docs/specs", "docs/prototypes"):
         assert "--exclude='%s'" % internal in body, "内部文档 %s 应该排除在交付包外" % internal
 
 

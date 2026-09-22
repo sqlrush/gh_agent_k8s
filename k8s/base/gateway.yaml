@@ -97,6 +97,12 @@ spec:
             - {name: GATEWAY_REAP_MODE, valueFrom: {configMapKeyRef: {name: gateway-config, key: REAP_MODE, optional: true}}}
             - {name: GATEWAY_IDLE_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: IDLE_SECONDS, optional: true}}}
             - {name: GATEWAY_TRUST_CIDRS, valueFrom: {configMapKeyRef: {name: gateway-config, key: TRUST_CIDRS, optional: true}}}
+            # 三个节流参数。代码早就读它们,但清单一直没映射进来 —— 在 ConfigMap 里
+            # 写上去是**静默无效**:值收下了、行为不变、不报错。现在补齐,
+            # gateway/tests 有一条守卫比对「代码读的」与「清单给的」。
+            - {name: GATEWAY_SWEEP_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: SWEEP_SECONDS, optional: true}}}
+            - {name: GATEWAY_ACTIVITY_INTERVAL_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: ACTIVITY_INTERVAL_SECONDS, optional: true}}}
+            - {name: GATEWAY_READY_TIMEOUT_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: READY_TIMEOUT_SECONDS, optional: true}}}
             # 信任凭据与运维密钥走 Secret。**两者一个都没配时网关拒绝启动**
             # (gateway/config.py):不限制来源就等于「任填工号即可进入任何人的环境」,
             # 而且从外面看不出异常 —— 宁可起不来。

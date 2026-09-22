@@ -53,6 +53,44 @@ def test_gateway_rbac_cannot_list_secrets():
     assert '"get"' in verbs, "要保留 get —— 「已有口令就沿用」靠它"
 
 
+def test_every_tunable_the_code_reads_is_reachable_from_the_configmap():
+    """**配置项必须真的能配到。**
+
+    gateway/config.py 读一堆 GATEWAY_* 变量,但容器里的 env 是 gateway.yaml 一条条
+    映射进去的 —— 代码读了、清单没映射的那些,运维在 ConfigMap 里写上去是**静默无效**:
+    值收下了,行为一点不变,而且没有任何报错。写参数手册时才发现有四个是这样。
+
+    监听端口是唯一的例外:改它还要同步改 containerPort 与 Service 的 targetPort,
+    不是「配一下」的事,所以刻意不给出口,在手册里写明。
+    """
+    cfg = (_ROOT / "gateway" / "config.py").read_text(encoding="utf-8")
+    read_by_code = set(re.findall(r'env\.get\("(GATEWAY_[A-Z_]+)"\)', cfg))
+    read_by_code |= set(re.findall(r'_int\(env,\s*"(GATEWAY_[A-Z_]+)"', cfg))
+    assert len(read_by_code) >= 10, "变量名提取失掉了?只找到 %r" % (read_by_code,)
+
+    manifest = (_ROOT / "k8s" / "base" / "gateway.yaml").read_text(encoding="utf-8")
+    provided = set(re.findall(r"\{name:\s*(GATEWAY_[A-Z_]+)", manifest))
+
+    missing = read_by_code - provided - {"GATEWAY_LISTEN_PORT"}
+    assert not missing, (
+        "gateway.yaml 没把这些变量映射进容器,在 ConfigMap 里配它们是静默无效的:%s"
+        % ", ".join(sorted(missing)))
+
+
+def test_configmap_keys_are_all_consumed_by_the_deployment():
+    """反向:ConfigMap 里有键而清单没引用,同样是「配了没用」。"""
+    cm = (_ROOT / "k8s" / "base" / "configmap-gateway.yaml").read_text(encoding="utf-8")
+    body = cm[cm.index("data:"):]
+    keys = {m.group(1) for m in re.finditer(r"^\s{2}([A-Z][A-Z0-9_]*):", body, re.MULTILINE)}
+    assert keys, "configmap-gateway.yaml 的 data 解析不出键?"
+
+    manifest = (_ROOT / "k8s" / "base" / "gateway.yaml").read_text(encoding="utf-8")
+    referenced = set(re.findall(r"configMapKeyRef:\s*\{name:\s*gateway-config,\s*key:\s*([A-Z0-9_]+)",
+                                manifest))
+    orphans = keys - referenced
+    assert not orphans, "ConfigMap 里这些键没人读:%s" % ", ".join(sorted(orphans))
+
+
 def test_gateway_rbac_has_no_exec():
     """网关没有进用户容器的理由。
 

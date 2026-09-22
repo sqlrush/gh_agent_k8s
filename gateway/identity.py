@@ -34,12 +34,14 @@ class IdentityError(Exception):
 
 @dataclass(frozen=True)
 class Identity:
+    """本模块只回答「这是谁、他带了哪些角色」。
+
+    **刻意不在这里判断谁是知识库管理员。** 那取决于配置项 KB_ADMIN_ROLES,判定在
+    server.py。这里曾有一个 is_kb_admin 属性把 "kb-admin" 写死,两条路并存的后果是:
+    谁顺手用了属性,那个配置项就对他那条路静默失效。
+    """
     user_id: str
     roles: tuple = ()
-
-    @property
-    def is_kb_admin(self) -> bool:
-        return "kb-admin" in self.roles
 
 
 def normalize_user_id(raw: Optional[str]) -> str:

@@ -101,10 +101,16 @@ def test_missing_user_header_is_refused():
 
 # --- 角色 ---------------------------------------------------------------------
 
-def test_roles_are_parsed_and_kb_admin_detected():
+def test_roles_are_parsed_normalized_and_stripped():
+    """本模块只负责把角色解析出来并归一化(去空白、转小写)。
+
+    「哪些角色算知识库管理员」是配置项 KB_ADMIN_ROLES,判定在 server.py ——
+    这里曾经有个 is_kb_admin 属性把 "kb-admin" 写死,两条路并存迟早会让那个
+    配置项静默失效:谁顺手用了属性,配置改了也不生效。已删掉,只留解析。
+    """
     i = _extract({idt.HEADER_TRUST: SECRET, H: "u1234", R: "dba, KB-Admin"})
-    assert i.is_kb_admin and "dba" in i.roles
+    assert i.roles == ("dba", "kb-admin")
 
 
-def test_no_roles_means_not_admin():
-    assert not _extract({idt.HEADER_TRUST: SECRET, H: "u1234"}).is_kb_admin
+def test_no_roles_header_means_empty_roles():
+    assert _extract({idt.HEADER_TRUST: SECRET, H: "u1234"}).roles == ()

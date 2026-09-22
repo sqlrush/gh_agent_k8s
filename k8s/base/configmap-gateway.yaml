@@ -27,6 +27,12 @@ data:
   # 几分钟不产生流量是正常的,配太短会在用户等结果时把 Pod 收掉。
   IDLE_SECONDS: "1800"
 
+  # 三个节流参数,一般不用动。留空即用默认值。
+  # 括号里是下限,低于下限网关拒绝启动。
+  SWEEP_SECONDS: "120"              # 回收器多久扫一轮(≥10)
+  ACTIVITY_INTERVAL_SECONDS: "60"   # 活动时间写入节流(≥5);调小会显著增加对 API Server 的写入
+  READY_TIMEOUT_SECONDS: "120"      # 等新 Pod 就绪的上限(≥10);超时用户看到 504
+
   # 允许携带工号头的来源网段(上游 SSO / Ingress 的地址),逗号分隔。
   # 与 Secret 里的 TRUST_SECRET 两道门任一即可,但**两者不能都为空** —— 都空网关拒绝启动。
   TRUST_CIDRS: ""

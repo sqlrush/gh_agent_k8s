@@ -1,4 +1,5 @@
 """gaussdb-kb 的 health --json 与 query 检索日志 —— 大盘知识库页的两个数据来源。"""
+import importlib.util
 import json
 import pathlib
 import sys
@@ -6,10 +7,27 @@ import sys
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_ROOT / "skills" / "gaussdb-kb" / "scripts"))
 sys.path.insert(0, str(_ROOT))
+_SCRIPTS = _ROOT / "skills" / "gaussdb-kb" / "scripts"
 
-import kb as kbcli  # noqa: E402
+
+def _load_kb_cli():
+    """两个 skill 的入口都叫 kb.py(gaussdb-kb 与 gaussdb-kb-import)。整套一起跑时
+    `import kb` 拿到的是先被谁缓存的那个 —— 单跑本文件绿、全套红,就是这么来的。
+    按文件路径、用独一无二的模块名加载,与 test_kb_query_skill_units.py 同一做法。"""
+    modname = "kb_query_cli_for_reports"
+    if modname in sys.modules:
+        return sys.modules[modname]
+    if str(_SCRIPTS) not in sys.path:            # 兄弟模块 kb_cite 按脚本目录找,和真实运行一样
+        sys.path.append(str(_SCRIPTS))
+    spec = importlib.util.spec_from_file_location(modname, _SCRIPTS / "kb.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[modname] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+kbcli = _load_kb_cli()
 from common.kb import query as kbquery  # noqa: E402
 
 

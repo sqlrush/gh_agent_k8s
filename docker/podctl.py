@@ -167,6 +167,21 @@ def owner_release(dir_: pathlib.Path, pod: str) -> None:
 # ---------------------------------------------------------------- SQLite
 
 def _integrity_ok(db: pathlib.Path) -> bool:
+    """**空文件不算通过。**
+
+    SQLite 把 0 字节文件当成一个合法的空库,`integrity_check` 照样回 ok。
+    如果拿它当备份恢复,结果是「用一个空库覆盖,并打印恢复成功」——
+    用户看到的是正常启动加一个空的对话列表,没有任何报错。
+    所以先看文件头:真库前 16 字节是 `SQLite format 3\\0`。
+    """
+    try:
+        if db.stat().st_size == 0:
+            return False
+        with open(db, "rb") as f:
+            if f.read(16) != b"SQLite format 3\x00":
+                return False
+    except OSError:
+        return False
     try:
         con = sqlite3.connect(db)
         try:
@@ -178,8 +193,18 @@ def _integrity_ok(db: pathlib.Path) -> bool:
     return bool(row) and row[0] == "ok"
 
 
+# 备份文件名:opencode.db.<UTC 时间戳>,时间戳形如 20260102T000000Z。
+# **不能用 `opencode.db.*` 通配。** 那个通配还会命中 SQLite 的侧车文件
+# `opencode.db.<时间戳>-wal` / `-shm`,而 `-wal` 按字典序排在同名备份之后 ——
+# 「取最新一份」于是取到侧车。侧车常是 0 字节,配合上面那个空库洞,
+# 结果是「恢复成功」+ 历史全空。它同时还会把轮转的份数算错。
+_BACKUP_RE = re.compile(r"^opencode\.db\.\d{8}T\d{6}Z$")
+
+
 def _backups(bdir: pathlib.Path) -> List[pathlib.Path]:
-    return sorted(bdir.glob("opencode.db.*")) if bdir.is_dir() else []
+    if not bdir.is_dir():
+        return []
+    return sorted(p for p in bdir.iterdir() if _BACKUP_RE.match(p.name))
 
 
 def db_check(db: pathlib.Path, backup_dir: pathlib.Path) -> str:

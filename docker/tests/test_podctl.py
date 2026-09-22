@@ -148,6 +148,49 @@ def test_db_check_without_backup_starts_empty_and_says_so(tmp_path, capsys):
     assert list(tmp_path.glob("opencode.db.corrupt-*"))
 
 
+def test_backup_list_ignores_wal_and_shm_sidecars(tmp_path):
+    """**备份清单只认真正的备份文件。**
+
+    `opencode.db.*` 这个通配同时命中 `opencode.db.<时间戳>-wal` 与 `-shm` ——
+    而 `-wal` 按字典序排在同名备份**之后**,于是「取最新一份」取到的是那个侧车文件。
+    侧车常常是 0 字节,而 SQLite 把 0 字节文件当成一个合法的空库:
+    自检于是打印「已从备份 …-wal 恢复」并返回 restored,用户的历史却全空了。
+    真实形态:恢复成功的日志 + 空的对话列表,没有任何报错。
+    """
+    bdir = tmp_path / "backup"
+    bdir.mkdir()
+    _make_db(bdir / "opencode.db.20260102T000000Z", rows=7)
+    (bdir / "opencode.db.20260102T000000Z-wal").write_bytes(b"")
+    (bdir / "opencode.db.20260102T000000Z-shm").write_bytes(b"")
+    (bdir / "opencode.db.corrupt-20260102T000000Z").write_bytes(b"garbage")
+
+    names = [p.name for p in podctl._backups(bdir)]
+    assert names == ["opencode.db.20260102T000000Z"], (
+        "备份清单里混进了非备份文件:%s" % names)
+
+
+def test_rotation_counts_only_real_backups(tmp_path):
+    """轮转也走同一个清单。侧车被算进「份数」时,keep=3 实际留下的真备份不足 3 份。"""
+    db = tmp_path / "opencode.db"
+    _make_db(db)
+    bdir = tmp_path / "backup"
+    for i in range(1, 6):
+        podctl.db_backup(db, bdir, keep=3, now="2026010%dT000000Z" % i)
+    kept = [p.name for p in podctl._backups(bdir)]
+    assert len(kept) == 3, "应留 3 份真备份,实际 %s" % kept
+    assert kept == ["opencode.db.20260103T000000Z",
+                    "opencode.db.20260104T000000Z",
+                    "opencode.db.20260105T000000Z"]
+
+
+def test_empty_file_is_not_a_usable_backup(tmp_path):
+    """0 字节文件能被 SQLite 正常打开,`integrity_check` 也回 ok ——
+    拿它当备份恢复,等于用一个空库覆盖并宣告成功。"""
+    empty = tmp_path / "empty.db"
+    empty.write_bytes(b"")
+    assert not podctl._integrity_ok(empty)
+
+
 def test_db_checkpoint_truncates_wal(tmp_path):
     db = tmp_path / "opencode.db"
     _make_db(db, rows=50)

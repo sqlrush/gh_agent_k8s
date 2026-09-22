@@ -33,6 +33,7 @@ for _anc in _HERE.parents:                      # locate common/ (repo root or i
 import common  # noqa: E402
 from common import access  # noqa: E402
 from common import cli  # noqa: E402
+from common import reports  # noqa: E402
 from collectors import collect_evidence  # noqa: E402
 from interp import load_evidence, load_interp  # noqa: E402
 from finalreport import render_report  # noqa: E402
@@ -76,6 +77,8 @@ def _cmd_collect(args) -> int:
             print(render_evidence_json(ev))
         else:
             print(render_evidence(ev), end="")
+        # 存档在输出之后:大盘读 latest.json 与上一份做窗口对比;失败只 warn
+        reports.archive("wdr", ev.to_dict())
         return 0
     except common.DBError as exc:
         print(f"error: {exc}", file=sys.stderr)

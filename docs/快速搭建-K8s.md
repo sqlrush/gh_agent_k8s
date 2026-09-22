@@ -79,23 +79,30 @@ grep -rh "image:" k8s/ | grep -v "#"
 
 ---
 
-## 4. 改存储地址
+## 4. 接上存储
 
 ```bash
-vi k8s/base/nas-pvc.yaml
+cp k8s/base/nas-pv-nfs.example.yaml k8s/base/nas-pv-nfs.yaml
+vi k8s/base/nas-pv-nfs.yaml
 ```
 
-把 `nfs:` 那几行改成：
+只改最后两行：
 
 ```yaml
   nfs:
     server: <NFS服务器地址>
     path: <NFS导出路径>
-  mountOptions: [nfsvers=4.1, hard, local_lock=all]
 ```
 
-> 存储管理员需先在 NFS 上建好 `users/`、`admins/`、`kb/` 三个目录，属主 uid 1000。
 > `vi` 保存退出：按 `Esc`，输入 `:wq` 回车。
+
+```bash
+kubectl apply -f k8s/base/nas-pv-nfs.yaml
+```
+> `persistentvolume/nas-nfs created`
+
+> 存储管理员需先在 NFS 导出目录下建好 `users/`、`admins/`、`kb/` 三个目录，属主 uid 1000。
+> 属主不对的后果是**能对话、关掉浏览器历史全没了**，而且当时没有任何报错。
 
 ---
 

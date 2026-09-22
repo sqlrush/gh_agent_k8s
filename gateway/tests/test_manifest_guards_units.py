@@ -91,6 +91,35 @@ def test_configmap_keys_are_all_consumed_by_the_deployment():
     assert not orphans, "ConfigMap 里这些键没人读:%s" % ", ".join(sorted(orphans))
 
 
+def test_nfs_address_lives_in_the_pv_example_not_in_the_pvc():
+    """**NFS 地址在 PV 里,不在 PVC 里;文档不能让人去 PVC 里找 nfs:。**
+
+    2026-09-22 客户问「nas-pvc.yaml 是配 NAS 的吗」时翻出来:两份手册都写着
+    「编辑 k8s/base/nas-pvc.yaml,把 nfs: 那几行改成…」,而那个文件从头到尾只有一个
+    PersistentVolumeClaim,根本没有 nfs: —— PVC 是申请,供给在 PV / StorageClass。
+    仓库里给客户用的 PV 样例当时也不存在(只有 Mac 用的 hostPath 那份)。
+    客户照着做要么找不到那几行,要么把 nfs: 塞进 PVC 让 apply 报未知字段。
+    """
+    pvc = (_ROOT / "k8s" / "base" / "nas-pvc.yaml").read_text(encoding="utf-8")
+    assert "kind: PersistentVolumeClaim" in pvc and "nfs:" not in pvc.replace("nas-pv-nfs", "")
+
+    pv = _ROOT / "k8s" / "base" / "nas-pv-nfs.example.yaml"
+    assert pv.is_file(), "给客户用的静态 PV 样例不存在"
+    body = pv.read_text(encoding="utf-8")
+    assert "kind: PersistentVolume\n" in body and "\n  nfs:\n" in body
+    assert "local_lock=all" in body, "mountOptions 少了 local_lock=all —— 目录独占靠它"
+    assert "persistentVolumeReclaimPolicy: Retain" in body, "回收策略必须 Retain,那是用户数据"
+    assert "storageClassName: nas" in body and "storageClassName: nas" in pvc, \
+        "PV 与 PVC 的 storageClassName 必须一致,否则绑不上"
+
+    # 凡是教读者填 nfs: 的手册,都必须指向真有 nfs: 的那个文件
+    for name in ("快速搭建-K8s.md", "部署手册-从零到上线.md", "命令卡-测试环境搭建.md"):
+        doc = (_ROOT / "docs" / name).read_text(encoding="utf-8")
+        if "nfs:" in doc:
+            assert "nas-pv-nfs.example.yaml" in doc, \
+                "%s 教人填 nfs: 却没指向 nas-pv-nfs.example.yaml" % name
+
+
 def test_gateway_rbac_has_no_exec():
     """网关没有进用户容器的理由。
 

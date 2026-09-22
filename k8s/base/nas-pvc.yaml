@@ -1,6 +1,9 @@
 # NAS 的 RWX 卷:所有 Pod 共用一个 claim,各自用 subPath 只挂自己那一层(spec §4)。
-# 客户环境:平台用 NFS StorageClass 或静态 PV 满足这个 claim;PV 的 mountOptions 见 spec §4
-# (nfsvers=4.1, hard, local_lock=all)。Mac 本地用 k8s/local/nas-pv-hostpath.yaml。
+#
+# **这是「申请」,NFS 地址不在这里。** 供给那一边按客户集群现状二选一:
+#   · 已有 RWX 的 StorageClass → 只改下面的 storageClassName,不需要 PV
+#   · 没有 → 用 nas-pv-nfs.example.yaml 填 NFS 地址,先 apply 它
+# Mac 本地用 k8s/local/nas-pv-hostpath.yaml。
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

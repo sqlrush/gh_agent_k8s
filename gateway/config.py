@@ -48,6 +48,9 @@ class Config:
     kb_admin_roles: Tuple[str, ...] = ("kb-admin",)
     # 控制 API 的独立密钥。空 = 控制 API 关闭(只提供代理入口)。
     admin_token: str = ""
+    # 大盘前端的 Service 名:/dash/* 代理到 <frontend_service>.<namespace>.svc:80。
+    # 前端镜像没部署时这条路 502,不影响对话与报告两条路。
+    frontend_service: str = "frontend"
 
     @property
     def trust_configured(self) -> bool:
@@ -111,4 +114,5 @@ def load(env: Mapping[str, str]) -> Config:
         kb_admin_roles=tuple(r.strip().lower() for r in
                              (env.get("GATEWAY_KB_ADMIN_ROLES") or "kb-admin").split(",") if r.strip()),
         admin_token=(env.get("GATEWAY_ADMIN_TOKEN") or "").strip(),
+        frontend_service=(env.get("GATEWAY_FRONTEND_SERVICE") or "frontend").strip(),
     )

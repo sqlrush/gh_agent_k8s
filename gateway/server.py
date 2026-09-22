@@ -26,6 +26,25 @@ from . import pods, proxy
 _MAX_BODY = 64 * 1024 * 1024        # 上传走网关的话,单请求上限;超过直接 413
 
 
+ROUTE_DASH, ROUTE_REPORTS, ROUTE_OPENCODE = "dash", "reports", "opencode"
+REPORTS_PORT = 4097          # 用户 Pod 里 podctl serve-reports 的端口(docker/entrypoint.sh)
+
+
+def route_for(path: str) -> str:
+    """按路径前缀分三路。纯函数,单独可测。
+
+    /dash/*     大盘前端(全体共用的静态页),不建 Pod、不注口令、不记活动
+    /reports/*  用户自己 Pod 的报告只读端口,去掉前缀后转发
+    其它        opencode serve(对话),原样
+    """
+    p = path.split("?", 1)[0]
+    if p == "/dash" or p.startswith("/dash/"):
+        return ROUTE_DASH
+    if p.startswith("/reports/"):
+        return ROUTE_REPORTS
+    return ROUTE_OPENCODE
+
+
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "gaussdb-agent-gateway"
@@ -174,31 +193,48 @@ class _Handler(BaseHTTPRequestHandler):
             # 不回细节:这是安全边界,错误信息会告诉试探者哪一步过了
             return self._text(403, "无法确认身份。请经统一认证入口访问。")
 
-        kb_admin = any(r in self.app.cfg.kb_admin_roles for r in who.roles)
+        route = route_for(self.path)
         body = self._read_body()
         if body is None and int(self.headers.get("Content-Length") or 0) > 0:
             return                                  # _read_body 已经回了 413
 
-        try:
-            password = self.app.ensure_ready(who.user_id, kb_admin)
-        except pods.PrerequisiteMissing as exc:
-            # 配置缺失,等下去不会好。**日志里写清缺什么**,回给用户的话只说找谁 ——
-            # 报成「正在启动,请稍后重试」会让用户一直刷,而运维永远看不到原因。
-            self.app.log("为 %s 准备环境失败(前置条件):%s" % (who.user_id, exc))
-            return self._text(503, "您的环境尚未开通,请联系管理员为您开通后再登录。")
-        except TimeoutError as exc:
-            return self._text(504, "您的环境正在启动,请稍后重试。(%s)" % exc)
-        except Exception as exc:                    # noqa: BLE001
-            self.app.log("为 %s 准备环境失败:%s" % (who.user_id, exc))
-            return self._text(502, "环境准备失败,请联系管理员。")
+        if route == ROUTE_DASH:
+            # 大盘是静态页;浏览器拿到页面后自己经本网关调 /reports 与 opencode。
+            # 这里只转发:不建 Pod、不注口令、不记活动(看静态页不算在用)。
+            up = proxy.Upstream("%s.%s.svc" % (self.app.cfg.frontend_service, self.app.cfg.namespace), 80)
+            headers = proxy.forward_headers(self.headers.items(), None, who.user_id)
+            path = self.path
+        else:
+            kb_admin = any(r in self.app.cfg.kb_admin_roles for r in who.roles)
+            try:
+                password = self.app.ensure_ready(who.user_id, kb_admin)
+            except pods.PrerequisiteMissing as exc:
+                # 配置缺失,等下去不会好。**日志里写清缺什么**,回给用户的话只说找谁 ——
+                # 报成「正在启动,请稍后重试」会让用户一直刷,而运维永远看不到原因。
+                self.app.log("为 %s 准备环境失败(前置条件):%s" % (who.user_id, exc))
+                return self._text(503, "您的环境尚未开通,请联系管理员为您开通后再登录。")
+            except TimeoutError as exc:
+                return self._text(504, "您的环境正在启动,请稍后重试。(%s)" % exc)
+            except Exception as exc:                    # noqa: BLE001
+                self.app.log("为 %s 准备环境失败:%s" % (who.user_id, exc))
+                return self._text(502, "环境准备失败,请联系管理员。")
+            host = "runtime-%s.%s.svc" % (who.user_id, self.app.cfg.namespace)
+            if route == ROUTE_REPORTS:
+                # 报告端口没有口令(鉴权就是「网关只把本人的请求路由过来」);它以 reports/ 为根
+                up = proxy.Upstream(host, REPORTS_PORT)
+                headers = proxy.forward_headers(self.headers.items(), None, who.user_id)
+                path = self.path[len("/reports"):]
+            else:
+                up = proxy.Upstream(host)
+                headers = proxy.forward_headers(self.headers.items(), password, who.user_id)
+                path = self.path
 
-        up = proxy.Upstream("runtime-%s.%s.svc" % (who.user_id, self.app.cfg.namespace))
-        headers = proxy.forward_headers(self.headers.items(), password, who.user_id)
         try:
-            resp = up.send(self.command, self.path, headers, body)
+            resp = up.send(self.command, path, headers, body)
         except OSError as exc:
-            self.app.log("转发到 %s 失败:%s" % (who.user_id, exc))
-            return self._text(502, "无法连接到您的环境,请稍后重试。")
+            self.app.log("转发到 %s(%s)失败:%s" % (who.user_id, route, exc))
+            return self._text(502, "大盘服务未部署或不可达。" if route == ROUTE_DASH
+                              else "无法连接到您的环境,请稍后重试。")
 
         self.send_response(resp.status)
         for k, v in proxy.response_headers(resp.getheaders()):
@@ -206,10 +242,11 @@ class _Handler(BaseHTTPRequestHandler):
         # 我们按块转发,长度不可知 → 分块编码。SSE 也走这条路。
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
-        self.app.mgr.touch(who.user_id)              # 建连时先记一次,免得长连接期间被判闲置
+        # 建连时先记一次,免得长连接期间被判闲置;静态页除外
+        touch = (lambda: self.app.mgr.touch(who.user_id)) if route != ROUTE_DASH else (lambda: None)
+        touch()
         try:
-            proxy.pump(resp, self._write_chunk, self.wfile.flush,
-                       on_bytes=lambda _n: self.app.mgr.touch(who.user_id))
+            proxy.pump(resp, self._write_chunk, self.wfile.flush, on_bytes=lambda _n: touch())
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):

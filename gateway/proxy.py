@@ -37,16 +37,21 @@ def basic_auth(password: str, username: str = UPSTREAM_USERNAME) -> str:
     return "Basic " + base64.b64encode(("%s:%s" % (username, password)).encode("utf-8")).decode("ascii")
 
 
-def forward_headers(incoming: Iterable[Tuple[str, str]], password: str,
+def forward_headers(incoming: Iterable[Tuple[str, str]], password: Optional[str],
                     user_id: str) -> List[Tuple[str, str]]:
-    """过滤逐跳头与网关自用头,注入 Basic 口令与 X-Forwarded-User。"""
+    """过滤逐跳头与网关自用头,注入 Basic 口令与 X-Forwarded-User。
+
+    password 为 None 时**不注入** Authorization:报告只读端口与大盘前端都没有口令,
+    给它们发 opencode 的口令等于把口令递给不需要它的一方。
+    """
     out = []
     for k, v in incoming:
         lk = k.lower()
         if lk in _HOP_BY_HOP or lk in _GATEWAY_ONLY:
             continue
         out.append((k, v))
-    out.append(("Authorization", basic_auth(password)))
+    if password is not None:
+        out.append(("Authorization", basic_auth(password)))
     # 后端(opencode)不认这个头,但它会进后端的访问日志,排查时能对上人。
     out.append(("X-Forwarded-User", user_id))
     return out

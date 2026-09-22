@@ -12,6 +12,9 @@ data:
   USER_IMAGE_TAG: "agent-v0.9.3-oc1.18.27"
   PULL_POLICY: "IfNotPresent"
 
+  # 大盘前端的 Service 名(/dash/* 代理到它)。没部署前端镜像时这条路回 502,不影响对话与报告。
+  FRONTEND_SERVICE: "frontend"
+
   # 上游 SSO / WAF 把工号放在哪个请求头里。按客户实际填。
   USER_HEADER: "X-Agent-User"
   # 角色/组,逗号分隔。为空时网关退回读 ConfigMap agent-roles 判定谁是知识库管理员。

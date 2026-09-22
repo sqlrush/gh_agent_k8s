@@ -97,6 +97,7 @@ spec:
             - {name: GATEWAY_REAP_MODE, valueFrom: {configMapKeyRef: {name: gateway-config, key: REAP_MODE, optional: true}}}
             - {name: GATEWAY_IDLE_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: IDLE_SECONDS, optional: true}}}
             - {name: GATEWAY_TRUST_CIDRS, valueFrom: {configMapKeyRef: {name: gateway-config, key: TRUST_CIDRS, optional: true}}}
+            - {name: GATEWAY_FRONTEND_SERVICE, valueFrom: {configMapKeyRef: {name: gateway-config, key: FRONTEND_SERVICE, optional: true}}}
             # 三个节流参数。代码早就读它们,但清单一直没映射进来 —— 在 ConfigMap 里
             # 写上去是**静默无效**:值收下了、行为不变、不报错。现在补齐,
             # gateway/tests 有一条守卫比对「代码读的」与「清单给的」。

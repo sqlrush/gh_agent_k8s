@@ -51,7 +51,8 @@ class _Upstream(BaseHTTPRequestHandler):
             return
         body = json.dumps({"auth": self.headers.get("Authorization", ""),
                            "fwd_user": self.headers.get("X-Forwarded-User", ""),
-                           "trust": self.headers.get("X-Agent-Trust", "")}).encode()
+                           "trust": self.headers.get("X-Agent-Trust", ""),
+                           "path": self.path}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -81,11 +82,14 @@ def stack(monkeypatch):
                         lambda self, uid, kind=pods.KIND_RUNTIME:
                         pods.PodState(uid, kind, exists=True, ready=True))
     # 上游指到假 Pod
+    # 记下网关本想连的 (host, port),再把它指到假 Pod —— 三路分发的测试靠这个看路由对不对
+    asked = []
     monkeypatch.setattr("gateway.proxy.Upstream.__init__",
                         lambda self, host, port=4096, connect_timeout=10.0:
-                        (setattr(self, "host", "127.0.0.1"), setattr(self, "port", up_port),
-                         setattr(self, "connect_timeout", 2.0)) and None)
+                        (asked.append((host, port)), setattr(self, "host", "127.0.0.1"),
+                         setattr(self, "port", up_port), setattr(self, "connect_timeout", 2.0)) and None)
     app = server.App(cfg, mgr, log=lambda _m: None)
+    app.asked = asked
     gw = server.serve(app)
     gw.server_address = gw.socket.getsockname()
     threading.Thread(target=gw.serve_forever, daemon=True).start()
@@ -251,3 +255,40 @@ def test_missing_prerequisite_is_503_not_504(stack, monkeypatch):
     assert code == 503
     assert "联系管理员" in body
     assert "grmp-token" not in body, "给最终用户的话不该带内部资源名"
+
+
+# --- 三路分发 -----------------------------------------------------------------
+
+def test_route_for_is_a_pure_function():
+    assert server.route_for("/dash") == "dash" and server.route_for("/dash/health?x=1") == "dash"
+    assert server.route_for("/reports/health/latest.json") == "reports"
+    assert server.route_for("/dashboard") == "opencode" and server.route_for("/reportsx") == "opencode"
+    assert server.route_for("/session") == "opencode" and server.route_for("/") == "opencode"
+
+
+def test_reports_route_goes_to_4097_with_prefix_stripped_and_still_touches(stack):
+    base, kube, app = stack
+    code, body = _req(base, "/reports/health/latest.json", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    assert code == 200
+    echoed = json.loads(body)
+    assert echoed["path"] == "/health/latest.json", "转发给报告端口的路径要去掉 /reports 前缀"
+    assert app.asked[-1] == ("runtime-u1234.ns.svc", 4097)
+    assert echoed["auth"] == "", "报告端口没有口令,不该注入 Authorization"
+    assert any("last-activity" in json.dumps(p) for _k, _n, p in kube.patched), "看大盘也算在用"
+
+
+def test_dash_route_goes_to_frontend_without_password_or_touch_or_ensure(stack):
+    base, kube, app = stack
+    code, body = _req(base, "/dash/health", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    assert code == 200
+    echoed = json.loads(body)
+    assert app.asked[-1] == ("frontend.ns.svc", 80)
+    assert echoed["auth"] == "" and echoed["fwd_user"] == "u1234"
+    assert not any("last-activity" in json.dumps(p) for _k, _n, p in kube.patched), "静态页不记活动"
+    assert not [n for kind, n, _ in kube.applied if kind == "secrets"], "/dash 不该碰用户的口令 Secret"
+
+
+def test_dash_route_still_requires_trust(stack):
+    base = stack[0]
+    code, _ = _req(base, "/dash/health", {"X-Agent-User": "u1234"})
+    assert code == 403

@@ -92,3 +92,9 @@ def test_headers_are_configurable():
     """头名按客户实际填。示例一律用中性值 —— 本仓是公开仓,不放客户标识。"""
     c = cfg.load({**_MIN, "GATEWAY_USER_HEADER": "X-Staff-No", "GATEWAY_ROLES_HEADER": "X-Staff-Groups"})
     assert c.user_header == "X-Staff-No" and c.roles_header == "X-Staff-Groups"
+
+
+def test_frontend_service_defaults_and_overrides():
+    """/dash/* 代理到哪个 Service。默认 frontend;ConfigMap 键 FRONTEND_SERVICE 经 gateway.yaml 映射进来。"""
+    assert cfg.load(_MIN).frontend_service == "frontend"
+    assert cfg.load({**_MIN, "GATEWAY_FRONTEND_SERVICE": "dash-web"}).frontend_service == "dash-web"

@@ -25,7 +25,7 @@
 | # | 决策 | 定案 |
 |---|---|---|
 | D1 | 报告存哪、前端怎么读 | **技能落盘到本人 NAS 目录 + 用户 Pod 内多开一个只读端口（4097）**，网关把 `/reports/*` 代理过去。前端 Pod 不挂 NAS。 |
-| D2 | 「深挖 →」跳到哪 | **调 opencode API 建会话并发首句，跳转 opencode Web 的该会话页**。浏览器直接经网关调，前端 Pod 不转手。 |
+| D2 | 「深挖 →」跳到哪 | **调 opencode API 建会话并发首句，在新标签页打开 opencode Web 的该会话页**（user 2026-09-22 问及后定为新标签页：大盘留在原页，对话开在旁边，「回大盘没入口」的缺口随之消失）。浏览器直接经网关调，前端 Pod 不转手。「新对话 ↗」「最近对话 ↗」同样新标签页。 |
 | D3 | Top SQL 维度 | 先按六列做，一根「当前维度」占比条。 |
 | D4 | 知识库「最近检索」 | 要。`kb query` 追加检索日志到本人目录，缺口清单从它来。 |
 | D5 | 插件包形态 | 一个客户端插件包 `ui-gaussdb-dash` 装四个页面 + 一个 `ui-gaussdb-brand` 占品牌插槽。不拆四个包。 |
@@ -58,10 +58,12 @@ GET /reports/health/index.json           → 最近 N 份的清单（时间、ov
 ### 4.3 「深挖」数据流
 
 ```
+tab = window.open('about:blank')                 ← 在点击事件里同步开，否则异步之后再开会被弹窗拦截
 POST /session                                   → runtime-u1234:4096（网关注入口令）→ {id}
 POST /session/{id}/prompt_async  {parts:[{text}]} → 204
-location = /<base64url(/data/state/workspace)>/session/{id}   ← opencode Web 的会话页（经网关）
+tab.location = /<base64url(/data/state/workspace)>/session/{id}   ← opencode Web 的会话页（经网关）
 ```
+建会话失败时把那个空标签页关掉并在大盘上提示，不留一个空白页。
 首句模板按发现类型：慢 SQL 带 sql_id 与 avg/calls；对象类带对象名；WDR 带窗口 id；Top SQL 「调优」直接是 sqltune 的请求；知识库缺口带 finding code。**首句里只放该条发现的数据，不放平台配置**（红线第 7 条）。
 
 **深挖不建 Pod、不管 Pod（user 2026-09-22 明确）。** 它只是又一次经网关的请求，复用网关 `ensure_ready()` 的现有语义：Pod 在跑 → 直接用（热路径不 apply）；被闲置回收缩到 0 → 拉起同一个 Deployment（会话还在，实测 7.6 s）；从没建过 → 才建（实测 6 s）。前端代码里**不得**出现任何创建 / 查询 Pod 的逻辑，也不调控制 API。
@@ -123,11 +125,9 @@ reports/
 
 ### 4.10 对话在哪发生（user 2026-09-22 确认）
 
-对话全部在用户自己 Pod 的 opencode Web 里，前端镜像没有对话组件。两个界面同域名、同网关、同工号，只是路径不同（`/dash/*` 是大盘，其余是 opencode Web）。侧栏「对话」分组是跳转链接。
+对话全部在用户自己 Pod 的 opencode Web 里，前端镜像没有对话组件。两个界面同域名、同网关、同工号，只是路径不同（`/dash/*` 是大盘，其余是 opencode Web）。侧栏「对话」分组与所有「深挖 →」都**在新标签页打开**（D2）：大盘留在原页，对话开在旁边，一边看数字一边问。
 
-**已知体验缺口**：opencode Web 不可定制，从对话页回大盘没有入口，靠浏览器后退或两个标签页；命令卡写一句。
-
-**可选改进（本期不做，待验证）**：大盘里加一个「对话」面板用同源 iframe 装 opencode Web，侧栏不消失。前提是 opencode 不下发禁止同源 iframe 的头（`X-Frame-Options` / `frame-ancestors`）——**未验证**，前端跑起来后探一次再定；能做的话是纯前端改动。
+被否掉的两种：同标签页跳转（大盘没了，opencode Web 不可定制、回不来）；同源 iframe 嵌进主区（未验证 opencode 是否允许，且主区宽度装对话体验一般）。
 
 ## 5. 技能侧改动（两仓库）
 

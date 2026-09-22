@@ -121,6 +121,14 @@ reports/
 | WDR | `wdr/latest.json` + 上一份 + `index.json` | 页头 ← `window/scope/native/wdr_enabled`；8 KPI ← `dims[loadprofile,dbstat]` 的 rows，▲▼ ← 上一份同名指标；DB Time 构成/等待 ← `dims[waits]`；Top SQL ← `dims[topsql]`；三小卡 ← `dims[checkpoint,cache,fileio]`；结论 ← `findings[]`；历史 ← `index.json` | `wdr_enabled=false` → 整页一张「怎么开」卡；无上一份 → KPI 不显示 ▲▼ 并标「无对比窗口」 |
 | 知识库 | `kb/health.json` + `kb/queries.jsonl` | 四顶卡与三类知识 ← `status.{mode,attached,reason,counts,vector,graph}` + `index_state` + `readonly` + `inbox`；健康自检 ← `pending[]` + `file_warnings[]`；缺口清单 ← `misses[]`；最近检索 ← `queries.jsonl` 最近 7 天 | `attached=false` → 一张「未接入」卡并显示 `reason` |
 
+### 4.10 对话在哪发生（user 2026-09-22 确认）
+
+对话全部在用户自己 Pod 的 opencode Web 里，前端镜像没有对话组件。两个界面同域名、同网关、同工号，只是路径不同（`/dash/*` 是大盘，其余是 opencode Web）。侧栏「对话」分组是跳转链接。
+
+**已知体验缺口**：opencode Web 不可定制，从对话页回大盘没有入口，靠浏览器后退或两个标签页；命令卡写一句。
+
+**可选改进（本期不做，待验证）**：大盘里加一个「对话」面板用同源 iframe 装 opencode Web，侧栏不消失。前提是 opencode 不下发禁止同源 iframe 的头（`X-Frame-Options` / `frame-ancestors`）——**未验证**，前端跑起来后探一次再定；能做的话是纯前端改动。
+
 ## 5. 技能侧改动（两仓库）
 
 | # | 改动 | 归属 |

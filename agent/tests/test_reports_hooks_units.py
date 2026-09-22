@@ -86,6 +86,32 @@ def test_wdr_collect_archives_evidence(rdir, monkeypatch):
     assert latest["window"]["begin_id"] == 1915
 
 
+def test_wdr_native_html_defaults_into_reports_dir(rdir, monkeypatch):
+    _load("gaussdb-wdr", *_WDR_MODS)
+    import wdr, model  # noqa: E402
+    seen = {}
+
+    def fake_collect(runner, opt):
+        seen["save_html"] = opt.save_html
+        return model.Evidence(conn="og")
+
+    monkeypatch.setattr(wdr.access, "for_conn", lambda *a, **k: object())
+    monkeypatch.setattr(wdr, "collect_evidence", fake_collect)
+    monkeypatch.setattr(wdr.common.config, "resolved_name", lambda c: "og")
+    wdr.main(["collect", "-c", "og", "--begin", "1", "--end", "2", "--format", "json"])
+    assert seen["save_html"].startswith(str(rdir / "wdr")) and seen["save_html"].endswith(".native.html")
+    assert (rdir / "wdr").is_dir(), "目录要先建好,否则 native.py 落盘会失败并把失败写进 note"
+    wdr.main(["collect", "-c", "og", "--begin", "1", "--end", "2", "--save-html", "/tmp/x.html", "--format", "json"])
+    assert seen["save_html"] == "/tmp/x.html", "用户显式给的路径优先"
+
+
+def test_wdr_native_path_empty_without_reports_dir(monkeypatch):
+    monkeypatch.delenv("GSDB_REPORTS_DIR", raising=False)
+    _load("gaussdb-wdr", *_WDR_MODS)
+    import wdr  # noqa: E402
+    assert wdr.default_native_path() == ""
+
+
 def test_sqltune_archive_named_by_sql_id_and_skipped_without_it(rdir, monkeypatch):
     _load("gaussdb-sqltune", "sqltune")
     import sqltune  # noqa: E402

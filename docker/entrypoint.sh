@@ -30,12 +30,13 @@ export XDG_CACHE_HOME=/data/cache
 # 句柄是几百字节的小文件,本地化没有性能收益(statesync.py 里有这条的完整理由)。
 export GSDB_HOME=$NAS_ME/gdaa
 export GSDB_KB_DIR=$NAS_KB                        # 共享知识库,**绝不本地化**
+export GSDB_REPORTS_DIR=$NAS_ME/reports           # 技能报告存档;大盘经 4097 只读端口读它,随 Pod 重建不丢
 export HOME=/data/home                            # 有些库要写 $HOME;放本地可写目录
 export OPENCODE_CONFIG=/data/oc/opencode.json     # 渲染出来的运行时配置(含 key,0600)
 export WORKSPACE=$STATE_LOCAL/workspace
 DB=$XDG_DATA_HOME/opencode/opencode.db
 BACKUP=$NAS_ME/backup                             # 备份要活得比 Pod 长,直接写 NAS
-mkdir -p "$GSDB_HOME" "$NAS_ME/workspace" "$BACKUP" \
+mkdir -p "$GSDB_HOME" "$NAS_ME/workspace" "$BACKUP" "$GSDB_REPORTS_DIR" \
          /data/home /data/oc /data/config/opencode /data/cache/opencode
 cp -R /opt/agent/config/opencode/. /data/config/opencode/
 cp -R /opt/agent/cache/opencode/. /data/cache/opencode/
@@ -74,6 +75,9 @@ fi
 cd "$WORKSPACE"
 opencode serve --hostname 0.0.0.0 --port "$OPENCODE_PORT" &
 OC=$!
+# 报告只读端口:大盘的数据口。不是就绪条件,起不来只影响大盘,不影响对话。
+$PODCTL serve-reports --dir "$GSDB_REPORTS_DIR" --port 4097 &
+REPORTS=$!
 # 定期回写。db 走 SQLite online backup(边写边拷也一致),其余文件按 mtime 增量。
 # 每轮先 checkpoint 把 WAL 合回主库,免得回写出去的那份把最近的提交落在 -wal 里。
 ( while sleep "$STATE_SYNC_SECONDS"; do
@@ -86,7 +90,7 @@ trap term TERM INT
 set +e
 wait "$OC"; RC=$?
 set -e
-kill "$REFRESHER" "$SYNCER" 2>/dev/null || true
+kill "$REFRESHER" "$SYNCER" "$REPORTS" 2>/dev/null || true
 # 收尾顺序不能改:合 WAL → 完整回写并清 dirty → 备份 → 释放独占。
 # 先释放独占的话,另一个 Pod 可能在我们还没写完时就开始加载。
 $PODCTL db-checkpoint --db "$DB"

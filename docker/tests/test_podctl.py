@@ -258,3 +258,74 @@ def test_render_gdaa_config_appkey_requires_private_key():
     text = podctl.render_gdaa_config({**env, "GRMP_SM2_PRIVATE_KEY": "ab" * 32})
     assert "appkey_env: GRMP_APPKEY" in text
     assert "appkey_env" not in podctl.render_gdaa_config({"GRMP_API_HOST": "grmp.internal"})   # 没开签名不写这行
+
+
+# ---- 报告只读端口 ----------------------------------------------------------------
+
+import http.client
+import threading
+
+
+def _serve(tmp_path):
+    root = tmp_path / "reports"
+    (root / "health").mkdir(parents=True)
+    (root / "health" / "latest.json").write_text('{"overall": 2}', encoding="utf-8")
+    (root / "kb").mkdir()
+    (root / "kb" / "queries.jsonl").write_text('{"q":"a"}\n', encoding="utf-8")
+    (root / "wdr").mkdir()
+    (root / "wdr" / "x.native.html").write_text("<html>", encoding="utf-8")
+    (root / "health" / "secret.txt").write_text("no", encoding="utf-8")
+    (tmp_path / "outside.json").write_text("{}", encoding="utf-8")
+    srv = podctl.make_reports_server(root, 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, srv.server_address[1]
+
+
+def _get(port, path, method="GET"):
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.request(method, path)
+    r = c.getresponse()
+    body = r.read()
+    hdrs = {k.lower(): v for k, v in r.getheaders()}
+    c.close()
+    return r.status, hdrs, body
+
+
+def test_reports_server_serves_json_jsonl_html_with_no_store(tmp_path):
+    srv, port = _serve(tmp_path)
+    try:
+        st, h, body = _get(port, "/health/latest.json")
+        assert st == 200 and body == b'{"overall": 2}'
+        assert h["content-type"].startswith("application/json") and h["cache-control"] == "no-store"
+        assert _get(port, "/kb/queries.jsonl")[0] == 200
+        assert _get(port, "/wdr/x.native.html")[1]["content-type"].startswith("text/html")
+    finally:
+        srv.shutdown(); srv.server_close()
+
+
+def test_reports_server_refuses_traversal_other_suffixes_dirs_and_non_get(tmp_path):
+    """**这是安全边界**:这个端口只能读本人 reports/ 下三种文件,别的一律 404。"""
+    srv, port = _serve(tmp_path)
+    try:
+        assert _get(port, "/../outside.json")[0] == 404
+        assert _get(port, "/health/%2e%2e/%2e%2e/outside.json")[0] == 404
+        assert _get(port, "/health/secret.txt")[0] == 404
+        assert _get(port, "/health/")[0] == 404 and _get(port, "/")[0] == 404
+        assert _get(port, "/health/nope.json")[0] == 404
+        assert _get(port, "/health/latest.json", method="POST")[0] == 405
+    finally:
+        srv.shutdown(); srv.server_close()
+
+
+def test_serve_reports_subcommand_is_wired(monkeypatch, tmp_path):
+    """子命令要能从 CLI 到达 make_reports_server —— 不然 entrypoint 里那行是死的。"""
+    called = {}
+
+    class _Srv:
+        def serve_forever(self):
+            called["ran"] = True
+
+    monkeypatch.setattr(podctl, "make_reports_server",
+                        lambda root, port: called.setdefault("args", (root, port)) and _Srv())
+    assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097"]) == 0
+    assert called["args"] == (tmp_path, 4097) and called["ran"]

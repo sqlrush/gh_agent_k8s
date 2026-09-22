@@ -276,6 +276,63 @@ def log_prune(dir_: pathlib.Path, days: int = 7) -> List[pathlib.Path]:
     return removed
 
 
+# ---------------------------------------------------------------- 报告只读端口
+
+_REPORT_TYPES = {".json": "application/json; charset=utf-8",
+                 ".jsonl": "application/x-ndjson; charset=utf-8",
+                 ".html": "text/html; charset=utf-8"}
+
+
+def make_reports_server(root: pathlib.Path, port: int):
+    """本人 reports/ 目录的只读静态服务(4097),大盘经网关按工号读它。
+
+    **只做三件事以外的一律 404**:GET、本目录之内、三种后缀。它和 opencode 同一个 Pod,
+    但不共用端口 —— opencode 的 API 有口令,这个端口的鉴权靠网关只把本人的请求路由过来。
+    """
+    import http.server
+    import posixpath
+    import urllib.parse
+    root = pathlib.Path(root).resolve()
+
+    class H(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *a):          # 不打访问日志:每次刷新大盘都是几条请求
+            pass
+
+        def do_GET(self):
+            rel = posixpath.normpath(urllib.parse.unquote(self.path.split("?", 1)[0])).lstrip("/")
+            target = (root / rel).resolve() if rel else root
+            ctype = _REPORT_TYPES.get(target.suffix)
+            if (not rel or ctype is None or not str(target).startswith(str(root) + os.sep)
+                    or not target.is_file()):
+                return self._status(404)
+            try:
+                data = target.read_bytes()
+            except OSError:
+                return self._status(404)
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _status(self, code: int):
+            self.send_response(code)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_POST(self):
+            self._status(405)
+
+        do_PUT = do_DELETE = do_PATCH = do_POST
+
+    srv = http.server.ThreadingHTTPServer(("0.0.0.0", port), H)
+    srv.daemon_threads = True
+    return srv
+
+
 # ---------------------------------------------------------------- CLI
 
 def _parser() -> argparse.ArgumentParser:
@@ -309,6 +366,10 @@ def _parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name)
         p.add_argument("--nas", required=True, help="$NAS_ME")
         p.add_argument("--local", required=True, help="本地态根目录(/data/state)")
+    # 报告只读端口:大盘的数据口(entrypoint 在 opencode 之后拉起)
+    p = sub.add_parser("serve-reports")
+    p.add_argument("--dir", required=True)
+    p.add_argument("--port", type=int, default=4097)
     return ap
 
 
@@ -336,6 +397,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif a.cmd == "log-prune":
             n = len(log_prune(pathlib.Path(a.dir), a.days))
             print("日志清理: 删除 %d 个超过 %d 天的 .log" % (n, a.days))
+        elif a.cmd == "serve-reports":
+            make_reports_server(pathlib.Path(a.dir), a.port).serve_forever()
         elif a.cmd in ("state-load", "state-sync", "state-finish"):
             import statesync
             lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))

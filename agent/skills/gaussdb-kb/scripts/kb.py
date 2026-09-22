@@ -20,6 +20,7 @@ for _anc in _HERE.parents:                       # common/(仓库根,或装好�
         break
 
 import kb_cite  # noqa: E402  —— 在 sys.path 刚放好时就绑定,调用方之后怎么改 sys.path 都不影响
+from common import reports  # noqa: E402
 from common.kb import config as kbconfig  # noqa: E402
 from common.kb import indexer, query as kbquery, render  # noqa: E402
 from common.kb.rulesfile import SEARCH_HIT_CAP, SEARCHABLE, iter_files, read_text_file  # noqa: E402
@@ -159,6 +160,20 @@ def _pending(kb: pathlib.Path) -> list[str]:
     return out
 
 
+def health_dict(kb: pathlib.Path, status, file_warnings: list, readonly: bool) -> dict:
+    """大盘知识库页的数据形状。文本输出与它同源,一份定义。"""
+    from common.kb import inbox as kbinbox
+    return {
+        "status": dict(status.__dict__),
+        "readonly": readonly,
+        "inbox": str(kbinbox.inbox_dir(kb)),
+        "file_warnings": list(file_warnings),
+        "index_state": indexer.read_state(kb) or {},
+        "pending": _pending(kb),
+        "misses": [{"code": code, "n": n} for code, n in _misses_top(kb)],
+    }
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     kb = kbconfig.resolve_kb_dir(args.kb)
     if not kb.is_dir():
@@ -169,29 +184,34 @@ def cmd_health(args: argparse.Namespace) -> int:
         file_warnings = list(getattr(sess.pg, "warnings", ()))[:5]    # 文件模式:坏文件在这里露头
     finally:
         sess.close()
-    print(render.status_line(status))
-    if not os.access(kb, os.W_OK):
-        print("知识库只读  : 是(本环境不能导入;由知识库管理员在导入环境维护)")
-    from common.kb import inbox as kbinbox
-    print(f"收件目录  : {kbinbox.inbox_dir(kb)}(用户要导入自己电脑上的文件时,先上传到这里再 ingest)")
-    for w in file_warnings:
-        print(f"[warn ] 文件:{w}")
-    state = indexer.read_state(kb) or {}
-    if state:
-        print(f"上次索引  : {state.get('indexed_at', '?')} · 文档新写 {state.get('docs_indexed', '?')} · "
-              f"覆盖 {state.get('chunk_embedded', '?')}/{state.get('chunk_total', '?')} · 图 {state.get('graph', '?')}")
-    pending = _pending(kb)
-    print("待处理    : " + ("; ".join(pending) if pending else "无"))
-    misses = _misses_top(kb)
-    if misses:
-        print("缺口清单  : 近期查不到条款/案例的发现 Top —— " +
-              "、".join(f"{code}×{n}" for code, n in misses) + "(补这类材料收益最大)")
+    readonly = not os.access(kb, os.W_OK)
+    d = health_dict(kb, status, file_warnings, readonly)
+    if getattr(args, "json", False):
+        print(json.dumps(d, ensure_ascii=False, indent=2))
     else:
-        print("缺口清单  : 无记录")
+        print(render.status_line(status))
+        if readonly:
+            print("知识库只读  : 是(本环境不能导入;由知识库管理员在导入环境维护)")
+        print(f"收件目录  : {d['inbox']}(用户要导入自己电脑上的文件时,先上传到这里再 ingest)")
+        for w in file_warnings:
+            print(f"[warn ] 文件:{w}")
+        state = d["index_state"]
+        if state:
+            print(f"上次索引  : {state.get('indexed_at', '?')} · 文档新写 {state.get('docs_indexed', '?')} · "
+                  f"覆盖 {state.get('chunk_embedded', '?')}/{state.get('chunk_total', '?')} · 图 {state.get('graph', '?')}")
+        print("待处理    : " + ("; ".join(d["pending"]) if d["pending"] else "无"))
+        if d["misses"]:
+            print("缺口清单  : 近期查不到条款/案例的发现 Top —— " +
+                  "、".join(f"{m['code']}×{m['n']}" for m in d["misses"]) + "(补这类材料收益最大)")
+        else:
+            print("缺口清单  : 无记录")
+        if not status.attached:
+            print(f"[error] 知识库未接入:{status.reason}")
+    # 每次覆盖 kb/health.json:大盘知识库页读它;失败只 warn,不改退出码
+    reports.archive("kb", d, name="health")
     if not status.attached:
-        print(f"[error] 知识库未接入:{status.reason}")
         return 2
-    return 2 if pending else 0
+    return 2 if d["pending"] else 0
 
 
 # ---------------------------------------------------------------- main
@@ -212,6 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("health", help="文本大盘:接入状态、条款/案例/边数、覆盖率、待处理、缺口清单")
     p.add_argument("--kb")
+    p.add_argument("--json", action="store_true", help="按大盘的数据形状输出 JSON")
     p.set_defaults(func=cmd_health)
 
     p = sub.add_parser("search", help="检索知识库(errata 优先;不含已废止条款)")

@@ -30,7 +30,7 @@ spec:
           image: ${IMAGE}
           imagePullPolicy: ${IMAGE_PULL_POLICY}
           securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
-          ports: [{containerPort: 4096, name: http}]
+          ports: [{containerPort: 4096, name: http}, {containerPort: 4097, name: reports}]   # 4097:报告只读端口,大盘的数据口
           env:
             - {name: GSDB_USER_ID, value: "${USER_ID}"}
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
@@ -84,4 +84,4 @@ metadata:
   labels: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
 spec:
   selector: {app: gaussdb-agent, role: runtime, user: "${USER_ID}"}
-  ports: [{port: 4096, targetPort: 4096, name: http}]
+  ports: [{port: 4096, targetPort: 4096, name: http}, {port: 4097, targetPort: 4097, name: reports}]

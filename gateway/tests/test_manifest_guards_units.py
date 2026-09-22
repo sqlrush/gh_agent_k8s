@@ -120,6 +120,21 @@ def test_nfs_address_lives_in_the_pv_example_not_in_the_pvc():
                 "%s 教人填 nfs: 却没指向 nas-pv-nfs.example.yaml" % name
 
 
+def test_runtime_exposes_reports_port_and_policies_allow_it():
+    """报告只读端口 4097:容器要暴露、Service 要有、runtime 入站要从网关放行、网关出站要到它。
+    四处漏一处的表现都是「大盘无数据」,而 Pod 本身健康。"""
+    rt = (_ROOT / "k8s" / "templates" / "runtime.yaml").read_text(encoding="utf-8")
+    assert re.search(r"containerPort:\s*4097", rt), "runtime.yaml 容器没暴露 4097"
+    assert re.search(r"\{port:\s*4097,\s*targetPort:\s*4097", rt), "runtime Service 没有 4097"
+    np = (_ROOT / "k8s" / "base" / "networkpolicy.yaml").read_text(encoding="utf-8")
+    runtime_pol = np[np.index("name: runtime-policy"):np.index("name: kb-import-policy")]
+    assert "4097" in runtime_pol.split("egress:")[0], "runtime-policy 入站没放行 4097"
+    gw_pol = np[np.index("name: gateway-policy"):np.index("name: vectordb-policy")]
+    assert "4097" in gw_pol.split("egress:")[1], "gateway-policy 出站没到 4097"
+    ki = (_ROOT / "k8s" / "templates" / "kb-import.yaml").read_text(encoding="utf-8")
+    assert "4097" not in ki, "kb-import 没有大盘,不开报告端口"
+
+
 def test_gateway_rbac_has_no_exec():
     """网关没有进用户容器的理由。
 

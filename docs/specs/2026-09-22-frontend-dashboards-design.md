@@ -64,6 +64,8 @@ location = /<base64url(/data/state/workspace)>/session/{id}   ← opencode Web �
 ```
 首句模板按发现类型：慢 SQL 带 sql_id 与 avg/calls；对象类带对象名；WDR 带窗口 id；Top SQL 「调优」直接是 sqltune 的请求；知识库缺口带 finding code。**首句里只放该条发现的数据，不放平台配置**（红线第 7 条）。
 
+**深挖不建 Pod、不管 Pod（user 2026-09-22 明确）。** 它只是又一次经网关的请求，复用网关 `ensure_ready()` 的现有语义：Pod 在跑 → 直接用（热路径不 apply）；被闲置回收缩到 0 → 拉起同一个 Deployment（会话还在，实测 7.6 s）；从没建过 → 才建（实测 6 s）。前端代码里**不得**出现任何创建 / 查询 Pod 的逻辑，也不调控制 API。
+
 ### 4.4 报告存档契约（技能侧，两仓库）
 
 目录：`$GSDB_REPORTS_DIR/<skill>/`，容器里 `GSDB_REPORTS_DIR=/nas/me/reports`（entrypoint 设，与 `GSDB_HOME` 同级）；非容器线不设则不存档，行为不变。

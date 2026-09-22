@@ -112,6 +112,24 @@ def _load_findings(path: pathlib.Path):
     return findings_from_json(path.read_text(encoding="utf-8"))
 
 
+def _how(status) -> str:
+    """大盘要让用户知道自己看到的是语义命中还是关键词命中:文件模式下只有关键词。"""
+    semantic = bool(status.mode) and status.mode != kbquery.MODE_FILES and "超时" not in (status.vector or "")
+    return "semantic" if semantic else "keyword"
+
+
+def _log_queries(result) -> None:
+    """每个检索项追加一行到本人 reports/kb/queries.jsonl —— 知识库大盘「最近检索」的来源。
+    没设 GSDB_REPORTS_DIR 时 append_jsonl 直接返回,行为与现在一样。"""
+    import datetime as _dt
+    at = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for it in result.items:
+        reports.append_jsonl("kb", "queries", {
+            "at": at, "q": it.query, "key": it.key,
+            "hits_cases": len(it.cases), "hits_rules": len(it.clauses),
+            "how": _how(result.status), "elapsed_ms": result.elapsed_ms})
+
+
 def cmd_query(args: argparse.Namespace) -> int:
     kb = kbconfig.resolve_kb_dir(args.kb)
     if args.from_findings:
@@ -123,6 +141,7 @@ def cmd_query(args: argparse.Namespace) -> int:
         print(json.dumps(kbquery.result_to_dict(result), ensure_ascii=False, indent=2))
     else:
         print(render.render_section(result), end="")
+    _log_queries(result)
     return 0 if result.status.attached else 2
 
 

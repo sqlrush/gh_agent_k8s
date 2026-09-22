@@ -71,3 +71,49 @@ def test_health_text_output_unchanged_and_still_archives(monkeypatch, tmp_path, 
     text = capsys.readouterr().out
     assert text.startswith("> 知识库") and "缺口清单  : 无记录" in text
     assert (tmp_path / "reports" / "kb" / "health.json").is_file()
+
+
+# ---- query 检索日志 ----------------------------------------------------------------
+
+def _qr(mode, vector, items):
+    st = kbquery.KbStatus(attached=True, mode=mode, vector=vector)
+    return kbquery.QueryResult(status=st, items=tuple(items), elapsed_ms=42)
+
+
+def _ref(i):
+    return kbquery.Ref(id=i, kind="case", title=i, score=1.0)
+
+
+def test_query_appends_one_log_line_per_item(monkeypatch, tmp_path, capsys):
+    items = [kbquery.FindingRefs(key="q", label="q", query="慢 SQL 全表扫描",
+                                 cases=(_ref("case:1"), _ref("case:2")), clauses=(_ref("rule:1"),))]
+    monkeypatch.setattr(kbquery, "from_text", lambda q, kb_dir: _qr("向量库+图文件", "DataVec(覆盖 93%)", items))
+    monkeypatch.setenv("GSDB_REPORTS_DIR", str(tmp_path / "reports"))
+    (tmp_path / "kb").mkdir()
+    assert kbcli.main(["query", "--kb", str(tmp_path / "kb"), "--q", "慢 SQL 全表扫描", "--json"]) == 0
+    lines = (tmp_path / "reports" / "kb" / "queries.jsonl").read_text(encoding="utf-8").splitlines()
+    row = json.loads(lines[-1])
+    assert row["q"] == "慢 SQL 全表扫描" and row["hits_cases"] == 2 and row["hits_rules"] == 1
+    assert row["how"] == "semantic" and row["elapsed_ms"] == 42 and row["at"].endswith("Z")
+
+
+def test_query_how_is_keyword_in_file_mode_or_when_vector_timed_out(monkeypatch, tmp_path, capsys):
+    items = [kbquery.FindingRefs(key="q", label="q", query="x")]
+    monkeypatch.setenv("GSDB_REPORTS_DIR", str(tmp_path / "reports"))
+    (tmp_path / "kb").mkdir()
+    monkeypatch.setattr(kbquery, "from_text", lambda q, kb_dir: _qr("文件", "未启用", items))
+    kbcli.main(["query", "--kb", str(tmp_path / "kb"), "--q", "x", "--json"])
+    monkeypatch.setattr(kbquery, "from_text", lambda q, kb_dir: _qr("向量库", "DataVec·本次超时未用", items))
+    kbcli.main(["query", "--kb", str(tmp_path / "kb"), "--q", "x", "--json"])
+    hows = [json.loads(l)["how"] for l in (tmp_path / "reports" / "kb" / "queries.jsonl").read_text().splitlines()]
+    assert hows == ["keyword", "keyword"]
+
+
+def test_query_without_reports_dir_logs_nothing_and_output_unchanged(monkeypatch, tmp_path, capsys):
+    items = [kbquery.FindingRefs(key="q", label="q", query="x")]
+    monkeypatch.setattr(kbquery, "from_text", lambda q, kb_dir: _qr("文件", "未启用", items))
+    monkeypatch.delenv("GSDB_REPORTS_DIR", raising=False)
+    (tmp_path / "kb").mkdir()
+    assert kbcli.main(["query", "--kb", str(tmp_path / "kb"), "--q", "x", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["elapsed_ms"] == 42
+    assert not (tmp_path / "reports").exists()

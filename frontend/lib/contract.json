@@ -1,0 +1,18 @@
+{
+  "_": "四个页面读到的报告字段路径。a.b[].c = a 下的 b 是列表,每个元素都要有 c;末尾 ? = 可选(有就用,没有不报错)。agent/tests/test_frontend_contract_units.py 用 Python 侧的真实报告类生成样例逐条核对 —— 页面引用了报告里不存在的字段,测试就红,不会等到上线才空白。",
+  "health": ["conn", "overall", "dims[].dimension", "dims[].available", "dims[].headline", "dims[].headers?", "dims[].rows?", "dims[].note?",
+             "findings[].severity", "findings[].dimension", "findings[].code", "findings[].metric", "findings[].value", "findings[].threshold", "findings[].evidence", "findings[].sql_id",
+             "sub_skills[].skill", "sub_skills[].ok", "sub_skills[].error"],
+  "topsql": ["conn", "by", "limit", "rows[].sql_id", "rows[].query", "rows[].calls", "rows[].total_sec", "rows[].avg_ms", "rows[].rows"],
+  "wdr": ["conn", "overall", "window.begin_id", "window.end_id", "window.begin_ts", "window.end_ts", "window.duration_min", "window.scope", "window.node", "window.wdr_enabled",
+          "dims[].dimension", "dims[].available", "dims[].headline", "dims[].headers?", "dims[].rows?", "dims[].note?",
+          "findings[].severity", "findings[].code", "findings[].metric", "findings[].value", "findings[].threshold", "findings[].evidence",
+          "native.generated", "native.bytes", "native.saved_path?", "native.note?"],
+  "sqltune": ["conn", "sql_id", "original_sql", "evidence.plan", "evidence.findings[].kind", "evidence.findings[].severity", "evidence.findings[].detail", "evidence.findings[].advice"],
+  "kb_health": ["status.attached", "status.reason", "status.counts", "status.vector", "status.graph", "status.mode", "status.version",
+                "readonly", "inbox", "file_warnings", "index_state", "pending", "misses[].code", "misses[].n"],
+  "kb_queries": ["at", "q", "key", "hits_cases", "hits_rules", "how", "elapsed_ms"],
+  "index": ["at", "file", "overall", "counts"],
+  "targets": ["key", "conn", "last_at", "count"],
+  "whoami": ["user_id"]
+}

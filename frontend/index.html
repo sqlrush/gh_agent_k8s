@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GaussDB 智能体 · 大盘</title>
+<!-- 站点永远挂在 /dash/ 下(网关按这个前缀路由),资源一律绝对路径:
+     /dash/health 与 /dash/health/ 两种写法都能解析到同一份文件,nginx 与本地预览都一样 -->
+<link rel="stylesheet" href="/dash/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main" id="main"><div class="loading">加载中…</div></main>
+</div>
+<script type="module">
+  import { mount } from '/dash/lib/shell.js';
+  mount();
+</script>
+</body>
+</html>

@@ -125,7 +125,10 @@ def sqltune_samples():
                "original_sql": "SELECT r.region, s.store, sum(f.amount) FROM fact_sales f JOIN customers c ON c.id=f.cust_id GROUP BY 1,2",
                "substitution": {"sql": "", "placeholders": 0, "substitutions": []},
                "evidence": {"version": "openGauss 5.0", "analyzed": True, "plan": "Seq Scan on fact_sales (cost=0..612000)",
-                            "findings": [{"code": "SEQ_SCAN_BIG", "severity": 2, "detail": "fact_sales 全表扫描 6.1 GB;缺 (store_id, sale_date) 复合索引"}],
+                            # 形状 = skills/gaussdb-sqltune/scripts/evidence.py 的 Finding.__dict__
+                            "findings": [{"kind": "seq_scan_big_table", "severity": "warn",
+                                          "detail": "fact_sales 全表扫描 6.1 GB",
+                                          "advice": "建 (store_id, sale_date) 复合索引;先按 store 聚合再 JOIN regions"}],
                             "tables": [], "indexes": [], "columns": [], "gucs": []}}
     reports.archive("sqltune", payload, name="1a9f", instance=CONN, now=TS[2])
 

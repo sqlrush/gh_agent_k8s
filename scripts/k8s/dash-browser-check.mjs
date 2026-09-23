@@ -212,6 +212,17 @@ async function checkPages(cdp, tab) {
         gen.includes("已生成") ? bad("wdr", "原生 WDR 已生成,却没有下载链接") : console.log("  · 本份 WDR 没有生成原生报告(页面已写明)");
       }
     }
+    // PC 是主场景:常见窗口宽度逐个查(1366 笔记本开 125% 缩放 ≈ 1090,分屏半边 ≈ 960)
+    for (const w of [1920, 1440, 1280, 1024]) {
+      await viewport(cdp, tab, w, 900);
+      await go(cdp, tab, `${BASE}/dash/${name}`);
+      const pc = await evaluate(cdp, tab, `(() => { const m = document.getElementById('main').getBoundingClientRect(); const cw = [...document.querySelectorAll('.card, .kpi')].filter((e) => !e.parentElement.closest('.card')).map((e) => e.getBoundingClientRect().width).filter((x) => x > 0); const clipped = [...document.querySelectorAll('.kpi .v')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim()); return { over: document.documentElement.scrollWidth - innerWidth, right: Math.round(m.right), minCard: Math.round(Math.min(...cw)), clipped }; })()`);
+      // 卡片里的小数字块本来就窄(设计如此),只量外层卡片;真正要防的是数字被截断
+      pc.over > 1 || pc.right > w + 1 || pc.minCard < 200 || pc.clipped.length ? bad(name, `PC ${w} 宽布局有问题:横向溢出 ${pc.over}px、主区右边 ${pc.right}px、最窄卡片 ${pc.minCard}px、被截断的数字 ${pc.clipped.join(' | ')}`) : good(`PC ${w} 宽:无横向滚动,最窄卡片 ${pc.minCard}px,数字无截断`);
+      tab.errors.length = 0; tab.failed.length = 0;
+      await shot(cdp, tab, `${name}-pc${w}`);
+    }
+    // 窄屏只做兜底:不崩、不横向滚动
     await viewport(cdp, tab, 390, 844, true);
     await go(cdp, tab, `${BASE}/dash/${name}`);
     const m = await evaluate(cdp, tab, INSPECT(ids));

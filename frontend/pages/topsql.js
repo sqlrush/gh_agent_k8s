@@ -88,7 +88,7 @@ export async function render(root, ctx) {
   <div class="grid g4" id="ts-kpis">
     <div class="kpi"><div class="l">上榜语句</div><div class="v tnum">${rows.length}<small>条</small></div><div class="d">按${esc(BY.find(([b]) => b === by)[1])}</div></div>
     <div class="kpi"><div class="l">上榜总调用</div><div class="v tnum">${fmtInt(sumCalls)}<small>次</small></div><div class="d">自视图重置</div></div>
-    <div class="kpi"><div class="l">上榜总耗时</div><div class="v tnum">${fmtSec(sumSec)}</div><div class="d">= ${fmtInt(Math.round(sumSec))} s</div></div>
+    <div class="kpi"><div class="l">上榜总耗时</div><div class="v tnum">${fmtSec(sumSec)}</div><div class="d">${sumSec >= 60 ? `= ${fmtInt(Math.round(sumSec))} s` : "上榜语句合计"}</div></div>
     <div class="kpi ${top1 >= 40 ? 'warn' : ''}"><div class="l">Top 1 占上榜</div><div class="v tnum">${top1.toFixed(1)}<small>%</small></div><div class="d">${esc(brief(rows[0] ? rows[0].query : '', 40))}</div></div>
   </div>
   <div class="card"><h2>上榜合计内的耗时占比 <span class="tag">报告只有 Top N,没有全量合计</span></h2>

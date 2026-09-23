@@ -4,7 +4,9 @@
 
 ## 1. 一句话
 
-基于 deepseek-harness 0.1.7 的浏览器插件机制，做一个**只有四个大盘、没有 logo 和对话页**的 Web 前端镜像 `gaussdb-agent-frontend`；大盘的数字来自技能在用户 Pod 里跑出来的报告（落盘到本人 NAS 目录，经 Pod 内只读端口取），「深挖」跳到该用户 opencode 的会话。
+一个**纯静态**的 Web 前端镜像 `gaussdb-agent-frontend`（nginx 端四个大盘页面，没有对话页）；大盘的数字来自技能在用户 Pod 里跑出来的报告（落盘到本人 NAS 目录，经 Pod 内只读端口取），浏览器自己取数、自己画图；「深挖」在新标签页打开该用户 opencode 的会话。
+
+> 2026-09-23 user 定为纯静态（方案 B），不再基于 deepseek-harness：四个只读大盘背不起一整套对话应用框架——绝大部分机器要禁掉，坑一个不少（dsh-k8s 的面板注册竞态、热更清空注册表、滚动窗口丢插件包全来自 Host 本身）；R1 设计稿本来就按真实 JSON 契约渲染，直接演化成产品代码。网关三路分发、4097、报告契约、深挖跳转与方案 A 完全一样。
 
 ## 2. 目标与非目标
 
@@ -12,7 +14,7 @@
 - 四个大盘：健康检查 / Top SQL / WDR 分析 / 知识库。信息架构与视觉按 R1 设计稿，实现时页底黄色说明不出现。
 - 零按钮：只有文字链。数字全部来自技能脚本的确定性判定；模型不改级别。
 - 前端 Pod 无状态、不挂 NAS、不持有任何用户口令；隔离仍由网关按工号保证。
-- 去掉 harness 的 logo（品牌插槽换成自己的）与对话页（不装 conversation/chat 插件）。
+- 没有对话页；侧栏「对话」是跳到 opencode Web 的链接（新标签页）。
 
 非目标（本期）
 - 持续采集器 / 分钟级曲线：没有采集器就没有曲线，历史只按「报告次数」。要曲线是另一个镜像。
@@ -28,9 +30,9 @@
 | D2 | 「深挖 →」跳到哪 | **调 opencode API 建会话并发首句，在新标签页打开 opencode Web 的该会话页**（user 2026-09-22 问及后定为新标签页：大盘留在原页，对话开在旁边，「回大盘没入口」的缺口随之消失）。浏览器直接经网关调，前端 Pod 不转手。「新对话 ↗」「最近对话 ↗」同样新标签页。 |
 | D3 | Top SQL 维度 | 先按六列做，一根「当前维度」占比条。 |
 | D4 | 知识库「最近检索」 | 要。`kb query` 追加检索日志到本人目录，缺口清单从它来。 |
-| D5 | 插件包形态 | 一个客户端插件包 `ui-gaussdb-dash` 装四个页面 + 一个 `ui-gaussdb-brand` 占品牌插槽。不拆四个包。 |
+| D5 | 前端形态 | **纯静态站**：原生 ES 模块 + 一份 CSS，**零构建、零 npm 依赖**，nginx（非 root 变体）端出。`frontend/` 目录就是发布内容。（user 2026-09-23 由方案 A「基于 deepseek-harness 插件」改为 B） |
 | D6 | 图表 | 自绘 SVG（Bars / StackedBar / RankList / Sparkline / Ring），不引第三方图表库。 |
-| D7 | 去 logo / 去对话页 | 不装 `ui-brand-official`、`ui-conversation`、`ui-chat`、`ui-tool`、`ui-subagent`、`ui-agent-preset`、`ui-user-questions`、`ui-trajectory`；品牌插槽 `sidebar.brand.mark` / `sidebar.brand.name` 由 `ui-gaussdb-brand` 占。**不用 CSS 硬盖**。 |
+| D7 | 不基于 deepseek-harness | 不 vendored 上游、不追它的版本、没有插件/插槽机制。将来真要插件化的复杂面板再换，网关与数据口不用动。 |
 
 ## 4. 架构
 
@@ -45,7 +47,7 @@
             其它          → runtime-<工号>:4096（opencode serve，不变）
 ```
 
-frontend Pod 里跑 `dsh web`（Node，Host）：只负责把 SPA 与插件包端给浏览器。**它不读任何业务数据**——大盘的取数由浏览器直接 `fetch('/reports/...')` 经网关到用户自己的 Pod。这样前端 Pod 拿不到任何人的报告，也不需要口令。
+frontend Pod 里只有 nginx 端静态文件（HTML / JS / CSS）。**它不读任何业务数据**——大盘的取数由浏览器直接 `fetch('/reports/...')` 经网关到用户自己的 Pod。这样前端 Pod 拿不到任何人的报告，也不需要口令，连出网都不需要。
 
 ### 4.2 一次打开大盘的数据流
 
@@ -101,18 +103,36 @@ reports/
 
 ### 4.7 前端镜像
 
-- `docker/Dockerfile.frontend`：多阶段。构建阶段 `node:22` + pnpm，克隆/复制 deepseek-harness 0.1.7 的 `packages/client/*` 与 `apps/web`，加入 `frontend/packages/ui-gaussdb-dash`、`ui-gaussdb-brand`、profile `gaussdb-dash`（`dsh.profile.bundles` = 一个自定义 bundle，其 `cordis.patch.yml` 从 `dsh-web-app` 出发**禁用** D7 那些行、**插入**我们两个插件行）；运行阶段 `node:22-slim`，非 root，只读根文件系统，`ENTRYPOINT ["dsh","web","--profile","gaussdb-dash"]`。
-- 镜像体积目标 < 250 MB（网关 216 MB 是参照）。
-- 上游源码以 **git submodule 或 vendored 快照 + `frontend/UPSTREAM` 记录版本**（同 `agent/UPSTREAM` 的做法）。不在构建时拉网。
+- `docker/Dockerfile.frontend`：单阶段，`nginxinc/nginx-unprivileged:1.27-alpine`（非 root，监听 8080），`COPY frontend/ /usr/share/nginx/html/dash/`，`COPY docker/nginx-dash.conf /etc/nginx/conf.d/default.conf`。**没有构建步骤**：`frontend/` 目录里的文件就是发布内容。
+- `nginx-dash.conf`：只服务 `/dash/`（网关转发时路径带着 `/dash` 前缀）；`/dash/` 与 `/dash/index.html` 之外的路径按文件返回，找不到的 `.html` 回落到 `index.html`（前端自己按 `location.pathname` 切页）；`Cache-Control: no-cache`（大盘改了要立刻生效）；不开目录列表；`/healthz` 回 200 给探针。
+- 镜像体积目标 < 30 MB。基础镜像随离线包一起打（同 openGauss 镜像的做法，`package-images.sh` 加 `FRONTEND_BASE_IMAGE`）。
+- `k8s/base/frontend.yaml`：Deployment（1 副本，只读根文件系统 + `emptyDir` 给 nginx 的 cache/run 目录）+ Service `frontend`（80 → 8080）；NetworkPolicy：入站只放行网关，**出站一条都不放**（静态站不需要 DNS）。
 
-### 4.8 插件包 `frontend/packages/ui-gaussdb-dash`
+### 4.8 `frontend/` 目录（发布内容 = 源码）
 
-- `package.json`：`dsh.client.inject = ['@deepseek-ai/dsh-client-ui-renderer', '@deepseek-ai/dsh-client-ui-sidebar', '@deepseek-ai/dsh-client-ui-layout']`，`platform: web`，tsdown 打包。
-- `src/client/index.tsx`：`export const inject = ['slots','locale']`；`apply(ctx)` 注册四个 `main` 面板（`key` = `dash.health` 等）与四个 `sidebar.panellist` 条目（order 0–3，带级别徽标）。写法照 `ui-plugin-manager` 的 `ctx.slots.inject('main', () => ctx.slots.register({name:'main', key, ...}, Page))`。
-- `src/client/data.ts`：取数层。`fetchLatest(skill)` / `fetchIndex(skill)` / `fetchSqltune(sqlId)` / `fetchKbHealth()` / `fetchKbQueries()`，全部走 `fetch('/reports/...')`，同源、无凭据处理；404 → `{missing:true}`，页面显示「还没有报告 · 在会话里跑一次健康检查 →」，不显示空表。
-- `src/client/dig.ts`：深挖。`digInto(prompt)`：POST /session → prompt_async → `location.assign`。
-- 四个页面组件 + `charts.tsx`（自绘 SVG）+ `tokens.ts`（设计稿的 token）。
-- 类型：报告 JSON 的 TS 类型**手写、与 Python `to_dict()` 逐字段对应**，并有一条测试拿 `agent/tests` 的样例 JSON 过一遍类型守卫（跨语言契约唯一的钉子）。
+```
+frontend/
+├── index.html            外壳:侧栏(四个大盘 + 对话链接 + 当前工号/目标)+ 主区容器;按 pathname 装页面
+├── styles.css            由 docs/prototypes/proto.css 演化,token 不变
+├── lib/
+│   ├── data.js           取数:fetchLatest(skill) / fetchIndex(skill) / fetchSqltune(sqlId) / fetchKbHealth() / fetchKbQueries()
+│   │                     全部 fetch('/reports/...'),同源无凭据;404 → {missing:true};网络错误 → {error:msg}
+│   ├── dig.js            深挖:openDig(prompt) —— 点击瞬间 window.open('about:blank'),再 POST /session → prompt_async,
+│   │                     成功后给新标签页设地址,失败关掉它并在页面上提示(§4.3)
+│   ├── charts.js         自绘 SVG:ring / stack / bars / sparkline / rank(从设计稿抽出)
+│   ├── fmt.js            数字/时间/耗时格式化(设计稿里的 fmt / sec / mmdd)
+│   └── shell.js          侧栏与页头渲染、路由(/dash/health 等四条)、工号与目标显示(来自 /reports/whoami,见下)
+└── pages/
+    ├── health.js         健康检查大盘(§4.9 映射)
+    ├── topsql.js
+    ├── wdr.js
+    └── kb.js
+```
+
+- **原生 ES 模块、没有框架、没有构建**。页面 = 一个 `render(root, data)` 函数 + 模板字符串，与设计稿同一写法；设计稿里的 `DATA` 常量换成 `data.js` 取回的真报告。
+- 「当前工号 / 目标库」从哪来：网关在转发 `/dash/*` 与 `/reports/*` 时都带 `X-Forwarded-User`，但浏览器看不到请求头。给 4097 加一个 `/whoami.json`（`podctl serve-reports` 直接返回 `{"user_id": $GSDB_USER_ID}`，不读文件）；目标库取自最近一份报告的 `target`。
+- **报告契约的钉子**：`frontend/lib/contract.json` 列出每个页面读到的字段路径（如 `health: ["dims[].dimension","dims[].available","findings[].severity",...]`）；`agent/tests/test_frontend_contract_units.py` 拿 Python 侧的样例报告（`health_dict` / wdr `to_dict` / topsql payload / kb `health_dict`）逐条核对路径存在。这是跨语言契约唯一的守卫，没有 JS 工具链也能跑。
+- 页面级验收：`scripts/k8s/e2e-dash.sh` 用 headless Chrome `--dump-dom` 打开四个页面（对着本地集群，或对着一个用样例 JSON 起的临时 `python3 -m http.server`），断言各区块非空、console 零错误——设计稿阶段 `window.top` 那类只有真浏览器能抓的问题就是这么发现的。
 
 ### 4.9 四个大盘的数据映射
 
@@ -140,7 +160,7 @@ reports/
 
 ## 6. 安全
 
-- 前端 Pod：无状态、不挂 NAS、不持口令、不调 K8s API、NetworkPolicy 出站只 DNS。
+- 前端 Pod：nginx 非 root、只读根文件系统、无状态、不挂 NAS、不持口令、不调 K8s API，NetworkPolicy **出站一条都不放**（静态站连 DNS 都不需要）。
 - 报告端口：只读、只本目录、只三种后缀、路径规范化；只有网关能连（NetworkPolicy）；网关按工号路由，所以一个人永远只能读到自己的 `reports/`。
 - 大盘显示的是用户自己登录的库的诊断数据（目标 IP、库名是他自己填的连接信息），不显示任何平台配置取值（红线第 7 条）。
 - 深挖首句只含发现数据。
@@ -148,7 +168,7 @@ reports/
 ## 7. 测试与验收
 
 - 单测：`common/reports.py`（原子写、index 维护、超 50 删最旧只删本目录、失败不影响输出）；`podctl serve-reports`（`..` 拒绝、非白名单后缀 404、目录列表 404、只 GET）；网关三路分发（前缀匹配、`/dash` 不注入口令不 touch）；`kb health --json` 形状；`kb query` 日志行。
-- 前端：报告 JSON TS 类型对 Python 样例的守卫；四个页面在 **headless Chrome `--dump-dom`** 下各区块非空（这次设计稿抓到的 `window.top` 那类问题只有真浏览器能抓）；console 零错误。
+- 前端：`contract.json` 对 Python 样例报告的字段路径守卫（pytest）；`nginx-dash.conf` 的路由守卫（pytest 起真 nginx 太重，改为对 conf 文本钉住 `/dash/`、`no-cache`、`autoindex off`、`/healthz`）；四个页面在 **headless Chrome `--dump-dom`** 下各区块非空、console 零错误（脚本，设计稿阶段抓到的 `window.top` 那类问题只有真浏览器能抓）。
 - e2e（本地集群）：新工号登录 → 会话里跑一次 health → `/reports/health/latest.json` 200 → 打开 `/dash/health` 出现维度环 → 点深挖 → 落到 opencode 会话页且首句已发出。
 - 交付守卫：离线包含四个镜像；`docs/prototypes`、`docs/specs` 不进包；参数手册、仓库结构说明、功能清单补前端镜像。
 
@@ -156,6 +176,6 @@ reports/
 
 1. 技能侧 S1–S4（两仓库，独立可交付：即使前端没做，报告也已经在 NAS 上）。
 2. Pod 侧：`serve-reports` + entrypoint + 清单 + 网关三路分发。
-3. 前端镜像：上游 vendored、profile、两个插件包、Dockerfile.frontend、四个页面。
+3. 前端：`frontend/` 静态站（外壳 + 取数 + 深挖 + 四个页面）、`/whoami.json`、契约守卫、`Dockerfile.frontend` + `nginx-dash.conf`。
 4. 清单与文档：`k8s/base/frontend.yaml`、NetworkPolicy、打包脚本、三份文档。
 5. e2e 验收 + 离线包重打。

@@ -24,6 +24,8 @@ export function latestPerBy(index) {
   return out;
 }
 
+// 调优入口全页只有这一种写法:榜单行、卡片底部一致(user 2026-09-23:两种说法并存让人以为是两件事)
+const tuneLink = (r) => `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`;
 function tunePrompt(r) { return `请调优 sql_id 为 ${r.sql_id} 的语句(调用 ${r.calls} 次,平均 ${fmtMs(r.avg_ms)}):${brief(r.query, 200)}`; }
 
 // 取数脚本在库端把 SQL 截到 80 字(客户中间件白名单里注册的脚本,改它要客户重新注册):满 80 字就标出来
@@ -45,7 +47,7 @@ function tuneSummary(t) {
 
 function card(r, i, tune) {
   return `<div class="card"><h2>S${i + 1} <span class="mono" style="font-weight:400;color:var(--dim)">${esc(r.sql_id)}</span>
-      ${tune ? "" : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</h2>
+      </h2>
     <pre class="sql">${esc(fullQuery(r.query))}</pre>
     <div class="grid g4" style="margin:0 0 8px">
       <div class="kpi"><div class="l">调用</div><div class="v tnum" style="font-size:17px">${fmtInt(r.calls)}</div></div>
@@ -53,7 +55,7 @@ function card(r, i, tune) {
       <div class="kpi ${r.avg_ms > 1000 ? 'warn' : ''}"><div class="l">平均</div><div class="v tnum" style="font-size:17px">${fmtMs(r.avg_ms)}</div></div>
       <div class="kpi"><div class="l">返回行</div><div class="v tnum" style="font-size:17px">${fmtInt(r.rows)}</div></div>
     </div>
-    ${tune ? tuneSummary(tune) : `<div style="font-size:13px;color:var(--dim)">尚未调优 · <a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">在会话里调优这条 →</a></div>`}</div>`;
+    ${tune ? tuneSummary(tune) : `<div style="font-size:13px;color:var(--dim)">尚未调优 · ${tuneLink(r)}</div>`}</div>`;
 }
 
 export async function render(root, ctx) {
@@ -67,7 +69,21 @@ export async function render(root, ctx) {
   const avail = BY.filter(([b]) => per[b]);
   if (!avail.length) { root.innerHTML = empty('这个实例还没有 Top SQL 报告'); bindDigLinks(root); return; }
   const saved = readBy();
-  const by = avail.some(([b]) => b === saved) ? saved : avail[0][0];
+  // 五个页签都能点:没取过的维度给「还没取过」+ 一键去会话里取(原来是点不动的灰字,user 以为数据丢了)
+  const by = BY.some(([b]) => b === saved) ? saved : avail[0][0];
+  const tabs = `<div class="tabs" id="ts-tabs">${BY.map(([b, label]) => `<span data-by="${b}" class="${b === by ? 'on' : ''}"${per[b] ? '' : ' style="color:var(--dim)"'}>${label}${per[b] ? '' : ' ·未取'}</span>`).join('')}</div>`;
+  const bindTabs = () => root.querySelectorAll('#ts-tabs [data-by]').forEach((el) => {
+    el.addEventListener('click', () => { writeBy(el.dataset.by); render(root, ctx); });
+  });
+  if (!per[by]) {
+    const label = BY.find(([b]) => b === by)[1];
+    root.innerHTML = `${crumb}<div class="head"><div><h1>Top SQL</h1>
+      <div class="meta">目标 <b>${esc((ctx.target && ctx.target.label) || '')}</b></div></div></div>${tabs}
+      <div class="card"><div class="empty"><b>「${esc(label)}」这个维度还没取过</b>
+        大盘只展示在会话里真正取过的维度。已取过:${avail.map(([, l]) => esc(l)).join('、')}。
+        <a class="dig" href="#" data-dig="${esc(`请按${label}取一次 Top SQL。`)}" data-dig-title="Top SQL">在会话里按${esc(label)}取一次 →</a></div></div>`;
+    bindTabs(); bindDigLinks(root); return;
+  }
   const rep = await fetchReport('topsql', ctx.key, per[by].file);
   if (!rep.ok) { root.innerHTML = empty('报告读取失败:' + rep.error); bindDigLinks(root); return; }
   const rows = rep.data.rows || [];
@@ -84,14 +100,14 @@ export async function render(root, ctx) {
       <div class="meta">目标 <b>${esc((ctx.target && ctx.target.label) || rep.data.conn || '')}</b> · 取数 <b>${esc(stamp(per[by].at))}</b> · 累计统计视图,不是时间窗口 · 含系统与监控 SQL(调优按策略跳过这类)</div></div>
     <div class="right">Top ${rows.length}<br><a class="dig" href="#" data-dig="请基于最近一次 Top SQL 结果分析哪些语句最值得优化,给出优先级。" data-dig-title="Top SQL">在会话里深挖 →</a></div>
   </div>
-  <div class="tabs" id="ts-tabs">${BY.map(([b, label]) => `<span data-by="${b}" class="${b === by ? 'on' : ''}" style="${per[b] ? '' : 'opacity:.4;cursor:default'}">${label}</span>`).join('')}</div>
+  ${tabs}
   <div class="grid g4" id="ts-kpis">
     <div class="kpi"><div class="l">上榜语句</div><div class="v tnum">${rows.length}<small>条</small></div><div class="d">按${esc(BY.find(([b]) => b === by)[1])}</div></div>
     <div class="kpi"><div class="l">上榜总调用</div><div class="v tnum">${fmtInt(sumCalls)}<small>次</small></div><div class="d">自视图重置</div></div>
     <div class="kpi"><div class="l">上榜总耗时</div><div class="v tnum">${fmtSec(sumSec)}</div><div class="d">${sumSec >= 60 ? `= ${fmtInt(Math.round(sumSec))} s` : "上榜语句合计"}</div></div>
     <div class="kpi ${top1 >= 40 ? 'warn' : ''}"><div class="l">Top 1 占上榜</div><div class="v tnum">${top1.toFixed(1)}<small>%</small></div><div class="d">${esc(brief(rows[0] ? rows[0].query : '', 40))}</div></div>
   </div>
-  <div class="card"><h2>上榜合计内的耗时占比 <span class="tag">报告只有 Top N,没有全量合计</span></h2>
+  <div class="card"><h2>上榜合计内的耗时占比 <span class="tag">报告只有 Top N,没有全量合计</span></h2>${by === "reads" ? `<div class="sub">本页按逻辑读排序;取数脚本(客户中间件白名单里注册的那条)不返回逻辑读数值,下方占比仍按耗时。要看数值需客户重新注册脚本</div>` : ""}
     <div id="ts-stack">${stack(rows.map((r, i) => ({ share: share(r), color: PAL[i % PAL.length] })))}</div>
     ${legend(rows.slice(0, 5).map((r, i) => ({ label: `S${i + 1} ${share(r).toFixed(1)}%`, color: PAL[i] })))}</div>
   <div class="card"><h2>榜单 <span class="tag">脚本按确定性口径排序 · 模型只写解读</span></h2>
@@ -100,12 +116,9 @@ export async function render(root, ctx) {
       <td style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(brief(r.query, 90))}</td>
       <td class="r tnum">${fmtInt(r.calls)}</td><td class="r tnum">${fmtSec(r.total_sec)}</td><td class="r tnum">${fmtMs(r.avg_ms)}</td><td class="r tnum">${fmtInt(r.rows)}</td>
       <td>${bar(share(r), share(r) > 30 ? 'warn' : '')}</td>
-      <td>${isSkipped(tunes[i]) ? `<span style="color:var(--dim);font-size:12px">系统 SQL</span>` : tunes[i] ? `<a href="#S${i + 1}" class="dig">看建议 ↓</a>` : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</td></tr>`).join('')}</tbody></table></div></div>
+      <td>${isSkipped(tunes[i]) ? `<span style="color:var(--dim);font-size:12px">系统 SQL</span>` : tunes[i] ? (i < 4 ? `<a href="#S${i + 1}" class="dig">✓ 看建议 ↓</a>` : `<span class="ok" style="font-size:12px">✓ 已调优</span>`) : tuneLink(r)}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="grid g2" id="ts-cards">${rows.slice(0, 4).map((r, i) => `<div id="S${i + 1}">${card(r, i, tunes[i])}</div>`).join('')}</div>`;
 
-  root.querySelectorAll('#ts-tabs [data-by]').forEach((el) => {
-    if (!per[el.dataset.by]) return;
-    el.addEventListener('click', () => { writeBy(el.dataset.by); render(root, ctx); });
-  });
+  bindTabs();
   bindDigLinks(root);
 }

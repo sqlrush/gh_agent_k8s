@@ -191,16 +191,27 @@ async function checkPages(cdp, tab) {
         if (r.inst.length > 1) await shot(cdp, tab, `${name}-${o.v}`);
       }
     }
+    if (name === 'health') {
+      // 局部运行(--include)曾被当成一次巡检存档,大盘只剩一张卡(user 2026-09-23 反馈)
+      const nd = await evaluate(cdp, tab, `document.querySelectorAll('#hd-dims > .card').length`);
+      nd >= 8 ? good(`维度卡 ${nd} 张`) : bad('health', `维度卡只有 ${nd} 张(完整巡检是 8 张)`);
+    }
     if (name === 'topsql') {
-      const tabs = await evaluate(cdp, tab, `[...document.querySelectorAll('#ts-tabs [data-by]')].filter((e) => e.style.opacity !== '0.4').map((e) => e.dataset.by)`);
-      for (const b of tabs) {
+      // 五个页签都要能点:取过的出榜单,没取过的出「还没取过」+ 取数入口(user 反馈过灰字点不动像是数据丢了)
+      const tabs = await evaluate(cdp, tab, `[...document.querySelectorAll('#ts-tabs [data-by]')].map((e) => ({ b: e.dataset.by, taken: !e.textContent.includes('未取') }))`);
+      tabs.length === 5 ? good('五个页签都在') : bad('topsql', `页签只有 ${tabs.length} 个`);
+      for (const { b, taken } of tabs) {
         await evaluate(cdp, tab, `document.querySelector('#ts-tabs [data-by="${b}"]').click()`);
         await sleep(300); await idle(tab);
-        const on = await evaluate(cdp, tab, `(document.querySelector('#ts-tabs .on') || {}).dataset?.by`);
-        const rows = await evaluate(cdp, tab, `document.querySelectorAll('#ts-rows tr').length`);
-        on === b && rows > 1 ? good(`页签 ${b}:${rows - 1} 行`) : bad('topsql', `页签 ${b} 点了之后 on=${on} 行数=${rows}`);
+        const st = await evaluate(cdp, tab, `({ on: (document.querySelector('#ts-tabs .on') || {}).dataset?.by, rows: document.querySelectorAll('#ts-rows tr').length, empty: !!document.querySelector('.empty [data-dig]') })`);
+        if (st.on !== b) bad('topsql', `页签 ${b} 点了之后没切过去(on=${st.on})`);
+        else if (taken) st.rows > 1 ? good(`页签 ${b}:${st.rows - 1} 行`) : bad('topsql', `页签 ${b} 有数据却没出榜单`);
+        else st.empty ? good(`页签 ${b}:未取过,给了取数入口`) : bad('topsql', `页签 ${b} 未取过,却没有取数入口`);
       }
-      tabs.length ? null : bad('topsql', '一个可点的页签都没有');
+      await evaluate(cdp, tab, `document.querySelector('#ts-tabs [data-by="time"]').click()`); await sleep(300); await idle(tab);
+      // 调优入口只有一种说法
+      const tl = await evaluate(cdp, tab, `document.body.innerText.includes('在会话里调优这条')`);
+      tl ? bad('topsql', '还有「在会话里调优这条」这种第二种说法') : good('调优入口说法统一');
     }
     if (name === 'wdr') {
       const href = await evaluate(cdp, tab, `(document.querySelector('a[href*=".native.html"]') || {}).href || ''`);

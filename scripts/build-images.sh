@@ -61,7 +61,11 @@ done
 # shellcheck disable=SC2086
 docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile.gateway" \
   -t "${PREFIX}gaussdb-agent-gateway:$TAG" "$HERE"
-echo "built: ${PREFIX}gaussdb-agent-{runtime,kb-import,gateway}:$TAG"
+# 前端是纯静态 + nginx,没有构建步骤,也没有可复用的层
+# shellcheck disable=SC2086
+docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile.frontend" \
+  -t "${PREFIX}gaussdb-agent-frontend:$TAG" "$HERE"
+echo "built: ${PREFIX}gaussdb-agent-{runtime,kb-import,gateway,frontend}:$TAG"
 
 if [ -n "$PUSH" ]; then
   echo

@@ -1,0 +1,14 @@
+# gaussdb-agent-frontend:四个大盘的静态页面。只端文件 —— 不读数据、不挂 NAS、不出网、不跑技能。
+#
+# 没有构建步骤:frontend/ 目录里的文件就是发布内容(原生 ES 模块 + 一份 CSS)。
+# 基础镜像用 nginx 的非 root 变体(uid 101,监听 8080),标签钉死,多架构(amd64 / arm64)已确认。
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+
+COPY docker/nginx-dash.conf /etc/nginx/conf.d/default.conf
+COPY frontend/ /usr/share/nginx/html/dash/
+
+LABEL org.opencontainers.image.title="gaussdb-agent-frontend" \
+      org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \
+      org.opencontainers.image.description="大盘前端:纯静态,nginx 非 root 端出;数据由浏览器经网关向用户自己的 Pod 取"
+
+EXPOSE 8080

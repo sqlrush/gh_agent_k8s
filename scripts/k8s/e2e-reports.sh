@@ -35,9 +35,11 @@ echo "② 报告端口通(不存在的文件 → 404),记下现有份数"
 # NAS 上可能留着上一轮的报告(回收/重建不动 NAS 是设计如此),所以不能断言 latest.json 不存在;
 # 用一个肯定不存在的文件证明路由到了 4097,再记下 index 里现有的份数,④ 看它有没有**增加**。
 curl -s -o /dev/null -w "%{http_code}\n" "${H[@]}" "$B/reports/health/no-such-file.json" | grep -qx 404
-before=$(curl -s "${H[@]}" "$B/reports/health/index.json" | python3 -c 'import json,sys
-try: print(len(json.load(sys.stdin)))
-except Exception: print(0)')
+# 报告按实例分目录:总份数从 targets.json 的 count 求和(跑之前不知道实例键)
+count_all() { curl -s "${H[@]}" "$B/reports/health/targets.json" | python3 -c 'import json,sys
+try: print(sum(int(t.get("count", 0)) for t in json.load(sys.stdin)))
+except Exception: print(0)'; }
+before=$(count_all)
 echo "   现有报告 $before 份"
 
 echo "③ 在会话里跑健康检查"
@@ -57,14 +59,14 @@ curl -s -m 900 "${H[@]}" -H 'Content-Type: application/json' \
 echo "④ 报告到了(index 从 $before 份增加)"
 ok=0
 for _ in $(seq 1 30); do
-  now=$(curl -s "${H[@]}" "$B/reports/health/index.json" | python3 -c 'import json,sys
-try: print(len(json.load(sys.stdin)))
-except Exception: print(0)')
+  now=$(count_all)
   if [ "$now" -gt "$before" ]; then ok=1; break; fi
   sleep 2
 done
-[ "$ok" = 1 ] || { echo "   60 秒内 index 没有增加;看 $K logs deploy/runtime-$U | grep -i '报告\\|serve-reports'"; exit 1; }
-curl -s -o /tmp/e2e-latest.json -w "%{http_code}\n" "${H[@]}" "$B/reports/health/latest.json" | grep -qx 200
+[ "$ok" = 1 ] || { echo "   60 秒内 targets 份数没有增加;看 $K logs deploy/runtime-$U | grep -i '报告\\|serve-reports'"; exit 1; }
+KEY=$(curl -s "${H[@]}" "$B/reports/health/targets.json" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["key"])')
+echo "   实例键 $KEY"
+curl -s -o /tmp/e2e-latest.json -w "%{http_code}\n" "${H[@]}" "$B/reports/health/$KEY/latest.json" | grep -qx 200
 python3 - <<'EOF'
 import json
 d = json.load(open("/tmp/e2e-latest.json"))
@@ -73,14 +75,17 @@ print("   overall=%s dims=%d findings=%d" % (d["overall"], len(d["dims"]), len(d
 EOF
 
 echo "⑤ index 与越界"
-curl -s "${H[@]}" "$B/reports/health/index.json" | python3 -c 'import json,sys;i=json.load(sys.stdin);assert len(i)>=1;print("   index 条数",len(i))'
+curl -s "${H[@]}" "$B/reports/health/$KEY/index.json" | python3 -c 'import json,sys;i=json.load(sys.stdin);assert len(i)>=1;print("   index 条数",len(i))'
 # --path-as-is:curl 默认会在客户端把 /reports/../x 规范化成 /x 再发,那样打到网关的就不是 reports 路由,
 # 测的是 curl 不是我们的端口。第一版就是这么假红的。
 code=$(curl -s --path-as-is -o /dev/null -w "%{http_code}" "${H[@]}" "$B/reports/../gdaa/config.yaml")
 echo "   越界请求 /reports/../gdaa/config.yaml → $code"
 [ "$code" = 404 ]
 
-echo "⑥ /dash 在前端没部署时是 502 且说人话"
-curl -s -w "\n%{http_code}\n" "${H[@]}" "$B/dash/health" | tail -1 | grep -qx 502
+echo "⑥ /dash 经网关到大盘前端:页面 200 且是大盘、whoami 是本人"
+curl -s -o /tmp/e2e-dash.html -w "%{http_code}\n" "${H[@]}" "$B/dash/health" | grep -qx 200
+grep -q "lib/shell.js" /tmp/e2e-dash.html
+curl -s -o /dev/null -w "%{http_code}\n" "${H[@]}" "$B/dash/lib/shell.js" | grep -qx 200
+curl -s "${H[@]}" "$B/reports/whoami.json" | python3 -c "import json,sys;assert json.load(sys.stdin)['user_id']=='$U';print('   whoami = $U')"
 
 echo "ALL OK"

@@ -21,8 +21,8 @@ PY=${PY:-$HOME/p2venv/bin/python3}
 KEYFILE=$HOME/.config/opencode/opencode.deepseek.jsonc
 LOGDIR=$HOME/kf-verify; mkdir -p "$LOGDIR"
 K(){ kubectl --context "$C" -n "$NS" "$@"; }
-# /nas/me/workspace 的 base64url —— opencode Web 界面的项目路由
-PROJ=L25hcy9tZS93b3Jrc3BhY2U
+# /data/state/workspace 的 base64url —— opencode Web 界面的项目路由(状态本地化后工作目录在本地盘)
+PROJ=L2RhdGEvc3RhdGUvd29ya3NwYWNl
 
 info() {
   local pw_n pw_a
@@ -39,14 +39,14 @@ info() {
   浏览器   http://127.0.0.1:$PORT_NORMAL/$PROJ
   口令     $pw_n
   CLI      OPENCODE_SERVER_PASSWORD='$pw_n' \\
-             opencode attach http://127.0.0.1:$PORT_NORMAL --dir /nas/me/workspace
+             opencode attach http://127.0.0.1:$PORT_NORMAL --dir /data/state/workspace
 
 【知识库管理员 ${USER_ADMIN}】另有导入与入库前标准化
 
   浏览器   http://127.0.0.1:$PORT_ADMIN/$PROJ
   口令     $pw_a
   CLI      OPENCODE_SERVER_PASSWORD='$pw_a' \\
-             opencode attach http://127.0.0.1:$PORT_ADMIN --dir /nas/me/workspace
+             opencode attach http://127.0.0.1:$PORT_ADMIN --dir /data/state/workspace
 
   注:浏览器别落在 / ——那页的项目列表是浏览器本地记的,新浏览器为空。上面给的是项目路由。
      管理员的收件目录(放待导入材料):$NAS/kb/inbox/uploads/

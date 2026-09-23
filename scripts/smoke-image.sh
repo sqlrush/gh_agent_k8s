@@ -38,8 +38,9 @@ run_rt smoke-rt 15096
 wait_ready 15096 || { out=$(docker logs smoke-rt 2>&1); bad "runtime 90 秒内没就绪"; }
 out=$(curl -s http://127.0.0.1:15096/global/health)
 check "runtime 启动,/global/health 返回 healthy"              'has "\"healthy\":true"'
-out=$(X smoke-rt "id -u; ls -la /nas/me; cat /nas/me/.owner")
-check "以 uid 1000 运行,/nas/me 下有 .owner、gdaa、xdg-data"    'has "^1000" && has ".owner" && has "gdaa" && has "xdg-data"'
+# 状态本地化(2026-09-21)之后对话库在本地盘 /data/state,首次回写后才出现在 NAS;gdaa 始终在 NAS
+out=$(X smoke-rt "id -u; ls -la /nas/me; cat /nas/me/.owner; echo LOCAL:; ls /data/state")
+check "以 uid 1000 运行,/nas/me 下有 .owner、gdaa,本地态有 xdg-data"    'has "^1000" && has ".owner" && has "gdaa" && has "xdg-data"'
 out=$(X smoke-rt 'cat $GSDB_HOME/config.yaml; ls -la /data/oc')
 check "config.yaml 与 opencode.json 已按环境变量渲染(0600)"    'has "host: '"$HOSTGW"'" && has "port: 8781" && has -- "-rw-------.*opencode.json"'
 out=$(X smoke-rt 'curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/config | head -c 300; echo; curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" -H "Content-Type: application/json" -d "{\"title\":\"smoke\"}" http://127.0.0.1:4096/session | head -c 120')

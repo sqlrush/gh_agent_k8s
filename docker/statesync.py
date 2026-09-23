@@ -117,6 +117,9 @@ def copy_db(src: pathlib.Path, dst: pathlib.Path) -> None:
             s.backup(d)
         finally:
             d.close()
+    except sqlite3.Error:
+        tmp.unlink(missing_ok=True)     # 别留半截的 .part
+        raise
     finally:
         s.close()
     os.replace(tmp, dst)          # 原子替换:同步中途被杀也不会留下半截的库
@@ -132,8 +135,16 @@ def _changed(src: pathlib.Path, dst: pathlib.Path) -> bool:
     return a.st_size != b.st_size or int(a.st_mtime) > int(b.st_mtime)
 
 
-def _copy_tree(src_root: pathlib.Path, dst_root: pathlib.Path, rep: Report) -> Set[str]:
-    """复制 src_root → dst_root,返回相对路径集合(给删除传播用)。"""
+def _copy_tree(src_root: pathlib.Path, dst_root: pathlib.Path, rep: Report,
+               raw_if_unreadable_db: bool = False) -> Set[str]:
+    """复制 src_root → dst_root,返回相对路径集合(给删除传播用)。
+
+    raw_if_unreadable_db:库连一致性读取都做不到(已损坏)时原样复制。**只给 NAS → 本地用。**
+    加载时不带过来,本地就没有库,podctl.db_check 看到的是「不存在 = 首次启动」,
+    于是以空库启动、历史静默清空,下一次回写再拿空库盖掉 NAS 上的坏库 —— 连证据都没了。
+    原样带过来,db_check 才能走它本来的「留证、从备份恢复、写明」。
+    反方向绝不能这样做:本地坏库原样推上去会盖掉 NAS 上那份好的。
+    """
     seen: Set[str] = set()
     if not src_root.exists():
         dst_root.mkdir(parents=True, exist_ok=True)
@@ -155,7 +166,14 @@ def _copy_tree(src_root: pathlib.Path, dst_root: pathlib.Path, rep: Report) -> S
                     # 发生在同一秒内的写入;而 SQLite 原地改页时 size 也可能不变。
                     # 一次 backup 对几百 KB 的库是微秒级,不值得为省这点 IO 冒漏同步的风险。
                     # 库大到让 60 秒周期扛不住时,该调大 STATE_SYNC_SECONDS,不是在这里加判断。
-                    copy_db(src, dst)
+                    try:
+                        copy_db(src, dst)
+                    except sqlite3.DatabaseError as exc:
+                        if not raw_if_unreadable_db:
+                            raise
+                        shutil.copy2(src, dst)
+                        rep.errors.append("%s:库无法读取(%s),已原样带到本地交给启动自检" % (rel, exc))
+                        continue
                     rep.dbs_copied += 1
                 elif _changed(src, dst):
                     shutil.copy2(src, dst)
@@ -209,7 +227,7 @@ def load(lay: Layout, log: Callable[[str], None] = print) -> Report:
                 "上次最后一个同步周期内的对话可能已丢失。" % exc)
     lay.local.mkdir(parents=True, exist_ok=True)
     for nas_dir, local_dir in lay.pairs():
-        _copy_tree(nas_dir, local_dir, rep)
+        _copy_tree(nas_dir, local_dir, rep, raw_if_unreadable_db=True)
     (lay.local / MARK_LOADED).write_text(str(int(time.time())), encoding="utf-8")
     log("状态已加载到本地:%s" % rep.line())
     return rep

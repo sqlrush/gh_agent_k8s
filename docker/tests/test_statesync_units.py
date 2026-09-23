@@ -64,6 +64,38 @@ def test_load_brings_nas_state_to_local(dirs):
     assert _rowcount(dirs.local / "xdg-data" / "opencode" / "opencode.db") == 3
 
 
+def test_corrupt_nas_db_still_reaches_local_so_the_startup_check_can_restore_it(dirs):
+    """NAS 上的库坏了,加载也必须把它带到本地 —— 否则自检看到「库不存在」就当首次启动。
+
+    2026-09-23 v1.1.0 冒烟抓到:坏库的一致性读取失败,本地没有库,自检打印「首次启动,
+    opencode 将新建」,用户全部历史**静默**变成空列表;下一次回写再用空库盖掉 NAS 上的坏库,
+    连证据都没了。备份目录里明明有好的备份。
+
+    修法:NAS → 本地方向,读不了的库原样复制,交给 podctl.db_check 去「留证、恢复、写明」。
+    """
+    import podctl
+    oc = dirs.nas / "xdg-data" / "opencode"
+    (oc / "opencode.db").write_bytes(b"garbage" * 2000)
+    backup = dirs.nas / "backup"
+    _mkdb(backup / "opencode.db.20260923T000000Z", rows=7)
+
+    ss.load(dirs, log=lambda _m: None)
+    local_db = dirs.local / "xdg-data" / "opencode" / "opencode.db"
+    assert local_db.exists(), "坏库没带到本地,自检会误判成首次启动"
+    assert podctl.db_check(local_db, backup) == "restored"
+    assert _rowcount(local_db) == 7
+
+
+def test_corrupt_local_db_is_never_pushed_raw_to_nas(dirs):
+    """反方向不能原样复制:本地坏库推上 NAS 会盖掉 NAS 上那份好的。"""
+    _mkdb(dirs.nas / "xdg-data" / "opencode" / "opencode.db", rows=5)
+    ss.load(dirs, log=lambda _m: None)
+    (dirs.local / "xdg-data" / "opencode" / "opencode.db").write_bytes(b"garbage" * 2000)
+    rep = ss.sync(dirs)
+    assert rep.errors, "本地坏库应当记成一条同步错误"
+    assert _rowcount(dirs.nas / "xdg-data" / "opencode" / "opencode.db") == 5
+
+
 def test_load_on_empty_nas_is_fine(dirs):
     """第一次登录:NAS 上什么都没有。"""
     ss.load(dirs)

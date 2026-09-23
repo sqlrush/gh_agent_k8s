@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知识库大盘 · 设计稿 R2</title>
+<link rel="icon" href="data:,">
+<!-- 直接用产品的样式表:看到的就是上线后的观感 -->
+<link rel="stylesheet" href="../../frontend/styles.css">
+<style>
+  .proto{position:fixed;right:14px;bottom:14px;background:#0f1115;color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;opacity:.85;z-index:9}
+  .subnav{display:flex;gap:4px;margin:0 0 16px;border-bottom:1px solid var(--line)}
+  .subnav a{padding:8px 14px 10px;font-size:14px;color:var(--sub);border-bottom:2px solid transparent;cursor:pointer}
+  .subnav a.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+  .subnav a small{margin-left:5px;color:var(--dim);font-weight:400}
+  .split{display:grid;grid-template-columns:360px minmax(0,1fr);gap:14px;align-items:start}
+  .list{padding:0;overflow:hidden}
+  .list .tools{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+  .list input{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chips span{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--fill);color:var(--sub);cursor:pointer;border:1px solid transparent}
+  .chips span.on{background:#fff;border-color:var(--blue);color:var(--blue)}
+  .items{max-height:calc(100vh - 250px);overflow:auto}
+  .item{padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+  .item:hover{background:var(--fill)}
+  .item.on{background:#eef3fd;box-shadow:inset 3px 0 0 var(--blue)}
+  .item .t{font-size:13.5px;font-weight:600;line-height:1.4;margin:3px 0}
+  .item .m{font-size:12px;color:var(--dim)}
+  .grp{padding:8px 14px 6px;font-size:12px;color:var(--dim);background:var(--fill);border-bottom:1px solid var(--line)}
+  .doc h1{font-size:20px;margin:6px 0 8px;line-height:1.35}
+  .metarow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .metarow span{font-size:12px;padding:2px 9px;border-radius:6px;background:var(--fill);color:var(--sub)}
+  .dsec{margin-top:14px}
+  .dsec h3{font-size:12.5px;color:var(--dim);font-weight:600;margin:0 0 5px;letter-spacing:.04em}
+  .dsec p{margin:0;font-size:14px;line-height:1.75;white-space:pre-wrap}
+  .factor{background:#fff7ef;border-left:3px solid var(--warn);padding:9px 12px;border-radius:6px;font-size:13.5px;line-height:1.6}
+  .tags{display:flex;gap:6px;flex-wrap:wrap}
+  .tags span{font-size:12px;padding:2px 8px;border-radius:6px;background:var(--fill2);color:var(--ink)}
+  .ref{display:block;padding:9px 12px;border:1px solid var(--line);border-radius:8px;margin-top:6px;cursor:pointer;font-size:13px;line-height:1.5}
+  .ref:hover{border-color:var(--blue)}
+  .ref b{color:var(--blue);margin-right:6px}
+  .src{font-size:12px;color:var(--dim);margin-top:16px;padding-top:10px;border-top:1px solid var(--line)}
+  .btn{display:inline-block;font-size:13px;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink)}
+  .btn:hover{border-color:var(--blue);color:var(--blue)}
+  /* 关系图 */
+
+  .gcard{padding:10px 12px;overflow:auto}
+  .gcard svg{display:block}
+  .gcard text{font-size:12px;fill:#0f1115;pointer-events:none}
+  .node rect{stroke-width:1.5;cursor:pointer;transition:opacity .15s}
+  .edge{fill:none;stroke:#b8c0c8;stroke-width:1.4;transition:opacity .15s}
+  .dim{opacity:.12}
+  .hot rect{stroke-width:2.5}
+  .edge.hot{stroke:#4176e6;stroke-width:2}
+  .colh{font-size:12px;fill:#81858c;font-weight:600}
+  .gpanel{position:absolute;top:10px;right:10px;width:290px;max-height:calc(100% - 20px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:14px 16px}
+  @media (max-width:1100px){ .split{grid-template-columns:1fr} .items{max-height:320px} }
+</style>
+</head>
+<body>
+<div class="proto">设计稿 R2 · 数据为真实样例知识库(8 案例 / 12 条款 / 24 条边)</div>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
+    <div class="sec">大盘</div>
+    <div class="nav"><a>◎ 健康检查</a><a>▤ Top SQL</a><a>◔ WDR 分析</a><a class="on">▥ 知识库</a></div>
+    <div class="sec">对话</div>
+    <div class="nav"><a>⊕ 新对话 ↗</a><a>◌ 最近对话 ↗</a></div>
+    <div class="sec">当前</div>
+    <div class="nav"><a>工号 u9400</a></div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+<script src="kb-r2-data.js"></script>
+<script>
+const KB = window.KB;
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const RULES = KB.groups.flatMap((g) => g.rules.map((r) => ({ ...r, group: g.title, file: g.file })));
+const ruleById = Object.fromEntries(RULES.map((r) => [r.id, r]));
+const caseById = Object.fromEntries(KB.cases.map((c) => [c.id, c]));
+const citedBy = (rid) => KB.cases.filter((c) => (c.rules || []).includes(rid));
+const SEV = { S1: 'crit', S2: 'warn', S3: 'notice' };
+const RSEV = { error: ['crit', '必须'], warn: ['warn', '建议'] };
+const state = { tab: 'overview', caseId: KB.cases[0].id, ruleId: RULES[0].id, q: '', sys: '', node: null };
+
+function go(tab, extra = {}) { Object.assign(state, { tab }, extra); render(); window.scrollTo(0, 0); }
+
+function head() {
+  const tabs = [['overview', '总览', ''], ['cases', '案例', KB.cases.length], ['rules', '条款', RULES.length], ['graph', '关系图', KB.edges.length + ' 条边']];
+  return `<div class="crumb">大盘 › <b>知识库</b></div>
+  <div class="head"><div><h1>知识库 <span class="badge ok">健康</span></h1>
+    <div class="meta">模式 <b>向量库+图文件</b> · 版本 <b>2026.09</b> · 本环境 <b>只读</b> · 全体共享一份</div></div>
+    <div class="right">✓ 每条都能指回原件<br>导入由知识库管理员在导入环境完成</div></div>
+  <div class="subnav">${tabs.map(([k, l, n]) => `<a class="${state.tab === k ? 'on' : ''}" onclick="go('${k}')">${l}${n !== '' ? `<small>${n}</small>` : ''}</a>`).join('')}</div>`;
+}
+
+// ---------------------------------------------------------------- 总览(现有页面,只把三个入口改成直达)
+function overview() {
+  const sys = [...new Set(KB.cases.map((c) => c.system))];
+  return `<div class="grid g3">
+    ${[['#2fa79a', '案例', '现场处理过的故障:现象 → 判断 → 处置', KB.cases.length, `覆盖系统 ${sys.join('、')}`, 'cases', '看全部案例 →'],
+       ['#4176e6', '条款', '本行规范里可引用、可校验的条文', RULES.length, `${KB.groups.length} 份规范`, 'rules', '看全部条款 →'],
+       ['#8b6be0', '关系图', '现象 → 根因 → 处置 → 依据条款', KB.edges.length, '条已确认边', 'graph', '打开关系图 →']]
+      .map(([c, t, s, n, u, k, a]) => `<div class="card" style="border-top:4px solid ${c}"><h2>${t}</h2><div class="sub">${s}</div>
+        <div style="font-size:30px;font-weight:700;margin:6px 0 4px">${n}</div><div class="sub">${u}</div>
+        <div style="margin-top:10px"><a class="dig" onclick="go('${k}')">${a}</a></div></div>`).join('')}
+  </div>
+  <div class="card"><h2>最近的案例 <span class="tag">按发生时间</span></h2>
+    ${KB.cases.slice().sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)).slice(0, 5).map((c) =>
+      `<a class="ref" onclick="go('cases',{caseId:'${c.id}'})"><span class="pill ${SEV[c.severity] || 'dim'}">${esc(c.severity)}</span> ${esc(c.title)}
+       <span style="color:var(--dim);font-size:12px;margin-left:6px">${esc(c.system)} · ${esc(c.occurred_at)}</span></a>`).join('')}</div>
+  <div class="card" style="font-size:13px;color:var(--sub)">健康自检、缺口清单、最近检索三块保持现有页面不变(此处省略)。</div>`;
+}
+
+// ---------------------------------------------------------------- 案例
+function caseList() {
+  const q = state.q.trim().toLowerCase();
+  const hit = (c) => (!state.sys || c.system === state.sys) &&
+    (!q || [c.title, c.primary_factor, ...(c.signals || []), ...(c.objects || []), ...Object.values(c.sections)].join(' ').toLowerCase().includes(q));
+  const list = KB.cases.filter(hit).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  const sys = [...new Set(KB.cases.map((c) => c.system))];
+  return `<div class="card list"><div class="tools">
+      <input placeholder="搜索现象、对象、处置……(例:WALWriteLock、死锁、ANALYZE)" value="${esc(state.q)}" oninput="state.q=this.value;renderKeep()">
+      <div class="chips"><span class="${state.sys ? '' : 'on'}" onclick="state.sys='';render()">全部系统</span>${sys.map((s) => `<span class="${state.sys === s ? 'on' : ''}" onclick="state.sys='${s}';render()">${esc(s)}</span>`).join('')}</div>
+      <div class="sub" style="margin:0">共 ${list.length} 条 · 按发生时间倒序</div></div>
+    <div class="items">${list.map((c) => `<div class="item ${c.id === state.caseId ? 'on' : ''}" onclick="state.caseId='${c.id}';render()">
+      <span class="pill ${SEV[c.severity] || 'dim'}">${esc(c.severity)}</span>
+      <div class="t">${esc(c.title)}</div>
+      <div class="m">${esc(c.system)} · ${esc(c.occurred_at)} · ${esc(c.conclusion)}${c.rules.length ? ` · 依据 ${c.rules.length} 条条款` : ''}</div></div>`).join('') || '<div class="item m">没有匹配的案例</div>'}</div></div>`;
+}
+
+function caseDoc(c) {
+  const order = ['现场', '判断', '处置', '复发标志'];
+  const secs = [...order.filter((k) => c.sections[k]), ...Object.keys(c.sections).filter((k) => !order.includes(k))];
+  return `<div class="card doc">
+    <span class="pill ${SEV[c.severity] || 'dim'}">${esc(c.severity)}</span>
+    <h1>${esc(c.title)}</h1>
+    <div class="metarow"><span>系统 ${esc(c.system)}</span><span>发生 ${esc(c.occurred_at)}</span><span>结论 ${esc(c.conclusion)}</span></div>
+    <div class="factor"><b>主因</b> ${esc(c.primary_factor)}</div>
+    ${secs.map((k) => `<div class="dsec"><h3>${esc(k)}</h3><p>${esc(c.sections[k])}</p></div>`).join('')}
+    ${c.signals.length ? `<div class="dsec"><h3>识别信号</h3><div class="tags">${c.signals.map((s) => `<span>${esc(s)}</span>`).join('')}</div></div>` : ''}
+    ${c.objects.length ? `<div class="dsec"><h3>涉及对象</h3><div class="tags">${c.objects.map((s) => `<span>${esc(s)}</span>`).join('')}</div></div>` : ''}
+    ${c.rules.length ? `<div class="dsec"><h3>依据条款</h3>${c.rules.map((id) => { const r = ruleById[id];
+      return `<a class="ref" onclick="go('rules',{ruleId:'${id}'})"><b>${esc(id)}</b>${esc(r ? r.rule : '(条款已废止或不在现行清单)')}</a>`; }).join('')}</div>` : ''}
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="btn" onclick="go('graph',{node:'case:${esc(c.id)}'})">在关系图中查看 →</span>
+      <span class="btn">在会话里问类似问题 ↗</span></div>
+    <div class="src">出处 ${esc(c.source)} · 案例文件 cases/${esc(c.id)}.md</div></div>`;
+}
+
+// ---------------------------------------------------------------- 条款
+function ruleList() {
+  const q = state.q.trim().toLowerCase();
+  const hit = (r) => !q || [r.id, r.rule, r.rationale, ...(r.keywords || [])].join(' ').toLowerCase().includes(q);
+  return `<div class="card list"><div class="tools">
+      <input placeholder="搜索条文、关键词或编号……(例:ANALYZE、GS-OPS)" value="${esc(state.q)}" oninput="state.q=this.value;renderKeep()">
+      <div class="sub" style="margin:0">${KB.groups.length} 份规范 · 现行 ${RULES.length} 条</div></div>
+    <div class="items">${KB.groups.map((g) => { const rs = g.rules.filter(hit); return rs.length ? `<div class="grp">${esc(g.title)} · ${rs.length}</div>` +
+      rs.map((r) => `<div class="item ${r.id === state.ruleId ? 'on' : ''}" onclick="state.ruleId='${r.id}';render()">
+        <span class="pill ${RSEV[r.severity] ? RSEV[r.severity][0] : 'dim'}">${RSEV[r.severity] ? RSEV[r.severity][1] : esc(r.severity)}</span> <b style="font-size:12.5px">${esc(r.id)}</b>
+        <div class="m" style="color:var(--ink);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(r.rule)}</div></div>`).join('') : ''; }).join('')}</div></div>`;
+}
+
+function ruleDoc(r) {
+  const cs = citedBy(r.id);
+  return `<div class="card doc">
+    <span class="pill ${RSEV[r.severity] ? RSEV[r.severity][0] : 'dim'}">${RSEV[r.severity] ? RSEV[r.severity][1] + '执行' : esc(r.severity)}</span>
+    <h1>${esc(r.id)}</h1>
+    <div class="metarow"><span>${esc(r.group)}</span><span>${r.check === 'deterministic' ? '可由脚本判定' : '需人工判断'}</span></div>
+    <div class="factor" style="background:#eef3fd;border-left-color:var(--blue);font-size:14.5px"><b>条文</b> ${esc(r.rule)}</div>
+    ${r.rationale ? `<div class="dsec"><h3>为什么</h3><p>${esc(r.rationale)}</p></div>` : ''}
+    ${r.criteria ? `<div class="dsec"><h3>怎么判定违规</h3><p>${esc(r.criteria)}</p></div>` : ''}
+    ${(r.keywords || []).length ? `<div class="dsec"><h3>关键词</h3><div class="tags">${r.keywords.map((k) => `<span>${esc(k)}</span>`).join('')}</div></div>` : ''}
+    <div class="dsec"><h3>引用它的案例 · ${cs.length}</h3>${cs.length ? cs.map((c) => `<a class="ref" onclick="go('cases',{caseId:'${c.id}'})"><span class="pill ${SEV[c.severity] || 'dim'}">${esc(c.severity)}</span> ${esc(c.title)}</a>`).join('') : '<div class="sub">还没有案例引用这条</div>'}</div>
+    <div style="margin-top:16px"><span class="btn" onclick="go('graph',{node:'rule:${esc(r.id)}'})">在关系图中查看 →</span></div>
+    <div class="src">出处 ${esc(r.source)} · 条款文件 rules/${esc(r.file)}</div></div>`;
+}
+
+// ---------------------------------------------------------------- 关系图
+const KINDS = [['case', '案例', '#2fa79a'], ['symptom', '现象', '#e07a1f'], ['rootcause', '根因', '#d64545'], ['action', '处置', '#3fa552'], ['rule', '依据条款', '#4176e6']];
+const KC = Object.fromEntries(KINDS.map(([k, , c]) => [k, c]));
+const KN = Object.fromEntries(KINDS.map(([k, n]) => [k, n]));
+const REL = { exhibits: '表现为', caused_by: '根因是', handled_by: '处置为', cites: '依据' };
+
+function buildGraph() {
+  const nodes = new Map(), edges = [];
+  const add = (n) => { if (!nodes.has(n.id)) nodes.set(n.id, { k: n.id, kind: n.kind, label: n.label, full: n.full || n.label }); return n.id; };
+  for (const e of KB.edges) edges.push({ a: add(e.src), b: add(e.dst), rel: e.rel, source: e.source });
+  for (const c of KB.cases) {                      // 案例 → 条款:来自案例文件的 rules 字段
+    const a = add({ id: 'case:' + c.id, kind: 'case', label: c.title });
+    for (const id of c.rules || []) edges.push({ a, b: add({ id: 'rule:' + id, kind: 'rule', label: id, full: ruleById[id] ? id + ' ' + ruleById[id].rule : id }), rel: 'cites', source: 'cases/' + c.id + '.md' });
+  }
+  return { nodes, edges };
+}
+
+const COLS = ['case', 'symptom', 'rootcause', 'action', 'rule'];
+const GW = 170, GH = 36, GAP = 12, STEP = 205;
+const colX = (kind) => 8 + COLS.indexOf(kind) * STEP;
+
+function layout(g) {
+  const rowOf = new Map();
+  [...g.nodes.values()].filter((n) => n.kind === 'case').forEach((c, i) => rowOf.set(c.k, i));
+  // 沿边把行号往下游传:现象 / 根因 / 处置跟着自己的案例排在同一行(被多个案例共用的,跟第一个)
+  for (let pass = 0; pass < 4; pass++) for (const e of g.edges)
+    if (rowOf.has(e.a) && !rowOf.has(e.b) && g.nodes.get(e.b).kind !== 'rule') rowOf.set(e.b, rowOf.get(e.a));
+  const y = (r) => 34 + r * (GH + GAP);
+  const pos = new Map();
+  // 同一列同一行只放一个:共用节点占掉的位置,后来的顺延
+  const used = new Set();
+  for (const n of g.nodes.values()) {
+    if (n.kind === 'rule') continue;
+    let r = rowOf.get(n.k) ?? 0;
+    while (used.has(n.kind + r)) r++;
+    used.add(n.kind + r); pos.set(n.k, { x: colX(n.kind), y: y(r) });
+  }
+  // 条款:放在引用它的案例的平均行高,再按顺序错开不重叠
+  const rules = [...g.nodes.values()].filter((n) => n.kind === 'rule').map((n) => {
+    const rows = g.edges.filter((e) => e.b === n.k).map((e) => rowOf.get(e.a) ?? 0);
+    return { n, r: rows.reduce((a, b) => a + b, 0) / Math.max(1, rows.length) };
+  }).sort((a, b) => a.r - b.r);
+  let last = -Infinity;
+  for (const { n, r } of rules) { const yy = Math.max(y(r), last + GH + 6); pos.set(n.k, { x: colX('rule'), y: yy }); last = yy; }
+  return { pos, width: colX('rule') + GW + 8, height: Math.max(...[...pos.values()].map((p) => p.y)) + GH + 16 };
+}
+
+// 点一个节点:沿边双向走,点亮它所在的那一串;条款是公共节点,只在它自己被点中时才往外走
+function related(g, start) {
+  const seen = new Set([start]), q = [start];
+  while (q.length) {
+    const k = q.shift();
+    if (g.nodes.get(k).kind === 'rule' && k !== start) continue;
+    for (const e of g.edges) for (const [x, y] of [[e.a, e.b], [e.b, e.a]]) if (x === k && !seen.has(y)) { seen.add(y); q.push(y); }
+  }
+  return seen;
+}
+
+const jsq = (s) => esc(s).replace(/'/g, "\\'");
+function graphView() {
+  const g = buildGraph(), L = layout(g);
+  const on = state.node && g.nodes.has(state.node) ? related(g, state.node) : null;
+  const cut = (s, n) => (s.length > n ? s.slice(0, n) + '…' : s);
+  const edgesSvg = g.edges.map((e) => {
+    // 「依据条款」从同一行的处置列右侧出发:同一行就是同一个案例,不用一根长线横穿整张图
+    const p0 = L.pos.get(e.a), q = L.pos.get(e.b); if (!p0 || !q) return '';
+    const p = e.rel === 'cites' ? { x: colX('action'), y: p0.y } : p0;
+    const x1 = p.x + GW, y1 = p.y + GH / 2, x2 = q.x, y2 = q.y + GH / 2, mx = (x1 + x2) / 2;
+    const cls = on ? (on.has(e.a) && on.has(e.b) ? 'hot' : 'dim') : '';
+    return `<path class="edge ${cls}" d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}"><title>${REL[e.rel] || e.rel}</title></path>`;
+  }).join('');
+  const nodesSvg = [...g.nodes.values()].map((n) => {
+    const p = L.pos.get(n.k); if (!p) return '';
+    const cls = on ? (on.has(n.k) ? (n.k === state.node ? 'hot' : '') : 'dim') : '';
+    return `<g class="node ${cls}" onclick="state.node='${jsq(n.k)}';render()">
+      <rect x="${p.x}" y="${p.y}" width="${GW}" height="${GH}" rx="8" fill="#fff" stroke="${KC[n.kind]}"/>
+      <rect x="${p.x}" y="${p.y}" width="5" height="${GH}" rx="2" fill="${KC[n.kind]}" stroke="none"/>
+      <text x="${p.x + 12}" y="${p.y + GH / 2 + 4}">${esc(cut(n.label, 12))}</text><title>${esc(n.full)}</title></g>`;
+  }).join('');
+  const heads = KINDS.map(([k, n]) => `<text class="colh" x="${colX(k) + 4}" y="20">${n}</text>`).join('');
+  return `<div class="card" style="padding:10px 14px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <div class="legend">${KINDS.map(([, n, c]) => `<span style="--c:${c}">${n}</span>`).join('')}</div>
+      <span class="sub" style="margin:0">每一行是一个案例的完整链路:现象 → 根因 → 处置,右边是它依据的条款。点任一节点,只看与它相连的那一串。</span>
+      ${state.node ? `<span class="btn" onclick="state.node=null;render()">显示全部</span>` : ''}</div>
+    <div class="card gcard" style="position:relative">
+      <svg width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}">${heads}${edgesSvg}${nodesSvg}</svg>
+      ${state.node && g.nodes.has(state.node) ? `<div class="gpanel">${nodePanel(g, on)}</div>` : ''}</div>`;
+}
+
+function nodePanel(g, on) {
+  if (!state.node || !g.nodes.has(state.node)) return `<h2>节点详情</h2><div class="sub">点左边任一节点。</div>
+    <div class="kv"><span>案例</span><span>${KB.cases.length}</span></div><div class="kv"><span>条款(被引用)</span><span>${[...g.nodes.values()].filter((n) => n.kind === 'rule').length}</span></div>
+    <div class="kv"><span>边</span><span>${g.edges.length}</span></div>`;
+  const n = g.nodes.get(state.node);
+  const outs = g.edges.filter((e) => e.a === n.k), ins = g.edges.filter((e) => e.b === n.k);
+  const line = (e, other) => { const o = g.nodes.get(other); return `<a class="ref" onclick="state.node='${esc(o.k).replace(/'/g, '\\\'')}';render()"><span style="color:${KC[o.kind]};font-weight:600">${KN[o.kind]}</span> ${esc(o.label)}</a>`; };
+  const bare = n.k.slice(n.k.indexOf(':') + 1);
+  const open = n.kind === 'case' ? `<span class="btn" onclick="go('cases',{caseId:'${jsq(bare)}'})">看案例原文 →</span>`
+    : n.kind === 'rule' ? `<span class="btn" onclick="go('rules',{ruleId:'${jsq(bare)}'})">看条款原文 →</span>`
+    : (() => { const e = [...ins, ...outs].find((x) => x.source); const cid = e && (e.source.match(/^cases\/(.+)\.md/) || [])[1]; return cid ? `<span class="btn" onclick="go('cases',{caseId:'${esc(cid)}'})">看出处原文 →</span>` : ''; })();
+  return `<span class="pill" style="background:${KC[n.kind]}22;color:${KC[n.kind]}">${KN[n.kind]}</span>
+    <span onclick="state.node=null;render()" style="float:right;cursor:pointer;color:var(--dim);font-size:18px;line-height:1">×</span><h2 style="margin-top:8px;line-height:1.45">${esc(n.label)}</h2>
+    ${ins.length ? `<div class="dsec"><h3>上游</h3>${ins.map((e) => line(e, e.a)).join('')}</div>` : ''}
+    ${outs.length ? `<div class="dsec"><h3>下游</h3>${outs.map((e) => line(e, e.b)).join('')}</div>` : ''}
+    <div style="margin-top:14px">${open}</div>
+    <div class="src">点亮 ${on.size} 个节点 · 点空白处或 × 恢复全部</div>`;
+}
+
+// ---------------------------------------------------------------- 外壳
+function render() {
+  const m = document.getElementById('main');
+  let body = '';
+  if (state.tab === 'overview') body = overview();
+  if (state.tab === 'cases') body = `<div class="split">${caseList()}${caseDoc(caseById[state.caseId] || KB.cases[0])}</div>`;
+  if (state.tab === 'rules') body = `<div class="split">${ruleList()}${ruleDoc(ruleById[state.ruleId] || RULES[0])}</div>`;
+  if (state.tab === 'graph') body = graphView();
+  m.innerHTML = head() + body;
+}
+// 搜索框输入时重画但保住光标
+function renderKeep() { const a = document.activeElement, v = a && a.selectionStart; render(); const i = document.querySelector('.list input'); if (i) { i.focus(); i.setSelectionRange(v, v); } }
+render();
+</script>
+</body>
+</html>

@@ -75,6 +75,8 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{podSelector: {matchLabels: {app: gaussdb-agent}}}]     # 转发到用户 Pod:4096 对话,4097 报告只读
       ports: [{port: 4096, protocol: TCP}, {port: 4097, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: gaussdb-frontend}}}]  # /dash/* 转发到大盘前端(与 base 同步)
+      ports: [{port: 8080, protocol: TCP}]
     # OrbStack 的 apiserver:Service ClusterIP 在 192.168.194.0/24,但**真实端点**是
     # 192.168.139.2:26443(不同网段、非 443 端口)。kube-proxy 做 DNAT 之后策略是按
     # 目的端点判的,所以两段两端口都要放行 —— 只放 ClusterIP 那段会被拒成

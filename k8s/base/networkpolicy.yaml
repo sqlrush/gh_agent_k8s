@@ -71,6 +71,8 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{podSelector: {matchLabels: {app: gaussdb-agent}}}]     # 转发到用户 Pod:4096 对话,4097 报告只读
       ports: [{port: 4096, protocol: TCP}, {port: 4097, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: gaussdb-frontend}}}]  # /dash/* 转发到大盘前端
+      ports: [{port: 8080, protocol: TCP}]
     # k8s apiserver。地址段按集群实际填 —— 这里给的是常见的 Service ClusterIP 段。
     - to: [{ipBlock: {cidr: 10.96.0.0/12}}, {ipBlock: {cidr: 172.16.0.0/12}}]
       ports: [{port: 443, protocol: TCP}, {port: 6443, protocol: TCP}]
@@ -94,3 +96,20 @@ spec:
   egress:
     - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+---
+# 大盘前端:入站只放行网关到 8080;**出站一条都不放**(egress: [] 且 policyTypes 含 Egress = 全拒)。
+# 它是静态站,连 DNS 都不需要 —— 数据由浏览器经网关向用户自己的 Pod 取,不经过它。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+  namespace: gaussdb-agent
+spec:
+  podSelector:
+    matchLabels: {app: gaussdb-frontend}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: agent-gateway}}
+      ports: [{port: 8080, protocol: TCP}]
+  egress: []

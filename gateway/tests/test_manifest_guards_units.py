@@ -22,7 +22,28 @@ _POD_MANIFESTS = [
     _ROOT / "k8s" / "templates" / "runtime.yaml",
     _ROOT / "k8s" / "templates" / "kb-import.yaml",
     _ROOT / "k8s" / "base" / "gateway.yaml",
+    _ROOT / "k8s" / "base" / "frontend.yaml",
 ]
+
+
+def test_frontend_is_isolated_and_reachable_only_from_gateway():
+    """大盘前端只端静态文件:不挂 NAS、只读根、不出网、只有网关能到。
+    这些是它「拿不到任何人报告」的物理保证,不是代码约定。"""
+    fe = (_ROOT / "k8s" / "base" / "frontend.yaml").read_text(encoding="utf-8")
+    assert "persistentVolumeClaim" not in fe and "hostPath" not in fe, "前端不该挂任何卷(除 emptyDir)"
+    assert "readOnlyRootFilesystem: true" in fe and "runAsNonRoot: true" in fe
+    assert re.search(r"name:\s*frontend\s*\n\s*namespace", fe), "Service 必须叫 frontend(网关默认代理到它)"
+    for path in (_ROOT / "k8s" / "base" / "networkpolicy.yaml", _ROOT / "k8s" / "local" / "networkpolicy-local.yaml"):
+        np = path.read_text(encoding="utf-8")
+        gw = np[np.index("name: gateway-policy"):]
+        gw = gw[:gw.index("\n---")] if "\n---" in gw else gw
+        assert "gaussdb-frontend" in gw.split("egress:")[1] and "8080" in gw.split("egress:")[1], \
+            "%s:gateway-policy 出站没到前端 8080" % path.name
+    np = (_ROOT / "k8s" / "base" / "networkpolicy.yaml").read_text(encoding="utf-8")
+    fp = np[np.index("name: frontend-policy"):]
+    assert "egress: []" in fp, "前端出站要全拒(egress: [])"
+    assert "agent-gateway" in fp.split("egress:")[0], "前端入站只放行网关"
+    assert "frontend.yaml" in (_ROOT / "k8s" / "base" / "kustomization.yaml").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("path", _POD_MANIFESTS, ids=lambda p: p.name)

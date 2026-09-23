@@ -9,5 +9,6 @@ resources:
   - networkpolicy.yaml
   - vectordb.yaml
   - gateway.yaml
+  - frontend.yaml
 # 四个 *.example.yaml 都是样例;平台用 kubectl create secret 创建真实的
 # model-api / grmp-sm2 / vectordb-auth / gateway-auth

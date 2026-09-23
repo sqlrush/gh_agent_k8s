@@ -216,6 +216,9 @@ async function checkPages(cdp, tab) {
     await go(cdp, tab, `${BASE}/dash/${name}`);
     const m = await evaluate(cdp, tab, INSPECT(ids));
     m.overflow > 1 ? bad(name, `手机宽度横向溢出 ${m.overflow}px`) : good('手机宽度(390)无横向滚动');
+    // 只查横向滚动漏掉过:侧栏一直占左边、三列卡片挤成一字一行,页面并不横向滚动(2026-09-23)
+    const lay = await evaluate(cdp, tab, `(() => { const m = document.getElementById('main').getBoundingClientRect(); const w = [...document.querySelectorAll('.card, .kpi')].map((e) => e.getBoundingClientRect().width).filter((x) => x > 0); return { mainLeft: Math.round(m.left), mainW: Math.round(m.width), minCard: Math.round(Math.min(...w)) }; })()`);
+    lay.mainLeft > 40 || lay.minCard < 140 || lay.mainW > 391 ? bad(name, `手机宽度布局被挤:主区左边距 ${lay.mainLeft}px、最窄卡片 ${lay.minCard}px`) : good(`手机宽度布局正常:主区宽 ${lay.mainW}px、最窄卡片 ${lay.minCard}px`);
     tab.errors.length = 0; tab.failed.length = 0;
     await shot(cdp, tab, `${name}-mobile`);
   }

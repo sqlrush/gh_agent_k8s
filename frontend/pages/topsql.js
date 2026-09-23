@@ -95,12 +95,12 @@ export async function render(root, ctx) {
     <div id="ts-stack">${stack(rows.map((r, i) => ({ share: share(r), color: PAL[i % PAL.length] })))}</div>
     ${legend(rows.slice(0, 5).map((r, i) => ({ label: `S${i + 1} ${share(r).toFixed(1)}%`, color: PAL[i] })))}</div>
   <div class="card"><h2>榜单 <span class="tag">脚本按确定性口径排序 · 模型只写解读</span></h2>
-    <table><thead><tr><th>#</th><th>sql_id</th><th>语句摘要</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th style="width:140px">占上榜</th><th></th></tr></thead>
+    <div class="tw"><table><thead><tr><th>#</th><th>sql_id</th><th>语句摘要</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th style="width:140px">占上榜</th><th></th></tr></thead>
     <tbody id="ts-rows">${rows.map((r, i) => `<tr><td class="tnum" style="color:var(--dim)">S${i + 1}</td><td class="mono">${esc(r.sql_id)}</td>
       <td style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(brief(r.query, 90))}</td>
       <td class="r tnum">${fmtInt(r.calls)}</td><td class="r tnum">${fmtSec(r.total_sec)}</td><td class="r tnum">${fmtMs(r.avg_ms)}</td><td class="r tnum">${fmtInt(r.rows)}</td>
       <td>${bar(share(r), share(r) > 30 ? 'warn' : '')}</td>
-      <td>${isSkipped(tunes[i]) ? `<span style="color:var(--dim);font-size:12px">系统 SQL</span>` : tunes[i] ? `<a href="#S${i + 1}" class="dig">看建议 ↓</a>` : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</td></tr>`).join('')}</tbody></table></div>
+      <td>${isSkipped(tunes[i]) ? `<span style="color:var(--dim);font-size:12px">系统 SQL</span>` : tunes[i] ? `<a href="#S${i + 1}" class="dig">看建议 ↓</a>` : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="grid g2" id="ts-cards">${rows.slice(0, 4).map((r, i) => `<div id="S${i + 1}">${card(r, i, tunes[i])}</div>`).join('')}</div>`;
 
   root.querySelectorAll('#ts-tabs [data-by]').forEach((el) => {

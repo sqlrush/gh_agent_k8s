@@ -79,9 +79,9 @@ export async function render(root) {
       ${misses.length ? misses.map((m, i) => `<div class="rank"><span class="n">${i + 1}</span><span>${String(m.code).startsWith("q:") ? `检索无命中 · 「${esc(String(m.code).slice(2))}」` : esc(m.code)}</span><span class="tnum">${esc(m.n)} 次</span></div>`).join('') : '<div style="color:var(--dim)">无记录</div>'}</div>
   </div>
   <div class="card" id="kb-queries"><h2>最近检索 <span class="tag">本人 · 近 7 天</span></h2>
-    ${queries.length ? `<table><thead><tr><th>时间</th><th>查询</th><th class="r">命中案例</th><th class="r">命中条款</th><th>怎么命中的</th></tr></thead><tbody>
+    ${queries.length ? `<div class="tw"><table><thead><tr><th>时间</th><th>查询</th><th class="r">命中案例</th><th class="r">命中条款</th><th>怎么命中的</th></tr></thead><tbody>
       ${queries.map((r) => `<tr><td class="tnum">${esc(stamp(r.at))}</td><td>${esc(r.q)}</td><td class="r tnum ${r.hits_cases || r.hits_rules ? '' : 'crit'}">${esc(r.hits_cases)}</td><td class="r tnum ${r.hits_cases || r.hits_rules ? '' : 'crit'}">${esc(r.hits_rules)}</td>
-        <td>${r.how === 'semantic' ? '<span class="pill ok">语义</span>' : '<span class="pill dim">关键词</span>'}${!r.hits_cases && !r.hits_rules ? ' · 未命中' : ''}</td></tr>`).join('')}</tbody></table>`
+        <td>${r.how === 'semantic' ? '<span class="pill ok">语义</span>' : '<span class="pill dim">关键词</span>'}${!r.hits_cases && !r.hits_rules ? ' · 未命中' : ''}</td></tr>`).join('')}</tbody></table></div>`
       : '<div style="color:var(--dim)">近 7 天没有检索记录</div>'}</div>`;
   bindDigLinks(root);
 }

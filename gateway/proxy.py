@@ -97,12 +97,14 @@ class Upstream:
                     break
                 time.sleep(CONNECT_BACKOFF * (attempt + 1))
                 continue
-            conn.request(method, path, body=body, headers=dict(headers))
-            resp = conn.getresponse()
-            # 拿到响应头之后把超时摘掉:后面读的可能是一条挂几小时的 SSE 流。
+            # **连上就把超时摘掉,而不是拿到响应头之后。** HTTPConnection 的 timeout 同时管
+            # 读响应:同步的 POST /session/{id}/message 要等模型跑完才回响应头,10 秒一到
+            # getresponse() 就 timed out → 502,而 Pod 里的活其实照跑(2026-09-22 e2e 抓到)。
+            # connect_timeout 只该管连接;之后读的可能是一条几分钟才回的同步请求,或挂几小时的 SSE。
             if conn.sock is not None:
                 conn.sock.settimeout(None)
-            return resp
+            conn.request(method, path, body=body, headers=dict(headers))
+            return conn.getresponse()
         raise OSError("连不上 %s:%s(重试 %d 次):%s" % (self.host, self.port, CONNECT_RETRIES, last))
 
 

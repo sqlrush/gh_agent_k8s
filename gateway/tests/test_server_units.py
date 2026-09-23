@@ -35,6 +35,16 @@ class _Upstream(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self):
+        if self.path.startswith("/slow"):
+            # 同步慢响应:头都要等一会儿才发。模拟 POST /session/{id}/message 这类要跑完模型才回的请求
+            time.sleep(3)
+            body = b'{"slow": true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith("/sse"):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -292,3 +302,14 @@ def test_dash_route_still_requires_trust(stack):
     base = stack[0]
     code, _ = _req(base, "/dash/health", {"X-Agent-User": "u1234"})
     assert code == 403
+
+
+def test_slow_synchronous_response_is_not_cut_by_connect_timeout(stack):
+    """**2026-09-22 e2e 抓到。** POST /session/{id}/message 是同步的,要等模型跑完才回 ——
+    可 HTTPConnection(timeout=connect_timeout) 那个 timeout 同时管读响应,10 秒一到就 timed out → 502,
+    而 Pod 里的活其实照跑。connect_timeout 只该管连接;连上之后读响应不设超时(proxy.py 注释写了,代码没做到)。
+    夹具里 connect_timeout 是 2 秒,上游 3 秒才回:修好前必 502。"""
+    base, _k, _a = stack
+    code, body = _req(base, "/slow", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    assert code == 200, body
+    assert json.loads(body)["slow"] is True

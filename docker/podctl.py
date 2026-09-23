@@ -283,11 +283,13 @@ _REPORT_TYPES = {".json": "application/json; charset=utf-8",
                  ".html": "text/html; charset=utf-8"}
 
 
-def make_reports_server(root: pathlib.Path, port: int):
+def make_reports_server(root: pathlib.Path, port: int, user_id: str = ""):
     """本人 reports/ 目录的只读静态服务(4097),大盘经网关按工号读它。
 
     **只做三件事以外的一律 404**:GET、本目录之内、三种后缀。它和 opencode 同一个 Pod,
     但不共用端口 —— opencode 的 API 有口令,这个端口的鉴权靠网关只把本人的请求路由过来。
+    唯一不是文件的路径是 /whoami.json:回 GSDB_USER_ID(平台按 Pod 注入),大盘侧栏显示工号用。
+    不从目录里读 —— 目录里的东西用户自己能改,工号不能让他改。
     """
     import http.server
     import posixpath
@@ -302,6 +304,15 @@ def make_reports_server(root: pathlib.Path, port: int):
 
         def do_GET(self):
             rel = posixpath.normpath(urllib.parse.unquote(self.path.split("?", 1)[0])).lstrip("/")
+            if rel == "whoami.json":
+                data = json.dumps({"user_id": user_id}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", _REPORT_TYPES[".json"])
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             target = (root / rel).resolve() if rel else root
             ctype = _REPORT_TYPES.get(target.suffix)
             if (not rel or ctype is None or not str(target).startswith(str(root) + os.sep)
@@ -398,7 +409,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             n = len(log_prune(pathlib.Path(a.dir), a.days))
             print("日志清理: 删除 %d 个超过 %d 天的 .log" % (n, a.days))
         elif a.cmd == "serve-reports":
-            make_reports_server(pathlib.Path(a.dir), a.port).serve_forever()
+            make_reports_server(pathlib.Path(a.dir), a.port,
+                                user_id=os.environ.get("GSDB_USER_ID", "")).serve_forever()
         elif a.cmd in ("state-load", "state-sync", "state-finish"):
             import statesync
             lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))

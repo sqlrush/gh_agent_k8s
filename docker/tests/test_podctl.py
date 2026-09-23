@@ -326,6 +326,21 @@ def test_serve_reports_subcommand_is_wired(monkeypatch, tmp_path):
             called["ran"] = True
 
     monkeypatch.setattr(podctl, "make_reports_server",
-                        lambda root, port: called.setdefault("args", (root, port)) and _Srv())
+                        lambda root, port, user_id="": called.setdefault("args", (root, port)) and _Srv())
     assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097"]) == 0
     assert called["args"] == (tmp_path, 4097) and called["ran"]
+
+
+def test_reports_server_whoami_comes_from_env_not_from_files(tmp_path):
+    """大盘侧栏要显示工号。它来自 GSDB_USER_ID(平台按 Pod 注入),不是目录里的文件 ——
+    目录里的东西用户自己能改,工号不能让他改。"""
+    root = tmp_path / "reports"
+    root.mkdir()
+    srv = podctl.make_reports_server(root, 0, user_id="u1234")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        st, h, body = _get(srv.server_address[1], "/whoami.json")
+        assert st == 200 and json.loads(body) == {"user_id": "u1234"} and h["cache-control"] == "no-store"
+        assert not (root / "whoami.json").exists(), "不是文件,是环境变量"
+    finally:
+        srv.shutdown(); srv.server_close()

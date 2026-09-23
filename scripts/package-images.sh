@@ -29,7 +29,7 @@ COMMIT=$(git -C "$HERE" rev-parse --short HEAD)
 for ARCH in ${ARCHS//,/ }; do
   SUFFIX=""; [ "$ARCH" != "$HOST_ARCH" ] && SUFFIX="-$ARCH"
   IMAGES=""
-  for T in runtime kb-import gateway; do
+  for T in runtime kb-import gateway frontend; do
     IMG="gaussdb-agent-$T:$TAG$SUFFIX"
     docker image inspect "$IMG" >/dev/null 2>&1 || { echo "缺镜像 $IMG(先 build-images.sh)" >&2; exit 1; }
     IMAGES="$IMAGES $IMG"

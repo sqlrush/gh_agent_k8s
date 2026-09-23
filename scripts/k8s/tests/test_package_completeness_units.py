@@ -31,7 +31,7 @@ def test_packager_exports_every_agent_image():
     loop = re.search(r"for T in ([a-z\- ]+); do", body)
     assert loop, "package-images.sh 里找不到镜像循环"
     packaged = set(loop.group(1).split())
-    assert packaged == {"runtime", "kb-import", "gateway"}, \
+    assert packaged == {"runtime", "kb-import", "gateway", "frontend"}, \
         "打包的镜像与预期不符:%s —— 漏一个客户现场就装不起来" % sorted(packaged)
 
 
@@ -39,6 +39,7 @@ def test_builder_and_packager_agree():
     """构建的和打包的必须是同一组 —— 构建了没打包等于白构建。"""
     built = set(re.search(r"for T in ([a-z\- ]+); do", _BUILDER.read_text(encoding="utf-8")).group(1).split())
     built.add("gateway")          # 网关是独立 Dockerfile,不在那个循环里
+    built.add("frontend")         # 前端同上(纯静态 + nginx)
     loop = re.search(r"for T in ([a-z\- ]+); do", _PACKAGER.read_text(encoding="utf-8"))
     assert built == set(loop.group(1).split())
 

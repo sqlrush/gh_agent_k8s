@@ -1420,6 +1420,25 @@ git commit -m "docs: 报告存档目录、报告只读端口 4097、FRONTEND_SER
 
 ## 收尾
 
-- [ ] 全套：`ssh sqlrush@192.168.128.1 'cd ~/gh_agent_k8s && python3 -m pytest -q | tail -2'` 全 passed。
-- [ ] `git push`；`agent/UPSTREAM` 已记同步。
+- [x] 全套：`ssh sqlrush@192.168.128.1 'cd ~/gh_agent_k8s && python3 -m pytest -q | tail -2'` 全 passed。
+- [x] `git push`；`agent/UPSTREAM` 已记同步。
 - [ ] 第二份计划（前端镜像本体）从这里开始写：上游 vendored 方式、profile 与 bundle 的 `cordis.patch.yml`、`ui-gaussdb-dash` / `ui-gaussdb-brand`、`Dockerfile.frontend`、`k8s/base/frontend.yaml`、四个页面、e2e。
+
+## 执行记录（2026-09-22/23）
+
+| 任务 | 提交 | 偏差 |
+|---|---|---|
+| 1 存档核心 | `e908666` | 无 |
+| 2 四个技能钩子 | `28263aa` | 无 |
+| 3 kb health --json | `f5a15aa` | 无 |
+| 4 kb 检索日志 | `4315df7` | 无 |
+| 5 wdr 原生报告落点 | `7068932` | 无 |
+| 6 Pod 只读端口 + entrypoint | `349a325` | 无 |
+| 7 清单 4097 | `4987042` + `66be576` | **本地覆盖层 `k8s/local/networkpolicy-local.yaml` 按名字整个替换两条策略，计划漏了它**；e2e 前发现，补上并让守卫连本地覆盖层一起盯 |
+| 8 网关三路分发 | `281e643` | 无 |
+| 测试隔离修正 | `6855339` | 两份同名 `kb.py` 在全套里互相顶掉，单跑绿全套红；改成按路径、唯一模块名加载（仓库已有做法） |
+| 9 同步 gh_skill | gh_skill `9a3768f`，本仓库 `cd60c89` | gh_skill 那边 query/health 在 `kb_store.py` 不在 `kb.py`，补丁那一份手工移植；测试也改成经 `kb.py` 的 `main` 分发 |
+| 10 e2e | 本提交 | 跑了五轮才绿，三个原因：① `curl` 在客户端把 `/reports/../x` 规范化，越界检查测的是 curl（改 `--path-as-is`）；② NAS 留着上一轮报告，「还没报告 → 404」假红（改成看 index 份数增加）；③ **真 bug** `8a9b83b`：网关 `HTTPConnection(timeout=connect_timeout)` 同时管读响应，同步的 `POST …/message` 等模型跑完才回头，10 秒就被掐成 502——Web 走 `prompt_async`+SSE 一直没暴露。另：镜像被 kubelet 回收两次（脚本加了预检，立刻报「先 build」而不是 120 秒后 504）；Docker Hub 一次 Bad Gateway 让重建失败、网关滚动卡 1/2，恢复后踢掉卡住的副本即好 |
+| 11 文档 | `5f8ec1b` | 无 |
+
+收尾时把测试环境的 `USER_IMAGE_TAG` 还原为 `agent-v0.9.3-oc1.18.27`；网关留在 `dev-reports`（含三路分发与超时修复，向后兼容）。

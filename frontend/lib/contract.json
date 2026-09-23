@@ -12,7 +12,8 @@
   "kb_health": ["status.attached", "status.reason", "status.counts", "status.vector", "status.graph", "status.mode", "status.version",
                 "readonly", "inbox", "file_warnings", "index_state", "pending", "misses[].code", "misses[].n"],
   "kb_queries": ["at", "q", "key", "hits_cases", "hits_rules", "how", "elapsed_ms"],
-  "index": ["at", "file", "overall", "counts"],
-  "targets": ["key", "conn", "last_at", "count"],
+  "sqltune_skip": ["conn", "sql_id", "skipped", "system_objects"],
+  "index": ["at", "file", "overall", "counts", "dims?"],
+  "targets": ["key", "conn", "last_at", "count", "label?", "login?"],
   "whoami": ["user_id"]
 }

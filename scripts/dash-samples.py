@@ -39,36 +39,53 @@ def _load(scripts: str, *purge: str):
 def health_samples():
     _load("gaussdb-health", "model", "thresholds", "util", "collectors", "report", "health", "aggregate", "render")
     import model, report  # noqa: E402
+    # 维度名、表头、行形状都照 gaussdb-health/scripts/collectors.py —— 第一版样例是按设计稿编的,
+    # 页面对着它写,真数据上维度中文名、表格全都对不上(2026-09-23 真集群截图发现)。
+    M = model
     dims = [
-        model.DimResult(dimension="overview", headline="缓存命中 99.1% · 连接 61/1000 · 非恢复态",
-                        headers=["cache_hit%", "connections", "max_conn"], rows=[["99.1", "61", "1000"]]),
-        model.DimResult(dimension="slowsql", headline="3 条语句平均耗时 > 1 s,最慢 8.4 s",
-                        headers=["sql_id", "avg_ms", "calls"], rows=[["1a9f", "8412", "214"], ["77e0", "2105", "1880"]]),
-        model.DimResult(dimension="xact", headline="1 个空闲中事务已持续 6 分钟", headers=["state", "n"], rows=[["idle in transaction", "1"]]),
-        model.DimResult(dimension="conn", headline="active 14 · idle 47", headers=["state", "会话数"], rows=[["active", "14"], ["idle", "47"]]),
-        model.DimResult(dimension="logs", headline="近 1h 无 FATAL / PANIC", headers=["指标", "值"], rows=[["ERROR", "3"], ["FATAL", "0"]]),
-        model.DimResult(dimension="repl", headline="1 个备机 · 延迟 0.2 s", headers=["备机", "lag"], rows=[["1", "0.2 s"]]),
-        model.DimResult(dimension="schema", headline="2 个无效索引 · 1 张表无主键且 > 5 GB",
-                        headers=["项", "对象", "值"], rows=[["无效索引", "idx_orders_tmp", ""], ["无主键大表", "fact_sales", "6.1 GB"]]),
-        model.DimResult(dimension="concurrency", headline="TPS 27 · 回滚率 0.3%", headers=["指标", "值"], rows=[["xact_commit", "27.1 /s"]]),
-        model.DimResult(dimension="locks", headline="无阻塞链", headers=["等待锁", "阻塞链"], rows=[["0", "0"]]),
-        model.DimResult(dimension="waits", headline="IO 事件 94% · LWLock 6%", headers=["事件", "占比"], rows=[["DataFileRead", "61%"], ["BufferPin", "4%"]]),
-        model.DimResult(dimension="bloat", available=False, note="子技能 gaussdb-vacuum 超时 60 s", headline="不可用:子技能 gaussdb-vacuum 超时 60 s"),
+        M.DimResult(dimension=M.DIM_OVERVIEW, headline="命中率 99.1%、连接 61/1000、未在恢复、最老事务 无",
+                    headers=["cache_hit%", "connections", "max_conn", "in_recovery", "最老事务"], rows=[["99.1", "61", "1000", "false", ""]]),
+        M.DimResult(dimension=M.DIM_SLOWSQL, headline="Top1 avg 8412ms ×214(共3条超阈值)",
+                    headers=["sql_id", "calls", "avg_ms", "total_s", "cpu_s", "query"],
+                    rows=[["1a9f", "214", "8412.00", "1800.17", "12.40", "SELECT r.region, s.store, sum(f.amount) FROM fact_sales f JOIN customers c ON c.id=f.cust_id GROUP BY 1,2"],
+                          ["77e0", "1880", "2105.00", "3957.40", "2.10", "SELECT category, sum(amount) FROM fact_sales WHERE sale_date >= $1 GROUP BY category"]]),
+        M.DimResult(dimension=M.DIM_XACT, headline="1 个空闲中事务已持续 6 分钟",
+                    headers=["pid", "user", "state", "时长(s)", "query"],
+                    rows=[["140233", "batch", "idle in transaction", "372", "UPDATE accounts SET balance = balance - $1 WHERE id = $2"]]),
+        M.DimResult(dimension=M.DIM_CONN, headline="共 61:active 14、idle 47", headers=["state", "会话数"], rows=[["active", "14"], ["idle", "47"]]),
+        M.DimResult(dimension=M.DIM_LOGS, headline="checkpoint req 占比 0%、归档 off", headers=["指标", "值"],
+                    rows=[["checkpoint timed/req", "17695/41"], ["archive_mode", "off"]]),
+        M.DimResult(dimension=M.DIM_REPL, headline="1 个备机 · 延迟 0.2 s",
+                    headers=["standby", "client", "state", "sync", "replay_lag"], rows=[["dn_6002", "10.0.0.12", "streaming", "sync", "0.2 s"]]),
+        M.DimResult(dimension=M.DIM_SCHEMA, headline="窗口内未使用的索引 2、无主键大表 1(观测窗口 自 2026-09-06 起 17.0 天)",
+                    headers=["项", "对象", "值"],
+                    rows=[["观测窗口", "pg_stat_database.stats_reset", "自 2026-09-06 11:56:28 起 17.0 天"],
+                          ["普通索引", "public.idx_orders_tmp", "795.0M 扫描 0 次"], ["无主键大表", "public.fact_sales", "6.1 GB"]]),
+        M.DimResult(dimension=M.DIM_CONCURRENCY, headline="死锁 0、回滚率 0.0%、2PC 0", headers=["指标", "值"],
+                    rows=[["deadlocks", "0"], ["commit/rollback", "1558509/597 (0.0%回滚)"]]),
     ]
     findings = [
-        Finding("slowsql", "SLOW_AVG_MS", Severity.WARN, "avg_ms", "8,412", "> 1,000", "sql_id 1a9f · 214 次", sql_id="1a9f"),
-        Finding("schema", "INVALID_INDEX", Severity.WARN, "invalid_index", "2", "> 0", "idx_orders_tmp, idx_ev_2"),
-        Finding("schema", "NOPK_BIGTABLE", Severity.WARN, "no_pk_gb", "6.1 GB", "> 5 GB", "public.fact_sales"),
-        Finding("xact", "IDLE_IN_XACT", Severity.NOTICE, "idle_in_xact_min", "6", "> 5", "pid 140233 · app=batch-loader"),
+        Finding(M.DIM_SLOWSQL, "SLOW_AVG_MS", Severity.WARN, "avg_ms", "8,412", "> 1,000", "sql_id 1a9f · 214 次", sql_id="1a9f"),
+        Finding(M.DIM_SCHEMA, "UNUSED_INDEX", Severity.NOTICE, "idx_scan", "0", "> 10M 且 0 次", "public.idx_orders_tmp 795.0M"),
+        Finding(M.DIM_XACT, "IDLE_IN_XACT", Severity.NOTICE, "idle_in_xact_min", "6", "> 5", "pid 140233 · app=batch-loader"),
+        # 子技能(waitevent)的发现带自己的维度名,不属于上面 8 个维度 —— 页面要单独计数
+        Finding("DB Time", "LWLOCK_EVENT", Severity.WARN, "LWLOCK_EVENT 耗时占 DB_TIME", "42.8%", ">=10.0%",
+                "snapshot.snap_global_wait_events wait_class=LWLOCK_EVENT"),
     ]
     for d in dims:
         d.findings = [f for f in findings if f.dimension == d.dimension]
     subs = [types.SimpleNamespace(skill="gaussdb-lockwait", ok=True, error=""),
             types.SimpleNamespace(skill="gaussdb-waitevent", ok=True, error=""),
             types.SimpleNamespace(skill="gaussdb-vacuum", ok=False, error="超时 60 s")]
-    for i, (ts, overall, fs) in enumerate(zip(TS, [Severity.OK, Severity.NOTICE, Severity.WARN], [findings[3:], findings[2:], findings])):
-        ev = model.HealthEvidence(conn=CONN, dims=dims if i == 2 else dims[:8], findings=fs, overall=overall)
+    for i, (ts, overall, fs) in enumerate(zip(TS, [Severity.NOTICE, Severity.NOTICE, Severity.WARN], [findings[2:3], findings[1:3], findings])):
+        ev = model.HealthEvidence(conn=CONN, dims=dims, findings=fs, overall=overall)
         reports.archive("health", report.health_dict(ev, sub_results=subs), instance=CONN, now=ts)
+
+    down = "请求中间件失败:Remote end closed connection without response"
+    failed = [model.DimResult(dimension=x.dimension, available=False, note=down, headline="不可用:" + down) for x in dims]
+    bad_subs = [types.SimpleNamespace(skill=s.skill, ok=False, error="error: " + down) for s in subs]
+    ev = model.HealthEvidence(conn="og-std", dims=failed, findings=[], overall=Severity.OK)
+    reports.archive("health", report.health_dict(ev, sub_results=bad_subs), instance="og-std", now=TS[2])
 
 
 def topsql_samples():
@@ -94,30 +111,44 @@ def wdr_samples():
         ev = model.Evidence(conn=CONN)
         ev.window = model.Window(begin_id=begin, end_id=end, begin_ts="2026-09-22 10:30:00", end_ts="2026-09-22 10:39:00",
                                  duration_min=9, scope="node", node="dn_6001", wdr_enabled=True)
+        # 维度名、表头、行形状照 gaussdb-wdr/scripts/collectors.py:Load Profile 与 Database Stat 各一行、按列存值。
+        # 第一版样例把它们编成「按行名存」,页面对着写,真数据上 8 个 KPI 全是「未采集」。
+        M = model
+        cpu_pct = 72.0 if sev else 86.0
         ev.dims = [
-            model.DimResult(dimension="loadprofile", headline="DB Time %s s · AAS %s" % (dbtime, aas), headers=["指标", "值", "每秒"],
-                            rows=[["DB Time(s)", str(dbtime), ""], ["AAS", str(aas), ""], ["TPS", "27.2", "27.2"], ["WAL 写(KB/s)", "56.6", ""],
-                                  ["临时文件(GB)", "19.3", ""], ["物理读(块/s)", str(reads), str(reads)]]),
-            model.DimResult(dimension="dbstat", headline="缓存命中 %s%%" % hit, headers=["指标", "值"], rows=[["缓存命中%", str(hit)], ["回滚率%", "0.3"]]),
-            model.DimResult(dimension="waits", headline="其他等待 69%", headers=["等待类", "waits", "wait_s", "占比%"],
-                            rows=[["IO", "120433", "437", "7.5"], ["CPU", "", "1131", "19.5"], ["其他等待", "9001", "4009", "69.1"], ["网络", "", "44", "0.8"]]),
-            model.DimResult(dimension="topsql", headline="Top 5 by DB Time", headers=["语句", "DB Time(s)", "次数", "物理读"],
-                            rows=[["按区域/门店聚合 fact_sales ⋈ customers", "2410", "3", "1200000"], ["整表 sum fact_sales", "1180", "2", "610000"],
-                                  ["按品类聚合 fact_sales", "760", "4", "220000"], ["UPDATE accounts 余额", "95", "14800", "1200"]]),
-            model.DimResult(dimension="checkpoint", headline="定时 2 · 被动 0", headers=["指标", "值"],
-                            rows=[["定时触发", "2"], ["被动触发", "0"], ["刷脏(MB)", "13.5"], ["写耗时(s)", "1.1"]]),
-            model.DimResult(dimension="cache", headline="fact_sales 物理读最多", headers=["对象", "物理读(块)", "逻辑读(块)"],
-                            rows=[["fact_sales", "1900000", "3200000"], ["customers", "140000", "900000"], ["idx_fs_date", "38000", "120000"]]),
-            model.DimResult(dimension="fileio", headline="临时文件 19.3 GB", headers=["文件", "物理读", "物理写"],
-                            rows=[["数据文件", "2040000", "31000"], ["临时文件", "0", "19300 MB"], ["WAL", "0", "30.6 MB"]]),
+            M.DimResult(dimension=M.DIM_LOADPROFILE, headline="DB time %ss(其中 CPU %.0f%%)" % (dbtime, cpu_pct),
+                        headers=["DB time(s)", "CPU time(s)", "CPU占DBtime%", "commits", "物理读(块)", "逻辑读(块)"],
+                        rows=[[f"{dbtime:.2f}", f"{dbtime * cpu_pct / 100:.2f}", f"{cpu_pct:.2f}", "14688", str(reads * 540), "3200000"]]),
+            M.DimResult(dimension=M.DIM_DBSTAT, headline="commit 14688 / rollback 44(回滚率 0.3%%)、命中率 %s%%" % hit,
+                        headers=["commits", "rollbacks", "回滚率%", "死锁", "临时溢出", "cache_hit%"],
+                        rows=[["14688", "44", "0.30", "0", "19763.20MiB" if sev else "0.00MiB", str(hit)]]),
+            M.DimResult(dimension=M.DIM_TOPSQL, headline="各维度元凶 — DB time:1a9f(41%)",
+                        headers=["sql_id", "calls", "elapsed_s", "cpu_s", "spill_MB", "物理读(块)", "占DB time%", "query"],
+                        rows=[["1a9f", "3", "2410.00", "610.20", "19300.00", "1200000", "41.53",
+                               "SELECT r.region, s.store, sum(f.amount) FROM fact_sales f JOIN customers c ON c.id=f.cust_id GROUP BY 1,2"],
+                              ["4c77", "2", "1180.00", "330.00", "0.00", "610000", "20.33", "SELECT sale_date, sum(amount) FROM fact_sales GROUP BY sale_date"],
+                              ["e2b9", "14800", "95.00", "40.00", "0.00", "1200", "1.64", "UPDATE accounts SET balance = balance - $1 WHERE id = $2"]]),
+            M.DimResult(dimension=M.DIM_WAITS, headline="Top 等待类 IO_EVENT 占 81%",
+                        headers=["等待类", "waits", "wait_s", "占比%"],
+                        rows=[["IO_EVENT", "120433", "437.00", "81.00"], ["LWLOCK_EVENT", "9001", "70.00", "13.00"], ["LOCK_EVENT", "12", "32.00", "6.00"]]),
+            M.DimResult(dimension=M.DIM_CHECKPOINT, headline="checkpoint timed 2 / req 0(req 占 0%)",
+                        headers=["timed_ckpt", "req_ckpt", "req占比%"], rows=[["2", "0", "0.00"]]),
+            M.DimResult(dimension=M.DIM_CACHE, headline="fact_sales 物理读最多", headers=["对象", "物理读(块)", "逻辑读(块)"],
+                        rows=[["fact_sales", "1900000", "3200000"], ["customers", "140000", "900000"]]),
+            M.DimResult(dimension=M.DIM_FILEIO, headline="物理读 Top 文件:db14725/spc1663/f39021", headers=["文件", "物理读", "物理写"],
+                        rows=[["db14725/spc1663/f39021", "2040000", "31000"], ["db14725/spc1663/f39022", "410000", "900"]]),
         ]
-        ev.findings = [Finding("cache", "WDR_PHYS_READ_SPIKE", Severity.CRITICAL, "物理读", "3771 块/s", "×3 上窗", "三条串行大聚合把全表扫描压进本窗口"),
-                       Finding("fileio", "WDR_TEMP_SPILL", Severity.WARN, "临时文件", "19.3 GB", "> 1 GB", "work_mem 不够,排序/哈希下盘")][:sev]
+        ev.findings = [Finding(M.DIM_WAITS, "WDR_WAIT_CLASS_SKEW", Severity.WARN, "等待类倾斜 IO_EVENT", "81%", ">60%", "snap_global_wait_events 等待类聚合"),
+                       Finding(M.DIM_TOPSQL, "WDR_SQL_DBTIME_SHARE", Severity.CRITICAL, "单条 SQL 占 DB time", "41.53%", ">30%",
+                               "snap_summary_statement:sqlid 1a9f elapsed 2410s ×3")][:sev]
         ev.overall = Severity.CRITICAL if sev else Severity.OK
         ev.native = model.NativeInfo(generated=True, bytes=1_800_000, saved_path="/nas/me/reports/wdr/og5/%s.native.html" % TS[2])
         return ev
     reports.archive("wdr", ev_for(1914, 1915, 2972, 0.97, 96.4, 406, 0).to_dict(), instance=CONN, now=TS[1])
     reports.archive("wdr", ev_for(1915, 1916, 5803, 10.7, 93.6, 3771, 2).to_dict(), instance=CONN, now=TS[2])
+    # 原生报告文件本身也写一份(占位),预览站上「下载 HTML →」才下得到
+    native = reports.reports_dir() / "wdr" / CONN / ("%s.native.html" % TS[2])
+    native.write_text("<html><body><h1>WDR 样例</h1>" + "<p>占位</p>" * 300 + "</body></html>", encoding="utf-8")
 
 
 def sqltune_samples():
@@ -131,6 +162,9 @@ def sqltune_samples():
                                           "advice": "建 (store_id, sale_date) 复合索引;先按 store 聚合再 JOIN regions"}],
                             "tables": [], "indexes": [], "columns": [], "gucs": []}}
     reports.archive("sqltune", payload, name="1a9f", instance=CONN, now=TS[2])
+    # 监控类 SQL:调优技能按策略跳过时存的那份(sqltune.skip_payload 的形状),Top SQL 页据此不再挂「调优 →」
+    reports.archive("sqltune", {"sql_id": "0b1c…e7", "conn": CONN, "skipped": "system", "system_objects": ["gs_session_memory_detail"]},
+                    name="0b1c…e7", instance=CONN, now=TS[2])
 
 
 def kb_samples(out: pathlib.Path):

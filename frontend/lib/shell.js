@@ -4,6 +4,7 @@
 // index.html)。导航用绝对路径,模块导入用相对本文件的路径(../pages/x.js)。
 
 import { fetchWhoami, fetchTargets } from './data.js';
+import { setDigTarget } from './dig.js';
 import { esc, stamp } from './fmt.js';
 
 const PAGES = [
@@ -44,7 +45,7 @@ export function pickKey(targets) {
 function sidebar(current, whoami, targets, key) {
   const nav = PAGES.map((p) => `<a href="/dash/${p.name}" class="${p.name === current ? 'on' : ''}">${p.label}</a>`).join('');
   const inst = targets.length
-    ? `<select id="inst">${targets.map((t) => `<option value="${esc(t.key)}" ${t.key === key ? 'selected' : ''}>${esc(t.conn)} · ${esc(stamp(t.last_at))}</option>`).join('')}</select>`
+    ? `<select id="inst">${targets.map((t) => `<option value="${esc(t.key)}" ${t.key === key ? 'selected' : ''}>${esc(t.label || t.conn)} · ${esc(stamp(t.last_at))}</option>`).join('')}</select>`
     : `<div style="font-size:12.5px;color:var(--dim);padding:4px 8px">还没有报告</div>`;
   return `
     <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
@@ -78,6 +79,7 @@ export async function mount() {
   if (sel) sel.addEventListener('change', () => { writeKey(sel.value); mount(); });
 
   const ctx = { key, targets, whoami, target: targets.find((t) => t.key === key) || null };
+  setDigTarget(ctx.target);          // 深挖首句带上「先登录哪个库」;知识库页没有实例,传 null
   main.innerHTML = '<div class="loading">加载中…</div>';
   try {
     const mod = await import(`../pages/${name}.js`);

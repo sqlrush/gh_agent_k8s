@@ -43,6 +43,7 @@ export function sparkline(values, color, W = 400, H = 70) {
 
 /** 级别时间轴:levels = [0-3],最后一根加框。 */
 export function timeline(levels) {
+  // null = 这一次没采到数据:画灰色,不能当成「正常」的绿色
   const n = levels.length;
-  return `<div class="tl">${levels.map((l, i) => `<i class="${lv(l)}${i === n - 1 ? ' now' : ''}" style="height:${28 + Number(l || 0) * 5}px"></i>`).join('')}</div>`;
+  return `<div class="tl">${levels.map((l, i) => `<i class="${l === null || l === undefined ? "na" : lv(l)}${i === n - 1 ? " now" : ""}" style="height:${28 + Number(l || 0) * 5}px"></i>`).join("")}</div>`;
 }

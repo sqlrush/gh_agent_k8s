@@ -14,6 +14,18 @@ const WORKSPACE = '/data/state/workspace';
 const b64url = (s) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 export const CHAT_HOME = '/' + b64url(WORKSPACE);
 
+// 当前大盘的实例(targets.json 里的一项)。三个诊断大盘按实例分开,而深挖开的新会话还没登录:
+// 首句不说是哪个库,模型只能反过来问用户。login 由存档时写入(如「登录 10.0.0.9 的 postgres 库」),
+// 取不到就不加 —— 宁可让模型问,不猜。
+let digTarget = null;
+export function setDigTarget(t) { digTarget = t || null; }
+
+export function withLogin(prompt, target = digTarget) {
+  const login = target && target.login;
+  if (!login) return prompt;
+  return `请先${login}，然后${String(prompt).replace(/^请/, '')}`;
+}
+
 async function post(path, body) {
   const r = await fetch(path, {
     method: 'POST', credentials: 'same-origin',
@@ -35,7 +47,7 @@ export async function openDig(prompt, title = '大盘深挖') {
   try {
     const s = await post('/session', { title });
     if (!s || !s.id) throw new Error('会话没有 id');
-    await post(`/session/${s.id}/prompt_async`, { parts: [{ type: 'text', text: prompt }] });
+    await post(`/session/${s.id}/prompt_async`, { parts: [{ type: 'text', text: withLogin(prompt) }] });
     const url = `${CHAT_HOME}/session/${s.id}`;
     if (tab) tab.location = url; else window.location.assign(url);
   } catch (e) {

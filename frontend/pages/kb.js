@@ -39,6 +39,9 @@ export async function render(root) {
   const cov = pctOf(st.vector);
   const pending = d.pending || [], warns = d.file_warnings || [], misses = d.misses || [];
   const nIssues = pending.length + warns.length + (cov !== null && cov < 100 ? 1 : 0);
+  // 关系图:配了图库看 index_state 的边数;没配(graph=none,走图文件)时边数只写在 status.graph 那句话里
+  const gEdges = ix.graph && ix.graph !== "none" ? (+ix.edges_confirmed || 0) : +((/(\d+)\s*条已确认边/.exec(st.graph || "") || [])[1] ?? NaN);
+  const gKind = !st.graph ? "未配置" : /neo4j|图库/i.test(st.graph) && !/未配置/.test(st.graph) ? "图库" : "图文件";
   const since = Date.now() - 7 * 86400e3;
   const queries = (q.ok ? q.data : []).filter((r) => new Date(r.at).getTime() >= since).sort((a, b) => (b.at > a.at ? 1 : -1)).slice(0, 20);
 
@@ -52,7 +55,7 @@ export async function render(root) {
     <div class="kpi"><div class="l">知识总量</div><div class="v tnum">${fmtInt(cases + rules)}<small>条</small></div><div class="d">案例 ${fmtInt(cases)} · 条款 ${fmtInt(rules)} · 原始工单 ${fmtInt(raws)}</div></div>
     <div class="kpi"><div class="l">向量</div><div class="v" style="font-size:18px">${esc(st.vector || '未启用')}</div><div class="d">${cov === null ? '文件模式只有关键词检索' : '覆盖 ' + cov + '%'}</div></div>
     <div class="kpi ${nIssues ? 'notice' : 'ok'}"><div class="l">健康度</div><div class="v">${nIssues ? nIssues + ' 项待处理' : '正常'}</div><div class="d">待处理 ${pending.length} · 坏文件 ${warns.length}</div></div>
-    <div class="kpi"><div class="l">图</div><div class="v" style="font-size:18px">${esc(st.graph || '未配置')}</div><div class="d">${st.graph && /neo4j|图库/i.test(st.graph) ? '图库' : '图文件(未配图库,无损失)'}</div></div>
+    <div class="kpi"><div class="l">图</div><div class="v" style="font-size:18px">${esc(gKind)}</div><div class="d" title="${esc(st.graph || '')}">${Number.isFinite(gEdges) ? fmtInt(gEdges) + ' 条已确认边' : '—'}${gKind === '图文件' ? ' · 未配图库,无损失' : ''}</div></div>
   </div>
   <div class="grid g3" id="kb-stores">
     ${storeCard(C.case, '案例', '现场处理过的故障 / 工单:现象 → 根因 → 处置', fmtInt(cases), `条 · 原始工单 ${fmtInt(raws)}`,
@@ -61,7 +64,7 @@ export async function render(root) {
     ${storeCard(C.rule, '条款', '规范 / 标准 / 制度里可引用的条文', fmtInt(rules), '条',
       [['引用可校验', 'cite-check', 'ok'], ['最近导入', esc(ix.indexed_at || '—')]],
       `<a class="dig" href="#" data-dig="请列出知识库里的条款来源文档。" data-dig-title="知识库">在会话里查条款 →</a>`)}
-    ${storeCard(C.graph, '关系图', '现象 / 根因 / 处置 / 条款 / 对象 之间的边', esc(String(ix.graph ?? '—')), '',
+    ${storeCard(C.graph, '关系图', '现象 / 根因 / 处置 / 条款 / 对象 之间的边', Number.isFinite(gEdges) ? fmtInt(gEdges) : "—", "条已确认边",
       [['存储', esc(st.graph || '未配置')]],
       `<a class="dig" href="#" data-dig="请查一个现象在知识库关系图里的根因和处置路径。" data-dig-title="知识库">在会话里查图谱 →</a>`)}
   </div>
@@ -72,12 +75,12 @@ export async function render(root) {
       ${cov !== null && cov < 100 ? `<div class="verdict notice"><i class="lv"></i><div class="t"><b>向量覆盖 ${cov}%</b><small>未覆盖的只能靠关键词命中</small></div><span></span></div>` : ''}
       ${!pending.length && !warns.length && (cov === null || cov >= 100) ? '<div class="verdict ok"><i class="lv"></i><div class="t"><b>没有待处理项</b></div><span></span></div>' : ''}</div>
     <div class="card" id="kb-misses"><h2>缺口清单 <span class="tag">查不到条款/案例的发现</span></h2>
-      <div class="sub">诊断给出了发现、但知识库里没有对应案例或条款的 —— 最值得补的知识</div>
-      ${misses.length ? misses.map((m, i) => `<div class="rank"><span class="n">${i + 1}</span><span>${esc(m.code)}</span><span class="tnum">${esc(m.n)} 次</span></div>`).join('') : '<div style="color:var(--dim)">无记录</div>'}</div>
+      <div class="sub">诊断发现码或检索词在知识库里查不到对应案例/条款的次数 —— 最值得补的知识(全体共享)</div>
+      ${misses.length ? misses.map((m, i) => `<div class="rank"><span class="n">${i + 1}</span><span>${String(m.code).startsWith("q:") ? `检索无命中 · 「${esc(String(m.code).slice(2))}」` : esc(m.code)}</span><span class="tnum">${esc(m.n)} 次</span></div>`).join('') : '<div style="color:var(--dim)">无记录</div>'}</div>
   </div>
   <div class="card" id="kb-queries"><h2>最近检索 <span class="tag">本人 · 近 7 天</span></h2>
     ${queries.length ? `<table><thead><tr><th>时间</th><th>查询</th><th class="r">命中案例</th><th class="r">命中条款</th><th>怎么命中的</th></tr></thead><tbody>
-      ${queries.map((r) => `<tr><td class="tnum">${esc(stamp(r.at))}</td><td>${esc(r.q)}</td><td class="r tnum ${r.hits_cases ? '' : 'crit'}">${esc(r.hits_cases)}</td><td class="r tnum ${r.hits_rules ? '' : 'crit'}">${esc(r.hits_rules)}</td>
+      ${queries.map((r) => `<tr><td class="tnum">${esc(stamp(r.at))}</td><td>${esc(r.q)}</td><td class="r tnum ${r.hits_cases || r.hits_rules ? '' : 'crit'}">${esc(r.hits_cases)}</td><td class="r tnum ${r.hits_cases || r.hits_rules ? '' : 'crit'}">${esc(r.hits_rules)}</td>
         <td>${r.how === 'semantic' ? '<span class="pill ok">语义</span>' : '<span class="pill dim">关键词</span>'}${!r.hits_cases && !r.hits_rules ? ' · 未命中' : ''}</td></tr>`).join('')}</tbody></table>`
       : '<div style="color:var(--dim)">近 7 天没有检索记录</div>'}</div>`;
   bindDigLinks(root);

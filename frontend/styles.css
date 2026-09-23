@@ -127,3 +127,10 @@ pre.sql{margin:8px 0;padding:10px 12px;background:var(--fill);border-radius:8px;
 .side select{width:100%;margin:4px 0 2px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;font:inherit;font-size:13px}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:13.5px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:99}
 .loading{color:var(--dim);padding:24px 0}
+/* 2026-09-23 真数据验收补的:没采到 ≠ 正常;宽表横向滚而不是把列挤碎;长 SQL 截断可悬停看全文 */
+.badge.na{background:var(--fill2);color:var(--dim)}
+.tl i.na{background:var(--fill2)}
+.tw{overflow-x:auto;max-width:100%}
+td:first-child{white-space:nowrap}
+td.q{max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td.txt{min-width:9em}

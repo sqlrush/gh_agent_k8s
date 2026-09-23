@@ -26,7 +26,14 @@ export function latestPerBy(index) {
 
 function tunePrompt(r) { return `请调优 sql_id 为 ${r.sql_id} 的语句(调用 ${r.calls} 次,平均 ${fmtMs(r.avg_ms)}):${brief(r.query, 200)}`; }
 
+// 取数脚本在库端把 SQL 截到 80 字(客户中间件白名单里注册的脚本,改它要客户重新注册):满 80 字就标出来
+const QUERY_CAP = 80;
+const fullQuery = (q) => (String(q ?? "").length >= QUERY_CAP ? `${q} …(取数时截到 ${QUERY_CAP} 字)` : String(q ?? ""));
+// 调优技能按策略跳过的系统 SQL:存档里 skipped = "system"
+const isSkipped = (t) => !!(t && t.skipped);
+
 function tuneSummary(t) {
+  if (isSkipped(t)) return `<div style="font-size:13px;color:var(--dim);margin-top:6px"><b>系统 SQL · 按策略不调优</b>:只引用了系统对象(${esc((t.system_objects || []).join("、"))}),这类慢多半是采集频率或系统压力,不是 SQL 本身的问题</div>`;
   // sqltune 的 findings 是 evidence.Finding.__dict__:kind / severity("warn"|"info") / detail / advice
   const fs = (t.evidence && t.evidence.findings) || [];
   const sev = (s) => (s === 'warn' ? 'warn' : s === 'info' ? 'notice' : lv(s));
@@ -38,8 +45,8 @@ function tuneSummary(t) {
 
 function card(r, i, tune) {
   return `<div class="card"><h2>S${i + 1} <span class="mono" style="font-weight:400;color:var(--dim)">${esc(r.sql_id)}</span>
-      ${tune ? '' : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</h2>
-    <pre class="sql">${esc(r.query)}</pre>
+      ${tune ? "" : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</h2>
+    <pre class="sql">${esc(fullQuery(r.query))}</pre>
     <div class="grid g4" style="margin:0 0 8px">
       <div class="kpi"><div class="l">调用</div><div class="v tnum" style="font-size:17px">${fmtInt(r.calls)}</div></div>
       <div class="kpi"><div class="l">总耗时</div><div class="v tnum" style="font-size:17px">${fmtSec(r.total_sec)}</div></div>
@@ -74,7 +81,7 @@ export async function render(root, ctx) {
   root.innerHTML = `${crumb}
   <div class="head">
     <div><h1>Top SQL ${rows[0] ? `<span class="badge ${top1 >= 40 ? 'warn' : 'ok'}">Top 1 占上榜 ${top1.toFixed(0)}%</span>` : ''}</h1>
-      <div class="meta">目标 <b>${esc(rep.data.conn || '')}</b> · 取数 <b>${esc(stamp(per[by].at))}</b> · 累计统计视图,不是时间窗口 · 已过滤系统对象</div></div>
+      <div class="meta">目标 <b>${esc((ctx.target && ctx.target.label) || rep.data.conn || '')}</b> · 取数 <b>${esc(stamp(per[by].at))}</b> · 累计统计视图,不是时间窗口 · 含系统与监控 SQL(调优按策略跳过这类)</div></div>
     <div class="right">Top ${rows.length}<br><a class="dig" href="#" data-dig="请基于最近一次 Top SQL 结果分析哪些语句最值得优化,给出优先级。" data-dig-title="Top SQL">在会话里深挖 →</a></div>
   </div>
   <div class="tabs" id="ts-tabs">${BY.map(([b, label]) => `<span data-by="${b}" class="${b === by ? 'on' : ''}" style="${per[b] ? '' : 'opacity:.4;cursor:default'}">${label}</span>`).join('')}</div>
@@ -93,7 +100,7 @@ export async function render(root, ctx) {
       <td style="max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(brief(r.query, 90))}</td>
       <td class="r tnum">${fmtInt(r.calls)}</td><td class="r tnum">${fmtSec(r.total_sec)}</td><td class="r tnum">${fmtMs(r.avg_ms)}</td><td class="r tnum">${fmtInt(r.rows)}</td>
       <td>${bar(share(r), share(r) > 30 ? 'warn' : '')}</td>
-      <td>${tunes[i] ? `<a href="#S${i + 1}" class="dig">看建议 ↓</a>` : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</td></tr>`).join('')}</tbody></table></div>
+      <td>${isSkipped(tunes[i]) ? `<span style="color:var(--dim);font-size:12px">系统 SQL</span>` : tunes[i] ? `<a href="#S${i + 1}" class="dig">看建议 ↓</a>` : `<a class="dig" href="#" data-dig="${esc(tunePrompt(r))}" data-dig-title="SQL 调优">调优 →</a>`}</td></tr>`).join('')}</tbody></table></div>
   <div class="grid g2" id="ts-cards">${rows.slice(0, 4).map((r, i) => `<div id="S${i + 1}">${card(r, i, tunes[i])}</div>`).join('')}</div>`;
 
   root.querySelectorAll('#ts-tabs [data-by]').forEach((el) => {

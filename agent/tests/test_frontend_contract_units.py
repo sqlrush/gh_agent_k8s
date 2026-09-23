@@ -116,3 +116,57 @@ def test_a_bogus_field_would_be_caught(samples):
     obj = _load(samples / "health" / "og5" / "latest.json")
     ok, why = _walk(obj, "dims[].no_such_field")
     assert not ok and "no_such_field" in why
+
+
+def test_sqltune_skip_contract(samples):
+    _check("sqltune_skip", _load(samples / "sqltune" / "og5" / "0b1c…e7.json"))
+
+
+# ---------------------------------------------------------------- 维度名 / 列名:不只是字段路径
+# 第一版契约只核对字段路径(dims[].rows 存在就算过),而样例的维度名和行列形状是按设计稿编的:
+# 样例上全绿,真集群上 WDR 的 8 个 KPI 全是「未采集」、健康检查的维度中文名一个都没对上。
+# 这三条直接拿技能源码里的常量与表头去对页面源码 —— 技能改名或页面写错,这里先红。
+
+import re  # noqa: E402
+
+_SKILLS = _ROOT / "skills"
+_PAGES = _REPO / "frontend" / "pages"
+
+
+def _dim_constants(skill: str) -> set:
+    src = (_SKILLS / skill / "scripts" / "model.py").read_text(encoding="utf-8")
+    return set(re.findall(r'^DIM_\w+\s*=\s*"([^"]+)"', src, re.MULTILINE))
+
+
+def _js_block(page: str, name: str) -> str:
+    src = (_PAGES / page).read_text(encoding="utf-8")
+    m = re.search(r"const %s = \{(.*?)\};" % name, src, re.S)
+    assert m, "%s 里找不到 %s" % (page, name)
+    return m.group(1)
+
+
+def test_wdr_page_dimension_names_are_the_skills_constants():
+    used = set(re.findall(r":\s*'([^']+)'", _js_block("wdr.js", "DIMS")))
+    real = _dim_constants("gaussdb-wdr")
+    assert used and used <= real, "wdr.js 的 DIMS 有技能里不存在的维度名:%s(真实的:%s)" % (sorted(used - real), sorted(real))
+
+
+def test_health_page_titles_are_keyed_by_the_skills_constants():
+    used = set(re.findall(r"'([^']+)'\s*:", _js_block("health.js", "TITLES")))
+    real = _dim_constants("gaussdb-health")
+    assert used and used <= real, "health.js 的 TITLES 有技能里不存在的维度名:%s" % sorted(used - real)
+    # 健康检查实际会产出的 8 个维度都要有中文名,不然页面上中英混排
+    produced = set(re.findall(r"dimension=(DIM_\w+)", (_SKILLS / "gaussdb-health" / "scripts" / "collectors.py").read_text(encoding="utf-8")))
+    src = (_SKILLS / "gaussdb-health" / "scripts" / "model.py").read_text(encoding="utf-8")
+    names = {k: v for k, v in re.findall(r'^(DIM_\w+)\s*=\s*"([^"]+)"', src, re.MULTILINE)}
+    missing = {names[k] for k in produced if k in names} - used
+    assert not missing, "健康检查会产出、页面却没有中文名的维度:%s" % sorted(missing)
+
+
+def test_wdr_kpi_columns_exist_in_the_collectors_headers():
+    src = (_PAGES / "wdr.js").read_text(encoding="utf-8")
+    cols = set(re.findall(r"col:\s*'([^']+)'", src)) | set(re.findall(r"val\(d, '\w+', '([^']+)'\)", src))
+    coll = (_SKILLS / "gaussdb-wdr" / "scripts" / "collectors.py").read_text(encoding="utf-8")
+    headers = [h for block in re.findall(r"headers=\[([^\]]*)\]", coll) for h in re.findall(r'"([^"]+)"', block)]
+    missing = [c for c in cols if not any(h.startswith(c) for h in headers)]
+    assert cols and not missing, "WDR 页按列名取值,采集代码的表头里没有这些列:%s" % missing

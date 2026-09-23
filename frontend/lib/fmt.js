@@ -51,3 +51,13 @@ export function brief(sql, n = 80) {
   const s = String(sql ?? '').replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
+
+/** 表格单元格:第 0 列是行名;其余是数字右对齐。长文本(多半是 SQL)截断 + 悬停看全文,不撑破卡片。 */
+// 像数字的(可带单位)才右对齐;文字列左对齐 —— 否则「184.8M 扫描 0 次(该表索引扫描共 0…)」这种会被挤成一字一行
+const NUMLIKE = /^[-+]?[\d.,]+\s*(%|ms|s|MB|GB|KB|MiB|GiB|块|次|\/s)?$/;
+export function cellTd(c, i) {
+  const s = String(c ?? "");
+  if (s.length > 48) return `<td class="q" title="${esc(s)}">${esc(s)}</td>`;
+  if (i && NUMLIKE.test(s.trim())) return `<td class="r tnum">${esc(s)}</td>`;
+  return `<td${i && s.length > 12 ? ' class="txt"' : ""}>${esc(s)}</td>`;
+}

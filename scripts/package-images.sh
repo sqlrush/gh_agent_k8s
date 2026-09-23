@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 离线交付包:把**四个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
+# 离线交付包:把**五个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
 #   gaussdb-agent-runtime / -kb-import   每用户一个的业务 Pod
 #   gaussdb-agent-gateway                接入网关(全体共用)
+#   gaussdb-agent-frontend               四个大盘的静态页面(全体共用)
 #   opengauss:7.0.0-RC1                  知识库向量存储的基础镜像
-# 后两个漏了的话,客户拿到包也部署不起来 —— 网关起不来、向量库拉不到镜像,
+# 后三个漏了的话,客户拿到包也部署不起来 —— 网关起不来、大盘 502、向量库拉不到镜像,
 # 而现场往往没有外网可以补拉。
 # 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64]
 #   前提: 镜像已构建——本机架构用 <TAG>,另一架构用 <TAG>-<arch>(scripts/build-images.sh <TAG>-<arch> --platform linux/<arch>)。
@@ -62,17 +63,22 @@ done
 #   security/  扫描报告
 #   specs/     设计 spec —— 里面有备选方案、退路、残余风险、未定项与决策过程。
 #              交付文档不写我们的讨论过程,这一份从头到尾都是讨论过程。
+#   prototypes/ 大盘设计稿(示例数字、方案对比)
+#   env-contract.md / k8s-deploy.md / delivery-容器化交付手册.md  早期文档,版本号停在 v0.4.1 / v0.7,
+#              还指向 specs/。v1.0.4 的包里带着它们,验 v1.1.0 包时才发现。
+# 仓库结构说明的「内部件(不随包发出)」表与这里必须一致,有守卫。
 # COPYFILE_DISABLE=1:在 macOS 上打包时,bsdtar 会为每个带扩展属性的文件额外塞一个
 # `._<原名>` 的资源叉文件(客户解开后 docs/ 里会多出一堆 ._参数手册.md)。
 # 那些文件还带着本机的 com.apple.provenance 属性。交付给客户的包里不该有。
 # 这个变量在 Linux 的 GNU tar 上是无害的空操作。
 COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
     --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' --exclude='docs/prototypes' \
+    --exclude='docs/env-contract.md' --exclude='docs/k8s-deploy.md' --exclude='docs/delivery-容器化交付手册.md' \
     --exclude='._*' --exclude='.DS_Store' \
     k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")
 cat >> "$DIST/MANIFEST.txt" <<EOF
-  → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/(快速搭建、命令卡、部署手册、接入手册、对接清单、参数手册、功能清单)
+  → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/ 全部交付文档(清单见 docs/仓库结构说明.md「交付给客户的」一节)
 
 导入镜像:
   docker:      gunzip -c $PKG-<arch>.tar.gz | docker load

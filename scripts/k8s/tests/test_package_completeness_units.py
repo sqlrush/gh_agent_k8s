@@ -75,6 +75,26 @@ def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
     # prototypes/ 是大盘设计稿:示例数字、给 user 拍板的方案对比、我们的建议 —— 全是讨论过程
     for internal in ("docs/plans", "docs/security", "docs/specs", "docs/prototypes"):
         assert "--exclude='%s'" % internal in body, "内部文档 %s 应该排除在交付包外" % internal
+    # 这三份是早期文档:版本号停在 v0.4.1 / v0.7,还指向不随包发出的 specs/ 与 plans/。
+    # 仓库结构说明把它们列为「内部件,不随包发出」,而 v1.0.4 的包里其实带着 —— 验 v1.1.0 包时发现。
+    for internal in ("docs/env-contract.md", "docs/k8s-deploy.md", "docs/delivery-容器化交付手册.md"):
+        assert "--exclude='%s'" % internal in body, "早期内部文档 %s 应该排除在交付包外" % internal
+
+
+def test_repo_guide_internal_table_matches_what_the_package_excludes():
+    """仓库结构说明「内部件(不随包发出)」表里列的每一项,打包脚本都必须真的排除。
+
+    表是写给客户看的承诺,打包脚本是事实。两边各改各的,就会出现「文档说不发、包里却有」。
+    """
+    guide = (_ROOT / "docs" / "仓库结构说明.md").read_text(encoding="utf-8")
+    section = guide[guide.index("### 内部件"):]
+    section = section[:section.index("\n---")]
+    listed = set(re.findall(r"`([^`]+)`", section))
+    body = _PACKAGER.read_text(encoding="utf-8")
+    for name in listed:
+        path = "docs/" + name.rstrip("/")
+        assert "--exclude='%s'" % path in body, \
+            "仓库结构说明说 %s 不随包发出,package-images.sh 却没排除它" % path
 
 
 def test_package_does_not_ship_macos_resource_forks():

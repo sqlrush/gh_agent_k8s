@@ -331,6 +331,27 @@ EXPOSE 8080
 
 ## 收尾
 
-- [ ] 全套 `python3 -m pytest -q` 全 passed；`git push`；`agent/UPSTREAM` 已记。
-- [ ] 计划末尾追加执行记录（提交号与偏差）。
-- [ ] 离线包重打（四个镜像 × 两架构 + 清单 + 文档）；GHCR 推第四个镜像（多架构，`--platform linux/amd64,linux/arm64 --push`）。
+- [x] 全套 `python3 -m pytest -q` 全 passed；`git push`；`agent/UPSTREAM` 已记。
+- [x] 计划末尾追加执行记录（提交号与偏差）。
+- [x] 离线包重打（四个镜像 × 两架构 + 清单 + 文档）；GHCR 推四个镜像（多架构）——见执行记录末行。
+
+---
+
+## 执行记录（2026-09-23）
+
+| 任务 | 提交 | 偏差 |
+|---|---|---|
+| 0 按实例分目录 | `9126c41` | 这一项是 user 中途确认「三个诊断大盘按实例统计」后加进计划的，先于其余任务做 |
+| 1 4097 `/whoami.json` | `319d1be` | 无 |
+| 2 外壳与公共库 | `6e08847` | 无 |
+| 3–4 健康检查、Top SQL 页 | `4bf2f68` | 无 |
+| 5–6 WDR、知识库页 | `709750a` | 无 |
+| 7 契约守卫 | `9f23854` | 无 |
+| 8 预览 + headless Chrome | `4bda7ed` | 四页在真浏览器里全部块非空、控制台零错。`e2e-dash.sh` 里 `declare -A` 在 macOS 自带 bash 3.2 不可用，改 `case` 函数 |
+| 9 前端镜像 | `fe86bdf` | 21 MB，只读根文件系统下冒烟通过 |
+| 10 清单 | `529bad3` | `enableServiceLinks: false` 行尾带注释让守卫正则失配，注释挪到独立行 |
+| 11 构建与打包 | `17fec94` | `build-images` 的测试原断言 3 次 docker 调用，改 4 |
+| 12 同步 gh_skill | gh_skill `13bcd4e`，本仓库 `a9e85b0` | 无 |
+| 13 e2e | `39b2a91` | 本地集群一轮绿：u9400，实例键 `api_10-0-0-9-postgres`，overall=2 / dims=8 / findings=17，`/dash/health` 200，whoami 是本人。跑完把测试环境 `USER_IMAGE_TAG` 还原为 `agent-v0.9.3-oc1.18.27` |
+| 14 文档 | `0dc857f` | 计划写六份，实际九份都动了（单机演示、参数手册、功能清单也有）。**交付版本 v1.0.4 → v1.1.0**：网关与 runtime 镜像里都有新代码（三路分发、超时修复、4097、按实例存档），不能沿用旧标签只补一个前端；`gateway.yaml` / `frontend.yaml` 的 `image` 标签对齐到 `agent-v1.1.0-oc1.18.27`，升级示例改用 v1.2.0 |
+| 收尾：发布 | 标签 `agent-v1.1.0` | 全套单测 2654 passed / 57 skipped。GHCR 一次双架构推送在 frontend 一层上遇 `tls: bad record MAC`（网络），脚本退回「逐架构推 `-amd64`/`-arm64` + `imagetools create` 合并」，四个镜像核对各含两个架构；GHCR 上因此多出带架构后缀的标签，无害。离线包两架构各五个镜像，三个 sha256 均 OK。**验包时发现老漏洞**：`env-contract.md`、`k8s-deploy.md`、`delivery-容器化交付手册.md` 在仓库结构说明里写着「不随包发出」，v1.0.4 的包里却带着（版本号停在 v0.4.1/v0.7、指向 specs/）。改为排除，并加守卫让「内部件」表与打包脚本逐项一致 |

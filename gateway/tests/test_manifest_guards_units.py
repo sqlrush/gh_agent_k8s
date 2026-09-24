@@ -175,3 +175,17 @@ def test_gateway_rbac_has_no_exec():
     body = "\n".join(lines)
     for forbidden in ("pods/exec", "pods/attach", "pods/portforward"):
         assert forbidden not in body, "网关 RBAC 里出现了 %s" % forbidden
+
+
+def test_user_image_tag_matches_the_gateway_and_frontend_images():
+    """清单里三处版本必须是同一个:网关镜像、前端镜像、给用户建 Pod 的 USER_IMAGE_TAG。
+
+    2026-09-24 客户现场:网关与前端的标签每次发版都跟着改,USER_IMAGE_TAG 却一直停在 v0.9.3,
+    客户照清单部署,网关就在给用户建一个旧版本的 Pod。
+    """
+    import re
+    base = _ROOT / "k8s" / "base"
+    user = re.search(r'USER_IMAGE_TAG:\s*"([^"]+)"', (base / "configmap-gateway.yaml").read_text(encoding="utf-8")).group(1)
+    tags = {f: re.search(r"image:\s*\S*gaussdb-agent-[a-z-]+:(\S+)", (base / f).read_text(encoding="utf-8")).group(1)
+            for f in ("gateway.yaml", "frontend.yaml")}
+    assert set(tags.values()) == {user}, "USER_IMAGE_TAG=%s,镜像标签 %s —— 三处要一致" % (user, tags)

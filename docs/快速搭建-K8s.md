@@ -15,19 +15,19 @@ docker login ghcr.io -u <你的GitHub用户名>
 > 提示 Password 时粘贴令牌（令牌在 https://github.com/settings/tokens/new 生成，只勾 `read:packages`）。看到 `Login Succeeded`。
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.1.3-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.1.4-oc1.18.27
 ```
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.1.3-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.1.4-oc1.18.27
 ```
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.1.3-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.1.4-oc1.18.27
 ```
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.1.3-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.1.4-oc1.18.27
 ```
 
 ```bash
@@ -57,18 +57,18 @@ REG=<内网镜像仓库地址>
 ```
 
 ```bash
-docker tag ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.1.3-oc1.18.27 $REG/gaussdb-agent-runtime:agent-v1.1.3-oc1.18.27
-docker tag ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.1.3-oc1.18.27 $REG/gaussdb-agent-kb-import:agent-v1.1.3-oc1.18.27
-docker tag ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.1.3-oc1.18.27 $REG/gaussdb-agent-gateway:agent-v1.1.3-oc1.18.27
-docker tag ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.1.3-oc1.18.27 $REG/gaussdb-agent-frontend:agent-v1.1.3-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.1.4-oc1.18.27 $REG/gaussdb-agent-runtime:agent-v1.1.4-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.1.4-oc1.18.27 $REG/gaussdb-agent-kb-import:agent-v1.1.4-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.1.4-oc1.18.27 $REG/gaussdb-agent-gateway:agent-v1.1.4-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.1.4-oc1.18.27 $REG/gaussdb-agent-frontend:agent-v1.1.4-oc1.18.27
 docker tag opengauss/opengauss:7.0.0-RC1 $REG/opengauss:7.0.0-RC1
 ```
 
 ```bash
-docker push $REG/gaussdb-agent-runtime:agent-v1.1.3-oc1.18.27
-docker push $REG/gaussdb-agent-kb-import:agent-v1.1.3-oc1.18.27
-docker push $REG/gaussdb-agent-gateway:agent-v1.1.3-oc1.18.27
-docker push $REG/gaussdb-agent-frontend:agent-v1.1.3-oc1.18.27
+docker push $REG/gaussdb-agent-runtime:agent-v1.1.4-oc1.18.27
+docker push $REG/gaussdb-agent-kb-import:agent-v1.1.4-oc1.18.27
+docker push $REG/gaussdb-agent-gateway:agent-v1.1.4-oc1.18.27
+docker push $REG/gaussdb-agent-frontend:agent-v1.1.4-oc1.18.27
 docker push $REG/opengauss:7.0.0-RC1
 ```
 > 每条最后一行是 `digest: sha256:...`。
@@ -173,7 +173,7 @@ kubectl -n gaussdb-agent edit configmap gateway-config
 确认这行：
 
 ```yaml
-  USER_IMAGE_TAG: "agent-v1.1.3-oc1.18.27"
+  USER_IMAGE_TAG: "agent-v1.1.4-oc1.18.27"
 ```
 
 ---
@@ -236,9 +236,10 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "X-Agent-User: $STAFF" http://127.0.
 > `403`
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-Agent-Trust: $TRUST" -H "X-Agent-User: $STAFF" http://127.0.0.1:18080/global/health
+curl -s -m 150 -o /dev/null -w "%{http_code}\n" -H "X-Agent-Trust: $TRUST" -H "X-Agent-User: $STAFF" http://127.0.0.1:18080/global/health
 ```
-> `200`（首次要等 10–30 秒，网关在建环境）
+> `200`（首次要等 10–30 秒，网关在建环境）。
+> **命令挂着超过 30 秒没返回，说明这个人的容器起不来**：网关会原地等它最多 120 秒，这期间屏幕上什么都没有，到时才返回 `504`。不用等满，另开终端执行 `kubectl -n gaussdb-agent get pod | grep $STAFF` 看状态，`ImagePullBackOff` 是镜像没推或标签不对，`Pending` 看 `kubectl -n gaussdb-agent describe pod -l user=$STAFF | tail -20`。
 
 ```bash
 kubectl -n gaussdb-agent get deploy runtime-$STAFF

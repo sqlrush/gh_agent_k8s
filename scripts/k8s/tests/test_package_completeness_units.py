@@ -136,3 +136,15 @@ def test_customer_facing_docs_exist_where_the_package_expects_them():
                  "参数手册.md", "对接清单-各方要做什么.md", "功能清单-容器版.md",
                  "仓库结构说明.md"):
         assert (_ROOT / "docs" / name).is_file(), "缺 docs/%s" % name
+
+
+def test_every_namespace_delete_in_the_docs_is_followed_by_releasing_the_pv():
+    """手册里凡是让人删命名空间的地方,后面都要跟一句解除 PV 旧绑定。
+
+    2026-09-24 客户照「清理重来」删了命名空间再装,静态 PV(Retain)变成 Released、仍记着旧 PVC,
+    新 PVC 永远绑不上,所有用户容器卡在 Pending。
+    """
+    for name in ("命令卡-测试环境搭建.md", "部署手册-从零到上线.md"):
+        text = (_ROOT / "docs" / name).read_text(encoding="utf-8")
+        for m in re.finditer(r"kubectl delete namespace gaussdb-agent", text):
+            assert "claimRef" in text[m.end():m.end() + 800], "%s:删命名空间之后没写解除 PV 旧绑定" % name

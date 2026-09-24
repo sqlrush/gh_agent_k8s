@@ -326,7 +326,7 @@ def test_serve_reports_subcommand_is_wired(monkeypatch, tmp_path):
             called["ran"] = True
 
     monkeypatch.setattr(podctl, "make_reports_server",
-                        lambda root, port, user_id="": called.setdefault("args", (root, port)) and _Srv())
+                        lambda root, port, user_id="", kb_dir=None: called.setdefault("args", (root, port)) and _Srv())
     assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097"]) == 0
     assert called["args"] == (tmp_path, 4097) and called["ran"]
 
@@ -344,3 +344,44 @@ def test_reports_server_whoami_comes_from_env_not_from_files(tmp_path):
         assert not (root / "whoami.json").exists(), "不是文件,是环境变量"
     finally:
         srv.shutdown(); srv.server_close()
+
+
+def test_reports_server_kb_catalog_only_when_kb_dir_given(tmp_path):
+    """/_kb/catalog.json:大盘知识库三个页签的数据,从共享知识库现读现算(不落盘)。
+    没给 --kb-dir 时 404 —— 端口不会因为多了这条路而默认去读知识库。"""
+    root = tmp_path / "reports"
+    root.mkdir()
+    kb = tmp_path / "kb"
+    (kb / "rules").mkdir(parents=True)
+    (kb / "rules" / "ops.yaml").write_text("# 运维规范\n- id: GS-OPS-001\n  severity: error\n  rule: 灌数后必须 ANALYZE\n",
+                                           encoding="utf-8")
+    (kb / "inbox").mkdir()
+    (kb / "inbox" / "a.md").write_text("未审核", encoding="utf-8")
+    srv = podctl.make_reports_server(root, 0, kb_dir=kb)
+    bare = podctl.make_reports_server(root, 0)
+    for s in (srv, bare):
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        st, h, body = _get(srv.server_address[1], "/_kb/catalog.json")
+        d = json.loads(body)
+        assert st == 200 and h["cache-control"] == "no-store" and h["content-type"].startswith("application/json")
+        assert d["groups"][0]["rules"][0]["id"] == "GS-OPS-001"
+        assert _get(bare.server_address[1], "/_kb/catalog.json")[0] == 404
+        # 知识库里的文件本身仍然不能经这个端口直接读
+        assert _get(srv.server_address[1], "/_kb/inbox/a.md")[0] == 404
+        assert _get(srv.server_address[1], "/_kb/rules/ops.yaml")[0] == 404
+    finally:
+        srv.shutdown(); bare.shutdown()
+
+
+def test_serve_reports_passes_kb_dir(monkeypatch, tmp_path):
+    called = {}
+
+    class _Srv:
+        def serve_forever(self):
+            pass
+
+    monkeypatch.setattr(podctl, "make_reports_server",
+                        lambda root, port, user_id="", kb_dir=None: called.setdefault("kb", kb_dir) and _Srv() or _Srv())
+    assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097", "--kb-dir", str(tmp_path / "kb")]) == 0
+    assert called["kb"] == tmp_path / "kb"

@@ -76,7 +76,7 @@ cd "$WORKSPACE"
 opencode serve --hostname 0.0.0.0 --port "$OPENCODE_PORT" &
 OC=$!
 # 报告只读端口:大盘的数据口。不是就绪条件,起不来只影响大盘,不影响对话。
-$PODCTL serve-reports --dir "$GSDB_REPORTS_DIR" --port 4097 &
+$PODCTL serve-reports --dir "$GSDB_REPORTS_DIR" --port 4097 --kb-dir "$GSDB_KB_DIR" &
 REPORTS=$!
 # 定期回写。db 走 SQLite online backup(边写边拷也一致),其余文件按 mtime 增量。
 # 每轮先 checkpoint 把 WAL 合回主库,免得回写出去的那份把最近的提交落在 -wal 里。

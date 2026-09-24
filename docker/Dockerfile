@@ -37,7 +37,7 @@ COPY agent/ /opt/agent/src/
 RUN cd /opt/agent/src && bash install-opencode.sh --dest /opt/agent/config/opencode/skills --no-backup \
         --agents-md /opt/agent/config/opencode/AGENTS.md >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; } \
     && grep -E "installed" /tmp/install.log | tail -1 && rm -rf /opt/agent/src /tmp/install.log
-COPY docker/podctl.py docker/statesync.py docker/entrypoint.sh /opt/agent/
+COPY docker/podctl.py docker/statesync.py docker/kbcatalog.py docker/entrypoint.sh /opt/agent/
 RUN chmod 0755 /opt/agent/entrypoint.sh && chown -R agent:agent /opt/agent && mkdir -p /data /nas && chown agent:agent /data
 
 USER agent

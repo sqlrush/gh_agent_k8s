@@ -283,18 +283,26 @@ _REPORT_TYPES = {".json": "application/json; charset=utf-8",
                  ".html": "text/html; charset=utf-8"}
 
 
-def make_reports_server(root: pathlib.Path, port: int, user_id: str = ""):
+def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir: Optional[pathlib.Path] = None):
     """本人 reports/ 目录的只读静态服务(4097),大盘经网关按工号读它。
 
     **只做三件事以外的一律 404**:GET、本目录之内、三种后缀。它和 opencode 同一个 Pod,
     但不共用端口 —— opencode 的 API 有口令,这个端口的鉴权靠网关只把本人的请求路由过来。
     唯一不是文件的路径是 /whoami.json:回 GSDB_USER_ID(平台按 Pod 注入),大盘侧栏显示工号用。
     不从目录里读 —— 目录里的东西用户自己能改,工号不能让他改。
+    另一条不是文件的路径是 /_kb/catalog.json:大盘知识库页签的目录,由 kbcatalog 从共享知识库现读现算
+    (只读案例 / 现行条款 / 已确认的边,不读收件目录与原件)。没给 kb_dir 就没有这条路。
+    知识库里的文件本身不能经这个端口直接取 —— 只端算好的目录。
     """
     import http.server
     import posixpath
     import urllib.parse
     root = pathlib.Path(root).resolve()
+    catalog = None
+    if kb_dir is not None:
+        # 同目录的 kbcatalog.py;不给 kb_dir 时连 import 都不做(注释单独一行:镜像内容守卫按整行匹配 import)
+        import kbcatalog
+        catalog = kbcatalog.Cached(pathlib.Path(kb_dir))
 
     class H(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -304,6 +312,18 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = ""):
 
         def do_GET(self):
             rel = posixpath.normpath(urllib.parse.unquote(self.path.split("?", 1)[0])).lstrip("/")
+            if rel == "_kb/catalog.json" and catalog is not None:
+                try:
+                    data = json.dumps(catalog.get(), ensure_ascii=False).encode("utf-8")
+                except Exception as exc:        # noqa: BLE001  知识库文件坏了也只影响这一页
+                    data = json.dumps({"attached": False, "reason": "知识库目录读取失败:%s" % exc}, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", _REPORT_TYPES[".json"])
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if rel == "whoami.json":
                 data = json.dumps({"user_id": user_id}).encode("utf-8")
                 self.send_response(200)
@@ -381,6 +401,7 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve-reports")
     p.add_argument("--dir", required=True)
     p.add_argument("--port", type=int, default=4097)
+    p.add_argument("--kb-dir", default="", help="共享知识库目录;给了才有 /_kb/catalog.json")
     return ap
 
 
@@ -409,8 +430,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             n = len(log_prune(pathlib.Path(a.dir), a.days))
             print("日志清理: 删除 %d 个超过 %d 天的 .log" % (n, a.days))
         elif a.cmd == "serve-reports":
-            make_reports_server(pathlib.Path(a.dir), a.port,
-                                user_id=os.environ.get("GSDB_USER_ID", "")).serve_forever()
+            make_reports_server(pathlib.Path(a.dir), a.port, user_id=os.environ.get("GSDB_USER_ID", ""),
+                                kb_dir=pathlib.Path(a.kb_dir) if a.kb_dir else None).serve_forever()
         elif a.cmd in ("state-load", "state-sync", "state-finish"):
             import statesync
             lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))

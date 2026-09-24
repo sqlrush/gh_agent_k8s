@@ -16,8 +16,8 @@ def test_reports_dir_is_exported_under_nas_me():
 
 def test_reports_server_is_started_after_opencode_and_backgrounded():
     oc = _EP.index("opencode serve --hostname")
-    m = re.search(r'\$PODCTL serve-reports --dir "\$GSDB_REPORTS_DIR" --port 4097 &\s*\nREPORTS=\$!', _EP)
-    assert m and m.start() > oc, "serve-reports 要在 opencode serve 之后、且放后台并记 PID"
+    m = re.search(r'\$PODCTL serve-reports --dir "\$GSDB_REPORTS_DIR" --port 4097 --kb-dir "\$GSDB_KB_DIR" &\s*\nREPORTS=\$!', _EP)
+    assert m and m.start() > oc, "serve-reports 要在 opencode serve 之后、放后台并记 PID,且带 --kb-dir(大盘知识库页签的数据)"
 
 
 def test_reports_server_is_killed_with_the_other_background_loops():

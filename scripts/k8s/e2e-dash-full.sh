@@ -62,6 +62,20 @@ done
 [ "$code" = 200 ] || { echo "   3 分钟内没登录上:HTTP $code $(head -c 300 "$WORK/login.txt")" >&2; exit 1; }
 echo "   已就绪"
 
+echo "①b 被闲置回收后再登录:拉起的容器不能马上又被判成闲置(2026-09-24 客户现场)"
+$K annotate deploy runtime-$U "gaussdb-agent/last-activity=$(( $(date +%s) - 99999 ))" --overwrite >/dev/null
+$K scale deploy runtime-$U --replicas=0 >/dev/null
+for _ in $(seq 1 60); do [ -z "$($K get pod -l user=$U -o name 2>/dev/null)" ] && break; sleep 2; done
+t0=$(date +%s)
+code=$(curl -s -m 150 -o /dev/null -w "%{http_code}" "$B/global/health" || true)
+act=$($K get deploy runtime-$U -o jsonpath='{.metadata.annotations.gaussdb-agent/last-activity}')
+rep=$($K get deploy runtime-$U -o jsonpath='{.spec.replicas}')
+if [ "$code" = 200 ] && [ "$rep" = 1 ] && [ -n "$act" ] && [ "$act" -ge $(( t0 - 5 )) ]; then
+  echo "   ✓ 重连 200,副本 1,活动时间已刷新"
+else
+  echo "   ✗ 重连后 HTTP ${code}、副本 ${rep}、活动时间「${act}」(应 ≥ ${t0})—— 回收器下一轮会把它当成闲置" >&2; exit 1
+fi
+
 session() { curl -s -m 60 -H 'Content-Type: application/json' -d "{\"title\":\"$1\"}" "$B/session" \
             | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])'; }
 say() {   # say <会话> <话>:同步等模型说完,打印它最后一段话的开头

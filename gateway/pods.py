@@ -116,11 +116,20 @@ class Manager:
                 "网关不创建它(令牌按人签发,网关无从得知)。"
                 "没有它 runtime Pod 起不来。请先创建再让该用户登录。" % name)
 
-    def ensure(self, user_id: str, kb_admin: bool) -> str:
-        """幂等:建齐该有的对象,返回这个人的 Pod 口令。"""
+    def ensure(self, user_id: str, kb_admin: bool, now: Optional[float] = None) -> str:
+        """幂等:建齐该有的对象,返回这个人的 Pod 口令。
+
+        **Deployment 的活动时间写成「现在」。** 只在建 / 重新拉起时走到这里(热路径不 apply)。
+        模板里这个注解是空值:不写的话,apply 会把原来的活动时间清掉,回收器退回按 Deployment
+        的创建时间算 —— scale 模式下那是第一次登录的时间,于是刚拉起的 Pod 下一轮扫描就被缩回 0
+        (2026-09-24 客户现场:504 + 网关日志反复「闲置回收:已缩容」)。
+        """
         pw = self.ensure_password(user_id)
+        stamp = "%d" % int(time.time() if now is None else now)
         for kind in self.kinds_for(kb_admin):
             for doc in self._render(kind, user_id):
+                if doc["kind"] == "Deployment":
+                    doc.setdefault("metadata", {}).setdefault("annotations", {})[ANNOTATION_ACTIVITY] = stamp
                 k8s_kind = _plural(doc["kind"])
                 api = APPS if doc["kind"] == "Deployment" else CORE
                 self.kube.apply(api, k8s_kind, doc["metadata"]["name"], doc)

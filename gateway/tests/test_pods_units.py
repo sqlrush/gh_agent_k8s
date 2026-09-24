@@ -173,3 +173,25 @@ def test_kb_admin_only_user_needs_no_grmp_token():
     """kb-import 不调中间件,所以没有令牌也能开 —— 但 kinds_for 里总有 runtime,
     所以这条实际上等价于「只要建 runtime 就必须有令牌」。这里钉住语义别被改坏。"""
     assert pods.KIND_RUNTIME in _mgr(FakeKube()).kinds_for(kb_admin=True)
+
+
+def test_restarting_a_scaled_down_pod_starts_a_fresh_grace_period():
+    """重新拉起被闲置回收过的 Pod 时,活动时间必须写成「现在」。
+
+    2026-09-24 客户现场:scale 模式下 Deployment 保留,创建时间停在十几小时前;
+    再登录时网关按模板 apply,模板里活动注解是空值,把原来的活动时间清掉 ——
+    回收器于是按创建时间算出「闲置 15 小时」,下一轮扫描就把刚拉起、还在 ContainerCreating
+    的 Pod 缩回 0。用户看到的是 504,网关日志反复「闲置回收:已缩容」。
+    """
+    from gateway import reaper
+    k = FakeKube()
+    now = 1_800_000_000.0
+    _mgr(k).ensure("u1234", kb_admin=True, now=now)
+    deps = [m for kind, _n, m in k.applied if kind == "deployments"]
+    assert len(deps) == 2
+    for d in deps:
+        assert d["metadata"]["annotations"][reaper.ANNOTATION_ACTIVITY] == "%d" % int(now)
+        # 十几小时前创建的 Deployment,刚拉起时也不能被判成闲置
+        d = {**d, "metadata": {**d["metadata"], "creationTimestamp": "2026-09-23T00:00:00Z"},
+             "spec": {**d["spec"], "replicas": 1}}
+        assert not reaper.should_reap(d, now + 119, reaper.DEFAULT_IDLE_SECONDS)

@@ -129,6 +129,7 @@ for kf in "$WORK"/health-*.key; do
   check "健康检查存档($k)里没有中间件地址与接口路径(红线第 5 条)" '! grep -Eq "https?://|/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+" "$WORK/h-$k.json"'
 done
 check "知识库健康存档 200" '[ "$(fetch kb/health.json kb-health.json)" = 200 ]'
+check "知识库目录(案例/条款/关系图页签)200,且读到了案例与条款、没有收件目录" '[ "$(fetch _kb/catalog.json kb-cat.json)" = 200 ] && python3 -c "import json,sys;d=json.load(open(\"$WORK/kb-cat.json\"));n=(len(d[\"cases\"]),sum(len(g[\"rules\"]) for g in d[\"groups\"]),len(d[\"edges\"]));print(\"     案例/条款/边:\",n);sys.exit(0 if d.get(\"attached\") and n[0] and n[1] and \"inbox/\" not in json.dumps(d) else 1)"'
 check "知识库检索日志有本人的查询" '[ "$(fetch kb/queries.jsonl kb-q.jsonl)" = 200 ] && [ -s "$WORK/kb-q.jsonl" ]'
 
 echo "④ 真浏览器:四个大盘 + 深挖"

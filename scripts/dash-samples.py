@@ -186,6 +186,65 @@ def kb_samples(out: pathlib.Path):
     import shutil; shutil.rmtree(kbdir, ignore_errors=True)
 
 
+_CASES = [
+    ("S2-20250908-CBST-灌数未ANALYZE计划跳变致CPU打满", "灌数未 ANALYZE 计划跳变致 CPU 打满", "CBST", "2025-09-08",
+     "灌数后统计信息停在旧值,优化器选错计划", ["GS-OPS-001"],
+     {"现场": "夜间灌数后联机 CPU 占 DB time 84%,主机 CPU 打满", "判断": "灌数后未 ANALYZE,统计信息停在灌数前",
+      "处置": "作业代码里补显式 ANALYZE,计划恢复"},
+     [("DBTIME_CPU_HEAVY", "灌数后统计信息失真", "作业里显式 ANALYZE 相关表")]),
+    ("S2-20250812-CBMS-两过程更新顺序相反致死锁频发", "两过程更新顺序相反致死锁频发", "CBMS", "2025-08-12",
+     "两个存储过程以相反顺序更新客户表与账户表", ["GS-DML-001"],
+     {"现场": "死锁每天增加十几次", "判断": "两过程更新顺序相反", "处置": "统一为 客户表 → 额度表 → 账户表"},
+     [("死锁频发,deadlocks 每天增加十几次", "两个存储过程更新顺序相反", "统一多表更新顺序")]),
+    ("S1-20250314-CBST-批量大事务致WALWriteLock等待冲高TP", "批量大事务致 WALWriteLock 等待冲高 TPS 跌六成", "CBST", "2025-03-14",
+     "批量单事务 20 万行,提交时 WAL 刷盘串行", ["GS-OPS-001", "GS-DML-001"],
+     {"现场": "WALWriteLock 占 DB time 40%,联机 TPS 跌六成", "判断": "单事务 20 万行", "处置": "拆批到 5000 行/事务",
+      "复发标志": "top 等待事件为 WALWriteLock 且与批量窗口重合"},
+     [("WALWriteLock 等待冲高", "批量单事务过大", "拆批到 5000 行/事务")]),
+]
+_RULES = {
+    "ops.yaml": ("# 运维操作规范(统计信息、会话处置、变更管理)",
+                 [("GS-OPS-001", "error", "批量灌数之后必须在作业代码里显式 ANALYZE 相关表", "统计信息滞后会导致计划劣化")]),
+    "dml.yaml": ("# 开发规范:增删改查",
+                 [("GS-DML-001", "error", "账户类表更新按主键升序、每 5000 行一个事务;多表固定顺序:客户表 → 额度表 → 账户表", "避免死锁与长事务")]),
+}
+
+
+def kb_catalog_samples(out: pathlib.Path):
+    """知识库页签的数据:造一个小知识库,用**真正的** docker/kbcatalog.build 生成 _kb/catalog.json。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("kbcatalog_for_samples", _ROOT.parent / "docker" / "kbcatalog.py")
+    kbcatalog = importlib.util.module_from_spec(spec); spec.loader.exec_module(kbcatalog)
+    kb = out / "_kbsrc"
+    for sub in ("cases", "rules", "graph"):
+        (kb / sub).mkdir(parents=True, exist_ok=True)
+    edges, canon = [], {"symptom:dbtime_cpu_heavy": ["CPU 占 DB time 84% 以上,主机 CPU 打满", "DBTIME_CPU_HEAVY"]}
+    for cid, title, system, day, factor, rules, secs, chain in _CASES:
+        body = "\n".join("## %s\n%s" % (k, v) for k, v in secs.items())
+        (kb / "cases" / (cid + ".md")).write_text(
+            "---\nid: %s\ntitle: %s\nsystem: %s\noccurred_at: '%s'\nconclusion: 已确认\nsource: 工单导出-2025.csv#row=%d\n"
+            "severity: %s\nprimary_factor: %s\nrules: [%s]\n---\n%s\n" % (cid, title, system, day, len(edges) + 2, cid[:2], factor,
+                                                                           ", ".join(rules), body), encoding="utf-8")
+        sym, root_cause, action = chain[0]
+        for src, rel, dst, sec in (({"kind": "case", "name": title, "canonical": "case:" + cid}, "exhibits", {"kind": "symptom", "name": sym}, "现场"),
+                                   ({"kind": "symptom", "name": sym}, "caused_by", {"kind": "rootcause", "name": root_cause}, "判断"),
+                                   ({"kind": "rootcause", "name": root_cause}, "handled_by", {"kind": "action", "name": action}, "处置")):
+            edges.append({"src": src, "rel": rel, "dst": dst, "confidence": 1.0, "status": "accepted",
+                          "source": "cases/%s.md#%s" % (cid, sec), "case": cid})
+    import yaml
+    (kb / "graph" / "工单导出-2025.yaml").write_text(yaml.safe_dump(edges, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    (kb / "graph" / "canonical.yaml").write_text(yaml.safe_dump(canon, allow_unicode=True), encoding="utf-8")
+    for name, (title, items) in _RULES.items():
+        (kb / "rules" / name).write_text(title + "\n" + yaml.safe_dump(
+            [{"id": i, "severity": s, "check": "advisory", "rule": r, "rationale": w, "keywords": ["样例"], "source": "运维规范 §5"}
+             for i, s, r, w in items], allow_unicode=True, sort_keys=False), encoding="utf-8")
+    cat = kbcatalog.build(kb)
+    cat["built_at"] = "2026-09-22 22:03:00"
+    (out / "_kb").mkdir(exist_ok=True)
+    (out / "_kb" / "catalog.json").write_text(json.dumps(cat, ensure_ascii=False, indent=1), encoding="utf-8")
+    import shutil; shutil.rmtree(kb, ignore_errors=True)
+
+
 def main(argv=None) -> int:
     a = argv if argv is not None else sys.argv[1:]
     if len(a) != 1:
@@ -193,7 +252,7 @@ def main(argv=None) -> int:
     out = pathlib.Path(a[0]).resolve()
     out.mkdir(parents=True, exist_ok=True)
     os.environ["GSDB_REPORTS_DIR"] = str(out)
-    health_samples(); topsql_samples(); wdr_samples(); sqltune_samples(); kb_samples(out)
+    health_samples(); topsql_samples(); wdr_samples(); sqltune_samples(); kb_samples(out); kb_catalog_samples(out)
     (out / "whoami.json").write_text(json.dumps({"user_id": "u1234"}), encoding="utf-8")
     print("样例报告已生成:%s" % out)
     return 0

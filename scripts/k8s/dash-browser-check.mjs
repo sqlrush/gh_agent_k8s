@@ -213,6 +213,52 @@ async function checkPages(cdp, tab) {
       const tl = await evaluate(cdp, tab, `document.body.innerText.includes('在会话里调优这条')`);
       tl ? bad('topsql', '还有「在会话里调优这条」这种第二种说法') : good('调优入口说法统一');
     }
+    if (name === 'kb') {
+      // 四个页签:案例 / 条款 / 关系图直接展示知识库原文(user 2026-09-23 定:不绕到会话里)
+      const click = async (sel) => { await evaluate(cdp, tab, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.click(); return true; })()`); await sleep(250); };
+      const txt = (sel) => evaluate(cdp, tab, `((document.querySelector(${JSON.stringify(sel)}) || {}).innerText || '').trim()`);
+      const cnt = (sel) => evaluate(cdp, tab, `document.querySelectorAll(${JSON.stringify(sel)}).length`);
+      const tabsN = await cnt('#kb-tabs [data-tab]');
+      tabsN === 4 ? good('知识库四个页签都在') : bad('kb', `页签只有 ${tabsN} 个`);
+      await click('#kb-tabs [data-tab="cases"]');
+      const nCases = await cnt('.kb-item[data-case]');
+      nCases > 0 ? good(`案例列表 ${nCases} 条`) : bad('kb', '案例页签没有列表');
+      const t1 = await txt('.kb-doc h1');
+      if (nCases > 1) {
+        await click('.kb-item[data-case]:nth-of-type(2)');
+        const t2 = await txt('.kb-doc h1');
+        t2 && t2 !== t1 ? good(`点第二条,右边原文换成「${t2.slice(0, 20)}」`) : bad('kb', '点列表里另一条,右边原文没变');
+      }
+      const secs = await cnt('.kb-doc .kb-sec p');
+      secs >= 3 ? good(`案例原文 ${secs} 段`) : bad('kb', `案例原文只有 ${secs} 段(现场/判断/处置至少 3 段)`);
+      await evaluate(cdp, tab, `(() => { const i = document.querySelector('.kb-q'); i.value = 'zzz-不存在的词'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`); await sleep(250);
+      (await cnt('.kb-item[data-case]')) === 0 ? good('搜索能过滤(不存在的词 → 0 条)') : bad('kb', '搜索没有过滤');
+      const focused = await evaluate(cdp, tab, `document.activeElement && document.activeElement.classList.contains('kb-q')`);
+      focused ? good('输入时搜索框不丢焦点') : bad('kb', '每输一个字搜索框就失去焦点');
+      await click('#kb-tabs [data-tab="rules"]');
+      const nRules = await cnt('.kb-item[data-rule]');
+      nRules > 0 ? good(`条款列表 ${nRules} 条`) : bad('kb', '条款页签没有列表');
+      const refCase = await cnt('.kb-doc .kb-ref[data-case]');
+      if (refCase) {
+        await click('.kb-doc .kb-ref[data-case]');
+        const on = await evaluate(cdp, tab, `(document.querySelector('#kb-tabs .on') || {}).dataset?.tab`);
+        on === 'cases' ? good('条款里点「引用它的案例」跳到了案例') : bad('kb', `点引用案例后页签是 ${on}`);
+      }
+      await click('#kb-tabs [data-tab="graph"]');
+      const nNodes = await cnt('#kb-graph .kb-node');
+      nNodes > 0 ? good(`关系图 ${nNodes} 个节点`) : bad('kb', '关系图没有节点');
+      await evaluate(cdp, tab, `document.querySelector('#kb-graph .kb-node[data-node^="case:"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))`); await sleep(250);
+      const panel = await cnt('.kb-gpanel'), dimmed = await cnt('#kb-graph .kb-node.dim');
+      panel && dimmed ? good(`点节点:弹出详情,其余 ${dimmed} 个淡化`) : bad('kb', `点节点后详情 ${panel} 个、淡化 ${dimmed} 个`);
+      await click('.kb-gpanel .kb-btn[data-case]');
+      const on2 = await evaluate(cdp, tab, `(document.querySelector('#kb-tabs .on') || {}).dataset?.tab`);
+      on2 === 'cases' ? good('详情里「看案例原文」跳到了案例') : bad('kb', `「看案例原文」后页签是 ${on2}`);
+      await shot(cdp, tab, 'kb-cases');
+      await click('#kb-tabs [data-tab="graph"]'); await shot(cdp, tab, 'kb-graph');
+      await click('#kb-tabs [data-tab="overview"]');
+      tab.errors.length ? bad('kb', `知识库页签交互有脚本错误 ${tab.errors.slice(0, 2).join(' | ')}`) : good('知识库页签交互控制台零错误');
+      tab.errors.length = 0;
+    }
     if (name === 'wdr') {
       const href = await evaluate(cdp, tab, `(document.querySelector('a[href*=".native.html"]') || {}).href || ''`);
       if (href) {

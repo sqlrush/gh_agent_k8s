@@ -48,3 +48,5 @@ export const fetchReport = (skill, key, file) => fetchJson(`/reports/${skill}/${
 export const fetchSqltune = (key, sqlId) => fetchJson(`/reports/sqltune/${key}/${encodeURIComponent(sqlId)}.json`);
 export const fetchKbHealth = () => fetchJson('/reports/kb/health.json');
 export const fetchKbQueries = () => fetchJsonl('/reports/kb/queries.jsonl');
+// 知识库目录(案例 / 条款 / 关系图三个页签):由用户 Pod 从共享知识库现读现算,不是报告存档
+export const fetchKbCatalog = () => fetchJson('/reports/_kb/catalog.json');

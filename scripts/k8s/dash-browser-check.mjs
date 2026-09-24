@@ -273,6 +273,8 @@ async function checkPages(cdp, tab) {
     for (const w of [1920, 1440, 1280, 1024]) {
       await viewport(cdp, tab, w, 900);
       await go(cdp, tab, `${BASE}/dash/${name}`);
+      // 页面是取完数才画的:等外层卡片出现再量,否则量到空页(2026-09-24 误报过「最窄卡片 null」)
+      for (let i = 0; i < 50 && !(await evaluate(cdp, tab, `document.querySelectorAll('#main .card, #main .kpi').length`)); i++) await sleep(100);
       const pc = await evaluate(cdp, tab, `(() => { const m = document.getElementById('main').getBoundingClientRect(); const cw = [...document.querySelectorAll('.card, .kpi')].filter((e) => !e.parentElement.closest('.card')).map((e) => e.getBoundingClientRect().width).filter((x) => x > 0); const clipped = [...document.querySelectorAll('.kpi .v')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim()); return { over: document.documentElement.scrollWidth - innerWidth, right: Math.round(m.right), minCard: Math.round(Math.min(...cw)), clipped }; })()`);
       // 卡片里的小数字块本来就窄(设计如此),只量外层卡片;真正要防的是数字被截断
       pc.over > 1 || pc.right > w + 1 || pc.minCard < 200 || pc.clipped.length ? bad(name, `PC ${w} 宽布局有问题:横向溢出 ${pc.over}px、主区右边 ${pc.right}px、最窄卡片 ${pc.minCard}px、被截断的数字 ${pc.clipped.join(' | ')}`) : good(`PC ${w} 宽:无横向滚动,最窄卡片 ${pc.minCard}px,数字无截断`);

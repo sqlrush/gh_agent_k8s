@@ -10,5 +10,6 @@ resources:
   - vectordb.yaml
   - gateway.yaml
   - frontend.yaml
-# 四个 *.example.yaml 都是样例;平台用 kubectl create secret 创建真实的
-# model-api / grmp-sm2 / vectordb-auth / gateway-auth
+# 六个 *.example.yaml 都是样例;平台用 kubectl create secret 创建真实的
+# model-api / grmp-sm2 / vectordb-auth / gateway-auth,池化沙箱另要 sandbox-control / grmp-token。
+# 池化沙箱的 Pod 由平台按 k8s/templates/sandbox.yaml 渲染,不在这里。

@@ -49,6 +49,36 @@ spec:
     - to: [{podSelector: {matchLabels: {app: vectordb}}}]    # 知识库向量库(读写用户)
       ports: [{port: 5432, protocol: TCP}]
 ---
+# 池化沙箱(role=sandbox,方案 docs/specs/2026-10-13-sandbox-pool-design.md §9):
+# 入站 4096 对话 / 4097 报告 / 4098 控制接口,**只放行客户平台**——平台的 Pod 或命名空间打上标签
+# gaussdb-agent/platform: "true"(平台按实际改成自己的选择器)。沙箱之间互相到不了。
+# 出站与 runtime 相同;**不放行 NFS 端口 2049**:NAS 由节点上的 kubelet 挂,不走 Pod 网络,
+# 模型在容器里自己去连 NFS 服务器会被挡。副容器与主容器共享网络命名空间,策略管不到容器一级——
+# 所以控制接口必须带密钥(主容器经 127.0.0.1:4098 能到)。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-policy
+  namespace: gaussdb-agent
+spec:
+  podSelector:
+    matchLabels: {app: gaussdb-agent, role: sandbox}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {gaussdb-agent/platform: "true"}}
+        - namespaceSelector: {matchLabels: {gaussdb-agent/platform: "true"}}
+      ports: [{port: 4096, protocol: TCP}, {port: 4097, protocol: TCP}, {port: 4098, protocol: TCP}]
+  egress:
+    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 中间件 GRMP:平台改成实际地址段与端口
+      ports: [{port: 8080, protocol: TCP}]
+    - to: [{ipBlock: {cidr: 10.0.0.0/8}}]          # 模型服务:平台改成实际地址段与端口
+      ports: [{port: 443, protocol: TCP}, {port: 80, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: vectordb}}}]    # 知识库向量库(只读用户)
+      ports: [{port: 5432, protocol: TCP}]
+---
 # 网关:入站放行上游 SSO / Ingress;出站只要 DNS、k8s API、用户 Pod 的 4096 与 4097(报告只读)。
 # 它**不需要**访问中间件、模型服务、数据库 —— 那些是用户 Pod 的事。
 apiVersion: networking.k8s.io/v1
@@ -77,7 +107,7 @@ spec:
     - to: [{ipBlock: {cidr: 10.96.0.0/12}}, {ipBlock: {cidr: 172.16.0.0/12}}]
       ports: [{port: 443, protocol: TCP}, {port: 6443, protocol: TCP}]
 ---
-# 向量库只对这两类 Pod 开放。它不需要出站(embedding 是 Pod 侧算好再写进来的),
+# 向量库只对 runtime、kb-import 与池化沙箱开放。它不需要出站(embedding 是 Pod 侧算好再写进来的),
 # 所以 egress 只留 DNS——漏了这条会让「库被当跳板」这件事变得可能。
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -92,6 +122,7 @@ spec:
     - from:
         - podSelector: {matchLabels: {app: gaussdb-agent, role: runtime}}
         - podSelector: {matchLabels: {app: gaussdb-agent, role: kb-import}}
+        - podSelector: {matchLabels: {app: gaussdb-agent, role: sandbox}}     # 池化沙箱的主容器(只读用户)
       ports: [{port: 5432, protocol: TCP}]
   egress:
     - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]

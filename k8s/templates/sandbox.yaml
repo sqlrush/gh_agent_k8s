@@ -1,0 +1,85 @@
+# 池化沙箱(方案 docs/specs/2026-10-13-sandbox-pool-design.md §4、§11)。
+# 由客户平台按池渲染:${SANDBOX_ID} ${IMAGE} ${IMAGE_PULL_POLICY}(参考实现 scripts/k8s/pool-sim.py)。
+#
+# **裸 Pod,不是 Deployment / StatefulSet。** 沙箱一生只服务一个人,用完即删;补建由平台做。
+# Deployment 会在 Pod 消失时自动再补一个,与平台的补建叠加就多出沙箱;StatefulSet 缩容只能删编号最大的那个。
+#
+# 两个容器、同一个镜像:
+#   sandbox(主)  opencode + 技能,模型在这里执行命令。**看不到 users/**,只读挂共享知识库。
+#   poolctl(副)  4098 控制接口与状态搬运,只跑我方代码。**只有它挂 users/,只有它有控制密钥。**
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sandbox-${SANDBOX_ID}
+  namespace: gaussdb-agent
+  labels: {app: gaussdb-agent, role: sandbox, sandbox: "${SANDBOX_ID}"}
+spec:
+  # 删 Pod 时两个容器同时收到停止信号:主容器停 opencode、写最终快照;副容器等它的回执(最多 40 秒)再收尾回写。
+  # 解绑总时限 50 秒,这里留足余量。不要 --force --grace-period=0:那会丢最后一个同步周期。
+  terminationGracePeriodSeconds: 90
+  # runtimeClassName: gvisor                     # 客户集群提供 gVisor / Kata 时启用(方案 §3.4、§15 Q10)
+  # 关掉 Service 发现变量注入:默认会把命名空间里每个 Service 注入成环境变量,让模型知道还有谁在用(与 runtime 同一条)。
+  enableServiceLinks: false
+  # 沙箱不需要访问 k8s API;不挂 ServiceAccount 令牌,模型在容器里就拿不到任何集群凭据。
+  automountServiceAccountToken: false
+  securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true}
+  # shareProcessNamespace 必须保持默认 false —— 方案 §3.2、§9.1 实测:打开后主容器经 /proc/<副容器进程>/root
+  # 读到了 users/ 下别人的历史,经 /proc/<pid>/environ 读到了控制密钥。清单守卫钉着这一条。
+  containers:
+    - name: sandbox
+      image: ${IMAGE}
+      imagePullPolicy: ${IMAGE_PULL_POLICY}
+      securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+      ports: [{containerPort: 4096, name: http}, {containerPort: 4097, name: reports}]
+      env:
+        - {name: POOL_MODE, value: "1"}       # entrypoint 交给守护进程 pool-run;空闲时 opencode 不运行、4096 不监听
+        # 池化下 GRMP 令牌全体共用一个(需求 R2);工号仍随请求发给中间件,取自绑定时的工号
+        - {name: GRMP_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: grmp-token, key: GRMP_AUTH_TOKEN}}}
+        - {name: MODEL_API_KEY, valueFrom: {secretKeyRef: {name: model-api, key: MODEL_API_KEY}}}
+        - {name: GRMP_SM2_PRIVATE_KEY, valueFrom: {secretKeyRef: {name: grmp-sm2, key: GRMP_SM2_PRIVATE_KEY, optional: true}}}
+        # 知识库向量库:只读用户(与 runtime 相同)
+        - {name: KB_PG_USER, value: kb_ro}
+        - {name: KB_PG_PASSWORD, valueFrom: {secretKeyRef: {name: vectordb-auth, key: KB_RO, optional: true}}}
+      envFrom:
+        - configMapRef: {name: agent-config}
+      volumeMounts:
+        - {name: nas, mountPath: /nas/kb, subPath: kb, readOnly: true}   # 只有共享知识库;**不挂 users/**
+        - {name: data, mountPath: /data}                                  # 配置与缓存、主目录,不持久化
+        - {name: state, mountPath: /data/state}                           # 本人状态:副容器载入与回写
+        - {name: ctl, mountPath: /run/sandbox, readOnly: true}           # 指令目录:只读,模型改不了
+        - {name: tmp, mountPath: /tmp}
+      # 不配探针:空闲时 4096 本来就不监听。opencode 的存活由守护进程每 20 秒查一次、连败 3 次重启(与 runtime 探针同一口径)。
+      resources:
+        requests: {cpu: 250m, memory: 512Mi}
+        limits: {cpu: "2", memory: 2Gi}
+    - name: poolctl
+      image: ${IMAGE}
+      imagePullPolicy: ${IMAGE_PULL_POLICY}
+      command: ["python3", "/opt/agent/podctl.py", "pool-serve"]
+      securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+      ports: [{containerPort: 4098, name: control}]
+      env:
+        - {name: SANDBOX_ID, value: "${SANDBOX_ID}"}
+        - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}   # 写进 .owner 的持有者
+        - {name: SANDBOX_CONTROL_KEY, valueFrom: {secretKeyRef: {name: sandbox-control, key: KEY}}}   # 只在这里
+      readinessProbe:
+        httpGet: {path: /healthz, port: 4098}
+        periodSeconds: 2
+      volumeMounts:
+        - {name: nas, mountPath: /pool/users, subPath: users}             # 全部用户目录,只有这里有
+        - {name: state, mountPath: /pool/state}
+        - {name: ctl, mountPath: /pool/ctl}
+        - {name: poolpriv, mountPath: /pool/priv}                         # 记「当前绑定的是谁」,副容器重启后恢复
+        - {name: sidetmp, mountPath: /tmp}
+      resources:
+        requests: {cpu: 50m, memory: 64Mi}
+        limits: {cpu: 500m, memory: 256Mi}
+  volumes:
+    - {name: nas, persistentVolumeClaim: {claimName: nas}}
+    # 都在节点磁盘上(不写 medium,不是 tmpfs),都有上限:撑爆上限会被驱逐,驱逐是非优雅终止。
+    - {name: state, emptyDir: {sizeLimit: 10Gi}}
+    - {name: ctl, emptyDir: {sizeLimit: 1Mi}}
+    - {name: poolpriv, emptyDir: {sizeLimit: 1Mi}}
+    - {name: data, emptyDir: {sizeLimit: 1Gi}}
+    - {name: tmp, emptyDir: {sizeLimit: 1Gi}}
+    - {name: sidetmp, emptyDir: {sizeLimit: 64Mi}}

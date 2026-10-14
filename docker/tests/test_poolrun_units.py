@@ -151,6 +151,7 @@ def test_snapshot_request_produces_a_consistent_copy_and_m1_skips_unchanged(rig)
     rig.until(lambda: rig.ack()["snap_seq"] == 1)
     snap = rig.state / ".pool" / "snap" / "xdg-data" / "opencode" / "opencode.db"
     assert rig.ack()["changed"] == ["xdg-data/opencode/opencode.db"] and _rows(snap) == 1
+    assert stat.S_IMODE(snap.stat().st_mode) == 0o600, "快照会原样成为 NAS 上的库与退出备份"
     rig.snap(2)
     rig.until(lambda: rig.ack()["snap_seq"] == 2)
     assert rig.ack()["changed"] == [], "库没变,M1 不该再生成快照"

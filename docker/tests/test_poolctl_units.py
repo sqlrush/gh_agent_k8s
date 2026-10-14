@@ -364,6 +364,31 @@ def test_sidecar_restart_during_binding_retires(rig):
     assert sb2.state == "retired" and not (_me(rig) / ".owner").exists()
 
 
+def test_a_failure_inside_the_finish_still_answers_and_retires(rig):
+    """10-14 e2e:收尾前本人 NAS 目录被删,退出备份抛 FileNotFoundError,处理线程直接死掉——
+    平台收到断开的连接,沙箱卡在「解绑中」、独占一直攥着。必须回 500 并退役。"""
+    import shutil
+    rig.bind()
+    shutil.rmtree(_me(rig))
+    code, body = rig.unbind()
+    assert code == 500 and body["state"] == "retired" and rig.sb.state == "retired"
+
+
+def test_sigterm_during_an_unbind_waits_for_it_to_finish(rig):
+    """平台在 unbind 没回应时去删 Pod:SIGTERM 落在「解绑中」。进程要等收尾做完再退出。"""
+    rig.bind()
+    rig.main.kill()                                   # 让收尾卡在停止握手上(stop_wait 5 秒)
+    t = threading.Thread(target=rig.unbind)
+    t.start()
+    assert rig.sb._wait(lambda: rig.sb.state == "unbinding", 5)
+    t0 = time.monotonic()
+    rig.sb.on_sigterm()
+    assert rig.sb.state == "retired", "on_sigterm 不能在收尾做完之前返回"
+    assert time.monotonic() - t0 > 1
+    assert not (_me(rig) / ".owner").exists()
+    t.join(10)
+
+
 def test_pod_deletion_is_equivalent_to_unbind(rig):
     """直接删 Pod:两个容器同时收到 SIGTERM,没有先后。副容器等主容器的最终回执再收尾。"""
     rig.bind()

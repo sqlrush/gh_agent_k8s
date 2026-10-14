@@ -228,9 +228,14 @@ def _copy_sub(src_root: int, dst_root: int, sub: str, moved: Moved,
         os.close(dst)
 
 
-def snapshot_unclean(user_fd: int, now: Optional[float] = None) -> str:
-    """上次没走完收尾:覆盖之前先在本人目录里留一份(与现有模式同名同位置)。返回快照目录名。"""
+def snapshot_unclean(user_fd: int, now: Optional[float] = None) -> Optional[str]:
+    """上次没走完收尾:覆盖之前先在本人目录里留一份(与现有模式同名同位置)。
+
+    返回快照目录名;NAS 上还没有任何可快照的内容(上次绑定之后一次回写都没来得及)时返回 None——
+    调用方据此如实说明,**不能说「已快照」而目录并不存在**(10-14 e2e 发现)。
+    """
     name = SNAPSHOT_PREFIX + "%d" % int(time.time() if now is None else now)
+    copied = 0
     for sub in POOL_LOCALIZED:
         try:
             src = fdtree.open_path(user_fd, sub, create=False)
@@ -241,12 +246,14 @@ def snapshot_unclean(user_fd: int, now: Optional[float] = None) -> str:
         try:
             dst = fdtree.open_path(user_fd, name + "/" + sub, create=True)
             try:
-                fdtree.copy_tree(src, dst, stats=fdtree.Stats(), only_if_changed=False)
+                st = fdtree.Stats()
+                fdtree.copy_tree(src, dst, stats=st, only_if_changed=False)
+                copied += 1
             finally:
                 os.close(dst)
         finally:
             os.close(src)
-    return name
+    return name if copied else None
 
 
 def load(user_fd: int, state_fd: int, log: Callable[[str], None] = print,
@@ -259,8 +266,12 @@ def load(user_fd: int, state_fd: int, log: Callable[[str], None] = print,
     unclean = is_dirty(user_fd)
     if unclean:
         snap = snapshot_unclean(user_fd, now)
-        log("⚠ 上次是**非优雅**退出(dirty 标记还在):NAS 上那份已先快照到 %s/。"
-            "最后一个同步周期内的对话可能已丢失。" % snap)
+        if snap:
+            log("⚠ 上次是**非优雅**退出(dirty 标记还在):NAS 上那份已先快照到 %s/。"
+                "最后一个同步周期内的对话可能已丢失。" % snap)
+        else:
+            log("⚠ 上次是**非优雅**退出(dirty 标记还在),但 NAS 上还没有任何可快照的内容:"
+                "上次绑定之后一次回写都没来得及,那次的对话已丢失。")
     moved = Moved()
     for sub in POOL_LOCALIZED:
         seen = _copy_sub(user_fd, state_fd, sub, moved)

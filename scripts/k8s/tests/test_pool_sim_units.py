@@ -174,6 +174,48 @@ def test_an_unbind_conflict_does_not_delete_the_pod(plat):
     assert pod in plat.kube_.pods, "映射对不上时先核对,别把别人的沙箱删了"
 
 
+def test_a_vanished_sandbox_is_dropped_from_the_map_and_the_user_gets_a_new_one(plat):
+    plat.refill()
+    pod = plat.login("u9500")["sandbox"]
+    plat.kube_.pods.pop(pod)                          # 被删 / 被强杀 / 节点故障
+    r = plat.login("u9500")
+    assert r["reused"] is False and r["sandbox"] != pod
+
+
+def test_down_logs_everyone_out_and_leaves_no_sandbox_behind(plat):
+    plat.refill()
+    plat.login("u9500")
+    plat.login("u9501")
+    plat.down()
+    assert plat.kube_.pods == {} and plat.users == {}, "退出时的补建不能在下线时再建出沙箱"
+
+
+def test_a_dropped_connection_on_unbind_still_deletes_and_moves_on(plat):
+    plat.refill()
+    pod = plat.login("u9500")["sandbox"]
+    real = plat.sbx_.call
+    plat.sbx_.call = lambda p, port, m, path, *a, **k: (0, {"reason": "transport"}) if path == "/sandbox/unbind" else real(p, port, m, path, *a, **k)
+    code, body = plat.logout("u9500")
+    assert code == 0 and pod in plat.kube_.deleted and "u9500" not in plat.users
+
+
+def test_http_turns_a_dropped_connection_into_a_failure_not_an_exception():
+    import socket
+    import threading
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def slam():
+        c, _ = srv.accept()
+        c.recv(1024)
+        c.close()                                     # 不回应就断开:RemoteDisconnected
+    threading.Thread(target=slam, daemon=True).start()
+    code, body = sim._http("http://127.0.0.1:%d/x" % srv.getsockname()[1], "POST", {}, {}, 5)
+    srv.close()
+    assert code == 0 and body["reason"] == "transport"
+
+
 def test_oc_passthrough_injects_the_password(plat):
     plat.refill()
     plat.login("u9500")

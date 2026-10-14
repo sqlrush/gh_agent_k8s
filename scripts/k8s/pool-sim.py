@@ -7,6 +7,7 @@
   pool-sim.py close  <工号> [--countdown 1800]   关浏览器:开始倒计时
   pool-sim.py tick                       倒计时到点的按 timeout 解绑;再补建
   pool-sim.py oc <工号> GET|POST <路径> [JSON]   以平台身份转发到该用户沙箱的 4096(注入 Basic 口令)
+  pool-sim.py ctl <Pod> GET|POST <路径> [JSON]  运维:直接对某个沙箱调 4098 控制接口
   pool-sim.py status | down
 
 平台要做、我方不做的事都在这里:池子数量、工号 → 沙箱映射、倒计时、补建、口令保管(口令只留在平台,不下发浏览器)。
@@ -96,6 +97,10 @@ def _http(url: str, method: str, body: Optional[dict], headers: Dict[str, str], 
             return e.code, (json.loads(raw) if raw else {})
         except ValueError:
             return e.code, {"raw": raw.decode("utf-8", "replace")}
+    except OSError as e:
+        # 连接断了 / 超时 / 拒绝:当成一次失败交给调用方分支,不能让整个流程崩掉
+        # (10-14 e2e:一次 RemoteDisconnected 让 down 中断,沙箱残留在集群里)
+        return 0, {"reason": "transport", "message": "%s: %s" % (type(e).__name__, e)}
 
 
 class Direct:
@@ -193,9 +198,16 @@ class Platform:
     def login(self, user: str) -> dict:
         user = user.strip().lower()
         if user in self.users:                       # 同一个人同一时刻只能有一个沙箱:接回原沙箱,取消倒计时
-            self.users[user]["deadline"] = None
+            alive = {p["name"] for p in self._live()}
+            if self.users[user]["sandbox"] in alive:
+                self.users[user]["deadline"] = None
+                self._save()
+                return dict(self.users[user], reused=True)
+            # 映射里的沙箱已经没了(被删、被强杀、节点故障):丢掉旧映射重新分配。
+            # 若是被强杀,它的独占标记最长 90 秒才过期,下面的 bind 会如实回 409 owner_busy。
+            self.log("%s 原来的沙箱 %s 已不在,重新分配" % (user, self.users[user]["sandbox"]))
+            del self.users[user]
             self._save()
-            return dict(self.users[user], reused=True)
         tried: set = set()
         for _ in range(self.target + 3):
             pod = self._idle(tried)
@@ -229,6 +241,7 @@ class Platform:
         if code == 409:
             raise PlatformError("unbind_conflict", body)   # 映射表与沙箱对不上:先核对,别删
         if code != 200:
+            # 500:收尾不完整;0:连接断了(收尾可能还在做——删 Pod 后副容器会等它做完再退出,宽限期 90 秒)
             self.log("unbind %s 回 %s(%s),照样删除并告警" % (user, code, body.get("reason")))
         self.kube.delete_pod(u["sandbox"])
         del self.users[user]
@@ -266,12 +279,12 @@ class Platform:
         return rows
 
     def down(self) -> None:
+        self.target = 0                     # 先清零:否则每个人退出时的补建会再建出新沙箱(10-14 e2e 收尾残留 3 个)
         for user in list(self.users):
             try:
                 self.logout(user, reason="admin")
             except PlatformError as exc:
                 self.log("下线 %s:%s" % (user, exc))
-        self.target = 0
         for p in self.kube.sandboxes():
             self.kube.delete_pod(p["name"])
 
@@ -292,6 +305,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p = sub.add_parser("close")
     p.add_argument("user")
     p.add_argument("--countdown", type=float, default=1800)
+    p = sub.add_parser("ctl")                   # 运维:直接对某个沙箱调控制接口(带密钥)
+    p.add_argument("pod")
+    p.add_argument("method", choices=("GET", "POST"))
+    p.add_argument("path")
+    p.add_argument("body", nargs="?")
     p = sub.add_parser("oc")
     p.add_argument("user")
     p.add_argument("method", choices=("GET", "POST", "DELETE"))
@@ -316,6 +334,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(json.dumps({"deadline": plat.close(a.user, a.countdown)}))
         elif a.cmd == "tick":
             print(json.dumps({"timed_out": plat.tick()}))
+        elif a.cmd == "ctl":
+            code, body = plat._ctl(a.pod, a.method, a.path, json.loads(a.body) if a.body else None)
+            print(json.dumps(dict(body, http=code), ensure_ascii=False))
+            return 0 if code == 200 else 1
         elif a.cmd == "oc":
             code, body = plat.oc(a.user, a.method, a.path, json.loads(a.body) if a.body else None)
             print(json.dumps(body, ensure_ascii=False))

@@ -207,6 +207,16 @@ def test_unclean_last_time_snapshots_before_loading(env):
     assert (env.me / ".unclean-1700000000" / "workspace" / "half.sql").read_text(encoding="utf-8") == "半截"
 
 
+def test_unclean_with_nothing_on_nas_says_so_instead_of_claiming_a_snapshot(env):
+    """上次绑定后一次回写都没来得及就被强杀:NAS 上只有 .owner 与 .state-dirty。
+    日志不能说「已快照到 .unclean-…」而那个目录并不存在(10-14 e2e)。"""
+    ps.mark_dirty(env.user_fd)
+    logged = []
+    _moved, unclean = ps.load(env.user_fd, env.state_fd, log=logged.append, now=1700000000)
+    assert unclean and not list(env.me.glob(".unclean-*"))
+    assert any("没有任何可快照的内容" in m for m in logged) and not any("已先快照" in m for m in logged)
+
+
 # --- 库自检 ---------------------------------------------------------------------
 
 def test_selfcheck_restores_from_a_nas_backup(env):

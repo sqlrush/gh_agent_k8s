@@ -201,7 +201,7 @@ class Sandbox:
     # -- 绑定 -------------------------------------------------------------------
 
     def _bound_reply(self) -> Reply:
-        return 200, {"sandbox": self.cfg.sandbox_id, "state": "bound", "user_id": self.user,
+        return 200, {"sandbox": self.cfg.pod, "state": "bound", "user_id": self.user,
                      "opencode": {"port": 4096, "username": "opencode", "password": self.password},
                      "reports_port": 4097, "loaded": self.loaded}
 
@@ -273,35 +273,47 @@ class Sandbox:
         return self._finish(reason if isinstance(reason, str) else "")
 
     def _finish(self, why: str) -> Reply:
-        """停止握手 → 收尾回写 → 退出备份 → 清 dirty → 释放独占 → 退役(方案 §6.2)。"""
+        """停止握手 → 收尾回写 → 退出备份 → 清 dirty → 释放独占 → 退役(方案 §6.2)。
+
+        **无论哪一步抛什么,都必须走到「退役」并给出回应。** 10-14 e2e:本人 NAS 目录在收尾前被删,
+        退出备份抛 FileNotFoundError,处理线程直接死掉——平台收到的是断开的连接,沙箱卡在「解绑中」,
+        独占标记一直攥着。所以每一步单独兜住,失败记进 errors,保留 dirty,照样退役。
+        """
         self._stop_loops.set()
         with self.sync_lock:
             ack: dict = {}
             confirmed = False
-            if self.started:
-                self._write_run("stop")
-                confirmed = self._wait(lambda: self._final_ack(ack), self.cfg.stop_wait_seconds)
             moved = poolsync.Moved()
             name = None
-            if self.user_fd is not None and (confirmed or self.started):
-                moved = poolsync.sync(self.user_fd, self.state_fd, self.snap_seen, may_delete=True)
-                name = poolsync.backup(self.user_fd, self.state_fd)
+            try:
+                if self.started:
+                    self._write_run("stop")
+                    confirmed = self._wait(lambda: self._final_ack(ack), self.cfg.stop_wait_seconds)
+                if self.user_fd is not None and (confirmed or self.started):
+                    moved = poolsync.sync(self.user_fd, self.state_fd, self.snap_seen, may_delete=True)
+                    name = poolsync.backup(self.user_fd, self.state_fd)
+            except Exception as exc:                # noqa: BLE001  见上:必须走到退役
+                moved.errors.append("收尾回写:%s" % exc)
             clean = (confirmed or not self.started) and not moved.errors
             if self.user_fd is not None:
-                if clean:
-                    poolsync.clear_dirty(self.user_fd)
-                poolsync.owner_release(self.user_fd, self.cfg.pod)
+                try:
+                    if clean:
+                        poolsync.clear_dirty(self.user_fd)
+                    poolsync.owner_release(self.user_fd, self.cfg.pod)
+                except OSError as exc:
+                    moved.errors.append("释放独占:%s" % exc)
+                    clean = False
                 os.close(self.user_fd)
                 self.user_fd = None
             with self.lock:
                 self.state = "retired"
                 self._persist()
-        body = {"sandbox": self.cfg.sandbox_id, "state": "retired", "user_id": self.user,
+        body = {"sandbox": self.cfg.pod, "state": "retired", "user_id": self.user,
                 "aborted_running": bool(ack.get("aborted_running")), "synced": moved.to_json(), "backup": name}
         if clean:
             self.log("收尾完成(%s):%s" % (why, body["synced"]))
             return 200, body
-        if self.started and not confirmed:
+        if self.started and not confirmed and not moved.errors:
             body.update(reason="stop_not_confirmed",
                         message="主容器 %d 秒内没确认停止;已回写最近一次定期快照,dirty 标记保留"
                                 % self.cfg.stop_wait_seconds)
@@ -356,7 +368,11 @@ class Sandbox:
             podctl._write_private(self.cfg.ctl_dir / SNAP_FILE, json.dumps({"seq": self.snap_seq}))
             seq = self.snap_seq
             confirmed = self._wait(lambda: (self._ack().get("snap_seq") or 0) >= seq, self.cfg.snap_wait_seconds)
-            moved = poolsync.sync(self.user_fd, self.state_fd, self.snap_seen, may_delete=True)
+            try:
+                moved = poolsync.sync(self.user_fd, self.state_fd, self.snap_seen, may_delete=True)
+            except Exception as exc:                # noqa: BLE001  一轮失败不能让回写线程就此停掉
+                moved = poolsync.Moved(errors=["定期回写:%s" % exc])
+                self.log("定期回写失败:%s" % exc)
             self.last_sync_at = time.time()
             self.last_sync = dict(moved.to_json(), snapshot_confirmed=confirmed)
             if not confirmed:
@@ -366,12 +382,17 @@ class Sandbox:
     # -- 状态与停止信号 -----------------------------------------------------------
 
     def status(self) -> dict:
-        return {"sandbox": self.cfg.sandbox_id, "state": self.state, "user_id": self.user,
+        return {"sandbox": self.cfg.pod, "state": self.state, "user_id": self.user,
                 "bound_at": self.bound_at, "last_sync_at": self.last_sync_at, "last_sync": self.last_sync}
 
     def on_sigterm(self) -> None:
-        """Pod 被删:与 unbind 等价。绑定中就等它结束(结束后是使用中或已退役)。"""
-        self._wait(lambda: self.state != "binding", self.cfg.ready_seconds + 10)
+        """Pod 被删:与 unbind 等价。
+
+        绑定中、**解绑中**都要等它做完再退出:进程一退,正在做的收尾就被砍断——dirty 留着、独占攥着。
+        平台在 unbind 没回应(超时、连接断了)时去删 Pod,正好就是「解绑中收到 SIGTERM」(10-14 e2e)。
+        """
+        self._wait(lambda: self.state not in ("binding", "unbinding"),
+                   self.cfg.ready_seconds + self.cfg.stop_wait_seconds + 10)
         with self.lock:
             if self.state != "bound":
                 return

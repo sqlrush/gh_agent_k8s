@@ -335,6 +335,7 @@ class Supervisor:
                         if statesync._db_unchanged(sig, self.record.get(rel), dst):
                             continue
                         statesync.copy_db(src, dst)
+                        os.chmod(dst, 0o600)        # 快照会原样成为 NAS 上的库与退出备份,与按需模式一样 0600
                         self.record[rel] = sig
                         changed.append(rel)
                     except (OSError, sqlite3.Error) as exc:

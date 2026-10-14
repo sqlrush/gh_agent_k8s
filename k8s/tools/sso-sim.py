@@ -1,28 +1,36 @@
 #!/usr/bin/env python3
-"""本机验证用的「模拟 SSO」:给每个请求加上工号头与信任凭据,再转给网关。
+"""「模拟 SSO」:给每个请求加上工号头与信任凭据,再转给网关。没接 SSO 之前在现场测试用。
 
-客户现场是 SSO / 反向代理认完人之后往请求里注入 `X-Agent-User` 与 `X-Agent-Trust`;
-本地没有 SSO,浏览器又加不了这两个头,于是大盘与对话页在浏览器里都是 403。
-这个代理就站在 SSO 的位置上:浏览器 → 本代理(加头)→ 网关(经 port-forward)。
+生产环境里是贵方 SSO / 反向代理认完人之后往请求里注入工号头与 `X-Agent-Trust`;
+还没接 SSO 时浏览器加不了这些头,大盘与对话页一律 403。这个代理就站在 SSO 的位置上:
+浏览器 → 本代理(加头)→ 网关(经 kubectl port-forward)。操作见 docs/现场测试-模拟SSO.md。
 
-只在本机用,只监听 127.0.0.1,不进镜像。流式响应(SSE,对话页靠它)逐块转发。
+只监听 127.0.0.1(只有本机浏览器能用),只用 Python 标准库(3.8+)。流式响应(SSE,对话页靠它)逐块转发。
+**只用于测试**:谁能连上监听端口,谁就是那个工号。用完即停。
 
-用法: sso-sim.py <监听端口> <网关端口> <工号> <信任凭据文件>
+用法: sso-sim.py <监听端口> <网关端口> <工号> <信任凭据文件> [角色,逗号分隔]
+      角色给 kb-admin 时网关会另建知识库导入容器(取决于 gateway-config 的 KB_ADMIN_ROLES)。
+      头名与 gateway-config 的 USER_HEADER / ROLES_HEADER 不同时,用环境变量
+      SSO_USER_HEADER / SSO_ROLES_HEADER 指定成一样的。
       浏览器打开 http://127.0.0.1:<监听端口>/dash/health
 """
 import http.client
 import http.server
+import os
 import pathlib
 import socketserver
 import sys
 
 HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade",
        "proxy-authorization", "proxy-authenticate"}
+TRUST_HEADER = "X-Agent-Trust"          # 网关固定认这个名字,不可配
+USER_HEADER = os.environ.get("SSO_USER_HEADER") or "X-Agent-User"
+ROLES_HEADER = os.environ.get("SSO_ROLES_HEADER") or "X-Agent-Roles"
 # 浏览器自己带的同名头一律丢掉:模拟的是「SSO 覆盖掉客户端传来的身份头」,不是透传
-IDENTITY = {"x-agent-user", "x-agent-trust", "x-agent-roles"}
+IDENTITY = {h.lower() for h in (USER_HEADER, TRUST_HEADER, ROLES_HEADER, "x-agent-user", "x-agent-roles")}
 
 
-def make_handler(target: int, user: str, trust: str):
+def make_handler(target: int, user: str, trust: str, roles: str = ""):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -33,8 +41,10 @@ def make_handler(target: int, user: str, trust: str):
             headers = {k: v for k, v in self.headers.items()
                        if k.lower() not in HOP and k.lower() not in IDENTITY and k.lower() != "host"}
             headers["Host"] = "127.0.0.1:%d" % target
-            headers["X-Agent-User"] = user
-            headers["X-Agent-Trust"] = trust
+            headers[USER_HEADER] = user
+            headers[TRUST_HEADER] = trust
+            if roles:
+                headers[ROLES_HEADER] = roles
             try:
                 conn.request(self.command, self.path, body=body, headers=headers)
                 resp = conn.getresponse()
@@ -86,16 +96,18 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 def main(argv):
-    if len(argv) != 4:
-        print(__doc__.strip().splitlines()[-2].strip(), file=sys.stderr)
+    if len(argv) not in (4, 5):
+        print("用法: sso-sim.py <监听端口> <网关端口> <工号> <信任凭据文件> [角色,逗号分隔]", file=sys.stderr)
         return 2
     listen, target, user = int(argv[0]), int(argv[1]), argv[2]
+    roles = argv[4].strip() if len(argv) == 5 else ""
     trust = pathlib.Path(argv[3]).read_text(encoding="utf-8").strip()
     if not trust:
         print("信任凭据文件是空的:%s" % argv[3], file=sys.stderr)
         return 2
-    print("模拟 SSO:http://127.0.0.1:%d → 网关 127.0.0.1:%d,工号 %s" % (listen, target, user), flush=True)
-    Server(("127.0.0.1", listen), make_handler(target, user, trust)).serve_forever()
+    print("模拟 SSO:http://127.0.0.1:%d → 网关 127.0.0.1:%d,工号 %s%s(头名 %s)"
+          % (listen, target, user, ",角色 %s" % roles if roles else "", USER_HEADER), flush=True)
+    Server(("127.0.0.1", listen), make_handler(target, user, trust, roles)).serve_forever()
     return 0
 
 

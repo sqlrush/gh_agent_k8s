@@ -49,7 +49,7 @@ for p in "$PORT" "$SSO" "$SSO2"; do
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then echo "端口 $p 已被占用(上一轮没清干净?):" >&2; lsof -nP -iTCP:"$p" -sTCP:LISTEN >&2; exit 2; fi
 done
 $K port-forward svc/gateway $PORT:80 >/dev/null 2>&1 & PF=$!
-python3 "$HERE/scripts/k8s/sso-sim.py" "$SSO" "$PORT" "$U" "$WORK/trust" >/dev/null 2>&1 & SP=$!
+python3 "$HERE/k8s/tools/sso-sim.py" "$SSO" "$PORT" "$U" "$WORK/trust" >/dev/null 2>&1 & SP=$!
 sleep 3
 B="http://127.0.0.1:$SSO"          # 之后的请求都经模拟 SSO,和浏览器走同一条路
 
@@ -154,7 +154,7 @@ $K delete deploy,svc runtime-$U2 --ignore-not-found --wait=true >/dev/null 2>&1 
 rm -rf "${NAS_ROOT:?}/users/$U2"
 $K create secret generic grmp-token-$U2 --from-literal=GRMP_AUTH_TOKEN="${GRMP_AUTH_TOKEN:-e2e}" \
    --dry-run=client -o yaml | kubectl --context "$CTX" apply -f - >/dev/null
-python3 "$HERE/scripts/k8s/sso-sim.py" "$SSO2" "$PORT" "$U2" "$WORK/trust" >/dev/null 2>&1 & SP2=$!
+python3 "$HERE/k8s/tools/sso-sim.py" "$SSO2" "$PORT" "$U2" "$WORK/trust" >/dev/null 2>&1 & SP2=$!
 sleep 2; B2="http://127.0.0.1:$SSO2"
 for _ in $(seq 1 36); do [ "$(curl -s -m 30 -o /dev/null -w "%{http_code}" "$B2/global/health" || true)" = 200 ] && break; sleep 5; done
 BASE="$B2" OUT="${OUT:-/tmp/dash-shots}" EMPTY=1 node "$HERE/scripts/k8s/dash-browser-check.mjs" || fail=1

@@ -134,7 +134,7 @@ def test_customer_facing_docs_exist_where_the_package_expects_them():
     for name in ("接入手册-SSO与K8s.md", "部署手册-从零到上线.md",
                  "命令卡-测试环境搭建.md", "快速搭建-K8s.md", "单机演示-不用K8s.md",
                  "参数手册.md", "对接清单-各方要做什么.md", "功能清单-容器版.md",
-                 "仓库结构说明.md", "池化接入手册.md"):
+                 "仓库结构说明.md", "池化接入手册.md", "现场测试-模拟SSO.md"):
         assert (_ROOT / "docs" / name).is_file(), "缺 docs/%s" % name
 
 
@@ -148,3 +148,10 @@ def test_every_namespace_delete_in_the_docs_is_followed_by_releasing_the_pv():
         text = (_ROOT / "docs" / name).read_text(encoding="utf-8")
         for m in re.finditer(r"kubectl delete namespace gaussdb-agent", text):
             assert "claimRef" in text[m.end():m.end() + 800], "%s:删命名空间之后没写解除 PV 旧绑定" % name
+
+
+def test_the_sso_simulator_ships_with_the_package():
+    """现场测试手册让客户跑 k8s/tools/sso-sim.py:它必须在包会整个打进去的 k8s/ 下(原来在 scripts/,包里没有)。"""
+    assert (_ROOT / "k8s" / "tools" / "sso-sim.py").is_file()
+    assert not (_ROOT / "scripts" / "k8s" / "sso-sim.py").exists(), "只留一份,别两处各改各的"
+    assert "k8s/tools/sso-sim.py" in (_ROOT / "docs" / "现场测试-模拟SSO.md").read_text(encoding="utf-8")

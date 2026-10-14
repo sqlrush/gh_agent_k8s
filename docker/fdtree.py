@@ -105,6 +105,16 @@ def open_path(root_fd: int, rel: str, create: bool, mode: int = 0o700) -> Option
 
 # --- 遍历 ---------------------------------------------------------------------
 
+def listdir(dir_fd: int) -> List[str]:
+    """列一层目录(排好序)。用现开的描述符读,理由见 walk。"""
+    lfd = os.open(".", _O_DIR, dir_fd=dir_fd)
+    try:
+        with os.scandir(lfd) as it:
+            return sorted(e.name for e in it)
+    finally:
+        os.close(lfd)
+
+
 def walk(root_fd: int, prefix: str = "") -> Iterator[Tuple[str, int, str, os.stat_result]]:
     """深度优先列出所有**非目录**条目:(相对路径, 所在目录描述符, 名字, lstat)。
 
@@ -114,13 +124,7 @@ def walk(root_fd: int, prefix: str = "") -> Iterator[Tuple[str, int, str, os.sta
     # **列目录用一个现开的描述符,不用 root_fd 本身。** overlayfs 上(容器的 /tmp)对「打开之后才新建了文件」
     # 的目录描述符,第一次 scandir 返回空列表、第二次才正常(2026-10-14 在 python:3.12-slim 里实测;
     # ext4 / tmpfs 上没有这个现象)。复制方向上那等于「源目录是空的」,删除传播方向上更糟。
-    lfd = os.open(".", _O_DIR, dir_fd=root_fd)
-    try:
-        with os.scandir(lfd) as it:
-            names = sorted(e.name for e in it)
-    finally:
-        os.close(lfd)
-    for name in names:
+    for name in listdir(root_fd):
         try:
             st = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
         except FileNotFoundError:

@@ -398,6 +398,9 @@ def _parser() -> argparse.ArgumentParser:
         p.add_argument("--nas", required=True, help="$NAS_ME")
         p.add_argument("--local", required=True, help="本地态根目录(/data/state)")
     # 报告只读端口:大盘的数据口(entrypoint 在 opencode 之后拉起)
+    # 池化沙箱(方案 2026-10-13):副容器的控制接口,主容器的守护进程。参数全部来自环境变量
+    sub.add_parser("pool-serve")
+    sub.add_parser("pool-run")
     p = sub.add_parser("serve-reports")
     p.add_argument("--dir", required=True)
     p.add_argument("--port", type=int, default=4097)
@@ -432,6 +435,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif a.cmd == "serve-reports":
             make_reports_server(pathlib.Path(a.dir), a.port, user_id=os.environ.get("GSDB_USER_ID", ""),
                                 kb_dir=pathlib.Path(a.kb_dir) if a.kb_dir else None).serve_forever()
+        elif a.cmd == "pool-serve":
+            import poolctl
+            return poolctl.serve()
+        elif a.cmd == "pool-run":
+            import poolrun
+            return poolrun.main()
         elif a.cmd in ("state-load", "state-sync", "state-finish"):
             import statesync
             lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))

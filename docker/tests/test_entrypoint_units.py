@@ -22,3 +22,15 @@ def test_reports_server_is_started_after_opencode_and_backgrounded():
 
 def test_reports_server_is_killed_with_the_other_background_loops():
     assert re.search(r'^kill "\$REFRESHER" "\$SYNCER" "\$REPORTS"', _EP, re.M), "停机要连报告服务一起收掉"
+
+
+def test_pool_mode_hands_pid_1_to_the_daemon_before_any_nas_step():
+    """池化下主容器不挂 NAS:分支必须在第一次碰 $NAS_ME 之前 exec 走,否则 mkdir /nas/me 在只读根上直接失败。"""
+    m = re.search(r'^if \[ "\$\{POOL_MODE:-0\}" = "1" \]; then\n(.*?)^fi$', _EP, re.M | re.S)
+    assert m, "没有 POOL_MODE=1 分支"
+    body = m.group(1)
+    assert body.rstrip().endswith("exec $PODCTL pool-run"), "分支最后要 exec 守护进程(它是 1 号进程)"
+    assert "NAS" not in body and "/nas" not in body, "池化分支不碰 NAS"
+    assert "render-opencode-config" in body, "模型配置与身份无关,在这里渲染"
+    first_nas = min(_EP.index(k) for k in ('"$NAS_ME', "$NAS_ME/"))
+    assert m.end() < first_nas, "池化分支要在按需模式的第一个 NAS 步骤之前"

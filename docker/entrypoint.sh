@@ -17,6 +17,19 @@ STATE_LOCAL=${STATE_LOCAL:-/data/state}
 STATE_SYNC_SECONDS=${STATE_SYNC_SECONDS:-60}
 PODCTL="python3 /opt/agent/podctl.py"
 
+# ---- 池化沙箱(方案 docs/specs/2026-10-13-sandbox-pool-design.md)-----------------------
+# 主容器不挂 NAS、启动时还不知道是谁:身份与状态由副容器在绑定时交来。这里只做与身份无关的准备
+# (配置与缓存目录、模型配置),然后把 1 号进程交给守护进程 pool-run——它读 ctl 指令起停 opencode、
+# 生成库快照、写回执。下面按需模式的 NAS 步骤一概不走(/nas/me 在池化下根本不存在)。
+if [ "${POOL_MODE:-0}" = "1" ]; then
+  export XDG_CONFIG_HOME=/data/config XDG_CACHE_HOME=/data/cache HOME=/data/home OPENCODE_CONFIG=/data/oc/opencode.json
+  mkdir -p /data/home /data/oc /data/config/opencode /data/cache/opencode
+  cp -R /opt/agent/config/opencode/. /data/config/opencode/
+  cp -R /opt/agent/cache/opencode/. /data/cache/opencode/
+  $PODCTL render-opencode-config --out "$OPENCODE_CONFIG"
+  exec $PODCTL pool-run
+fi
+
 # ---- 目录 -------------------------------------------------------------------
 # XDG_* 指本地态;$NAS_ME 仍是真相所在,由 statesync 在启动/定期/收尾三个时机同步。
 export XDG_DATA_HOME=$STATE_LOCAL/xdg-data

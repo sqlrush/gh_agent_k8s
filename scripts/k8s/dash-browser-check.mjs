@@ -80,15 +80,16 @@ async function launch() {
 
 // 一个标签页:记下它的异常、控制台错误、失败请求与在途请求数(判断「取数取完了」)
 async function openTab(cdp, sessionId) {
-  const tab = { sessionId, errors: [], failed: [], inflight: new Set(), loaded: false };
+  const tab = { sessionId, errors: [], failed: [], inflight: new Set(), loaded: false, urls: new Map() };
   cdp.on((m) => {
     if (m.sessionId !== sessionId) return;
     const p = m.params || {};
     if (m.method === 'Runtime.exceptionThrown') tab.errors.push(`未捕获异常:${p.exceptionDetails?.exception?.description || p.exceptionDetails?.text}`);
     if (m.method === 'Runtime.consoleAPICalled' && p.type === 'error') tab.errors.push(`console.error:${(p.args || []).map((a) => a.value ?? a.description).join(' ')}`);
-    if (m.method === 'Network.requestWillBeSent') tab.inflight.add(p.requestId);
+    if (m.method === 'Network.requestWillBeSent') { tab.inflight.add(p.requestId); tab.urls.set(p.requestId, p.request?.url || ''); }
     if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') tab.inflight.delete(p.requestId);
-    if (m.method === 'Network.loadingFailed' && !p.canceled) tab.failed.push(`请求失败 ${p.errorText}`);
+    // 带上地址:只有错误文字时根本查不出是哪个请求(2026-10-14 对话页 ERR_INVALID_HTTP_RESPONSE 就卡在这)
+    if (m.method === 'Network.loadingFailed' && !p.canceled) tab.failed.push(`请求失败 ${p.errorText} ${(tab.urls.get(p.requestId) || '?').replace(BASE, '')}`);
     if (m.method === 'Network.responseReceived' && p.response.status >= 400) {
       const u = p.response.url;
       if (!(p.response.status === 404 && EXPECTED_404.some((re) => re.test(u)))) tab.failed.push(`HTTP ${p.response.status} ${u.replace(BASE, '')}`);
@@ -284,6 +285,9 @@ async function checkPages(cdp, tab) {
     // 窄屏只做兜底:不崩、不横向滚动
     await viewport(cdp, tab, 390, 844, true);
     await go(cdp, tab, `${BASE}/dash/${name}`);
+    // 与上面 PC 那段同一个等待:没等卡片出现就量,健康检查页(取数最多)会量到「加载中…」的空页,
+    // 报「最窄卡片 null」(2026-09-24 PC 段修过,2026-10-14 窄屏段又撞了一次)
+    for (let i = 0; i < 50 && !(await evaluate(cdp, tab, `document.querySelectorAll('#main .card, #main .kpi').length`)); i++) await sleep(100);
     const m = await evaluate(cdp, tab, INSPECT(ids));
     m.overflow > 1 ? bad(name, `手机宽度横向溢出 ${m.overflow}px`) : good('手机宽度(390)无横向滚动');
     // 只查横向滚动漏掉过:侧栏一直占左边、三列卡片挤成一字一行,页面并不横向滚动(2026-09-23)

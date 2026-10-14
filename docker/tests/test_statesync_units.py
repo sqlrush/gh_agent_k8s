@@ -133,19 +133,81 @@ def test_sync_uses_sqlite_backup_not_file_copy(dirs):
     assert _rowcount(out) == 6, "同步出来的库要包含已提交的那一行"
 
 
-def test_db_is_always_resynced_even_if_size_and_mtime_look_unchanged(dirs):
-    """**踩点(2026-09-21 真跑时发现)。**
-
-    copy_db 写出去的目标 mtime 是「同步那一刻」,总比源新,所以「源比目标新」这个
-    判据会漏掉与同步同一秒内的写入;SQLite 原地改页时 size 也可能不变。两者叠加
-    就是「库变了但同步跳过了」,而且没有任何迹象。所以库一律复制。
-    """
+def test_m1_an_unchanged_db_is_not_copied_again(dirs):
+    """M1(方案 §8.1):原来每 60 秒整库复制一遍,闲着的用户也一样;三年 500 MB 的库、16 人在线会超过千兆 NAS 的上限。"""
     ss.load(dirs)
     db = dirs.local / "xdg-data" / "opencode" / "opencode.db"
     _mkdb(db, rows=2)
     assert ss.sync(dirs).dbs_copied == 1
-    # 第二次:什么都没改,库照样要被复制一遍
-    assert ss.sync(dirs).dbs_copied == 1, "库不能因为「看起来没变」就跳过"
+    rep = ss.sync(dirs)
+    assert rep.dbs_copied == 0 and rep.dbs_unchanged == 1
+    assert "库未变跳过 1" in rep.line()
+
+
+def test_m1_a_same_size_write_within_the_same_second_is_still_copied(dirs):
+    """**原来「库一律复制」防的就是这个(2026-09-21 踩点)**:拿源和**目标**比修改时间,目标的时间是「同步那一刻」,
+    会漏掉同一秒内的写入;SQLite 原地改页时大小也不变。M1 跟**上次记下的源签名**比、而且用纳秒,所以照样抓得到。"""
+    ss.load(dirs)
+    db = dirs.local / "xdg-data" / "opencode" / "opencode.db"
+    _mkdb(db, rows=2)
+    ss.sync(dirs)
+    size = db.stat().st_size
+    con = sqlite3.connect(db)                      # 回滚日志模式:改页直接落主库文件,大小不变
+    con.execute("update t set i = i + 100")
+    con.commit()
+    con.close()
+    assert db.stat().st_size == size
+    assert ss.sync(dirs).dbs_copied == 1
+    con = sqlite3.connect(dirs.nas / "xdg-data" / "opencode" / "opencode.db")
+    assert con.execute("select min(i) from t").fetchone()[0] == 100
+    con.close()
+
+
+def test_m1_never_skips_while_the_wal_still_holds_commits(dirs):
+    """checkpoint 遇到读者返回 busy 时,提交还在 -wal 里、主库文件一字节没变——只看主库文件会漏。"""
+    ss.load(dirs)
+    db = dirs.local / "xdg-data" / "opencode" / "opencode.db"
+    _mkdb(db, rows=2)
+    ss.sync(dirs)
+    con = sqlite3.connect(db)
+    con.execute("pragma journal_mode=WAL")
+    con.execute("insert into t values (7)")
+    con.commit()
+    try:
+        assert pathlib.Path(str(db) + "-wal").stat().st_size > 0
+        assert ss.sync(dirs).dbs_copied == 1
+    finally:
+        con.close()
+    assert _rowcount(dirs.nas / "xdg-data" / "opencode" / "opencode.db") == 3
+
+
+def test_m1_recopies_when_the_nas_copy_is_gone(dirs):
+    ss.load(dirs)
+    db = dirs.local / "xdg-data" / "opencode" / "opencode.db"
+    _mkdb(db, rows=2)
+    ss.sync(dirs)
+    (dirs.nas / "xdg-data" / "opencode" / "opencode.db").unlink()
+    assert ss.sync(dirs).dbs_copied == 1
+
+
+def test_m1_record_is_not_synced_to_nas(dirs):
+    ss.load(dirs)
+    _mkdb(dirs.local / "xdg-data" / "opencode" / "opencode.db")
+    ss.sync(dirs)
+    assert (dirs.local / ss.SYNC_RECORD).exists()
+    assert not list(dirs.nas.rglob(ss.SYNC_RECORD))
+
+
+def test_a_symlink_in_the_workspace_is_not_followed_on_sync(dirs, tmp_path):
+    """现有模式下搬运方是主容器自己,没有跨用户的后果;改走 fdtree 之后同样不跟随,只是更严。"""
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "secret").write_text("not mine", encoding="utf-8")
+    ss.load(dirs)
+    (dirs.local / "workspace" / "x").symlink_to(other / "secret")
+    rep = ss.sync(dirs)
+    assert not (dirs.nas / "workspace" / "x").exists()
+    assert rep.skipped == 1 and "链接不跟随" in rep.line()
 
 
 def test_unchanged_files_are_not_recopied(dirs):

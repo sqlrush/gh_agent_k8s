@@ -63,3 +63,19 @@ def test_entrypoint_only_calls_podctl_subcommands_that_exist():
 def test_the_new_state_subcommands_are_wired():
     """状态策略的三个动作都要能从命令行调到 —— 少一个 entrypoint 就断在那一步。"""
     assert {"state-load", "state-sync", "state-finish"} <= _registered_subcommands()
+
+
+def test_every_local_module_any_copied_module_imports_is_copied():
+    """不只 podctl:被拷进镜像的每个 .py,它 import 的本地模块也要在 COPY 里(传递闭包)。
+
+    2026-10-14 statesync 开始 import fdtree——上面那条只看 podctl 的 import,看不到这一层;
+    漏拷的后果与 09-21 一模一样:Pod 一起来就 ModuleNotFoundError,单测全绿。
+    """
+    copied = _copied_files()
+    missing = []
+    for fname in sorted(f for f in copied if f.endswith(".py")):
+        src = (_ROOT / "docker" / fname).read_text(encoding="utf-8")
+        for name in set(re.findall(r"^\s*(?:import|from)\s+([a-z_][a-z0-9_]*)\b", src, re.MULTILINE)):
+            if (_ROOT / "docker" / ("%s.py" % name)).is_file() and ("%s.py" % name) not in copied:
+                missing.append("%s → %s.py" % (fname, name))
+    assert not missing, "镜像里缺本地模块:%s" % missing

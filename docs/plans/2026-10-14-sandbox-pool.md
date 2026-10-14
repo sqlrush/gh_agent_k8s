@@ -45,24 +45,62 @@
 
 ## 任务
 
-- [ ] Task 1 `fdtree.py` + `docker/tests/test_fdtree_units.py`：链接、中间级目录链接、FIFO、检查后被替换（在两步之间插入替换）、
+- [x] Task 1 `fdtree.py` + `docker/tests/test_fdtree_units.py`：链接、中间级目录链接、FIFO、检查后被替换（在两步之间插入替换）、
       跨设备拒绝、O_EXCL 临时文件、原子改名、保留纳秒修改时间、`prune` 不跟随、小文件读写不跟随。
-- [ ] Task 2 `statesync.py` 改用 fdtree 复制普通文件；M1（`.state-sync.json` 记录、`-wal` 非空不跳过、目标缺失照拷）；现有测试全绿 + M1 测试。
-- [ ] Task 3 `poolsync.py` + `test_poolsync_units.py`：载入（含库原样搬、dirty 时先做 `.unclean-*` 快照）、回写（排除库与 `.pool/`、
+- [x] Task 2 `statesync.py` 改用 fdtree 复制普通文件；M1（`.state-sync.json` 记录、`-wal` 非空不跳过、目标缺失照拷）；现有测试全绿 + M1 测试。
+- [x] Task 3 `poolsync.py` + `test_poolsync_units.py`：载入（含库原样搬、dirty 时先做 `.unclean-*` 快照）、回写（排除库与 `.pool/`、
       搬快照、传播删除）、备份轮转、库自检（备份先按 fd 拷进 state 再查）、`.owner` 取得/刷新/释放（409 所需 holder 与 retry_after）、
       `users/` 不可写时说清属主；§9 的攻击用例全部在这里。
-- [ ] Task 4 `poolrun.py` + `test_poolrun_units.py`：用假 opencode（可执行脚本，起 HTTP、写库）驱动：run → 就绪；snap 请求 → 快照与 M1；
+- [x] Task 4 `poolrun.py` + `test_poolrun_units.py`：用假 opencode（可执行脚本，起 HTTP、写库）驱动：run → 就绪；snap 请求 → 快照与 M1；
       stop → 中止忙着的会话、停进程、最终快照、`final` 回执；opencode 崩溃重拉；SIGTERM。
-- [ ] Task 5 `poolctl.py` + `test_poolctl_units.py`：状态机全路径、401/400/409（`state` / `owner_busy`）/500/504、幂等 bind、unbind 工号不一致、
+- [x] Task 5 `poolctl.py` + `test_poolctl_units.py`：状态机全路径、401/400/409（`state` / `owner_busy`）/500/504、幂等 bind、unbind 工号不一致、
       停止握手超时、定期回写、丢失独占即退役、副容器重启后恢复、healthz 不带用户信息、常量时间比较。
-- [ ] Task 6 podctl 子命令、entrypoint `POOL_MODE=1` 分支、Dockerfile COPY、镜像内容守卫与 entrypoint 守卫。
-- [ ] Task 7 `sandbox.yaml`、`sandbox-policy`（base + local）、`secret-sandbox-control.example.yaml`、共享 `grmp-token` 样例、清单守卫
+- [x] Task 6 podctl 子命令、entrypoint `POOL_MODE=1` 分支、Dockerfile COPY、镜像内容守卫与 entrypoint 守卫。
+- [x] Task 7 `sandbox.yaml`、`sandbox-policy`（base + local）、`secret-sandbox-control.example.yaml`、共享 `grmp-token` 样例、清单守卫
       （不共享进程空间、主容器不挂 `users/`、两个容器的安全设置、emptyDir 有上限不是 tmpfs、enableServiceLinks false）。
-- [ ] Task 8 `pool-sim.py` + 单测（渲染、补建数量规则、映射与倒计时、409 分支）。
-- [ ] Task 9 构建 dev 镜像，`e2e-pool.sh` 跑 §14 的本地集群 e2e 1–8（9 载入曲线、10 清空复用视时间）。
-- [ ] Task 10 文档。
+- [x] Task 8 `pool-sim.py` + 单测（渲染、补建数量规则、映射与倒计时、409 分支）。
+- [x] Task 9 构建 dev 镜像，`e2e-pool.sh` 跑 §14 的本地集群 e2e 1–8（9 载入曲线、10 清空复用视时间）。
+- [x] Task 10 文档。
 
 ## 执行记录
 
 | 任务 | 提交 | 结果 |
 |---|---|---|
+| 设计评审修订 | `4ef0946` | 7 处补进方案;Q7 按能用双容器模板、Q8 继续池化 |
+| 1 fdtree | `a717af4` | 19 条;**macOS 全绿、Linux 红 9 条**:overlayfs 上对旧目录描述符第一次 scandir 返回空——改为列目录一律用现开的描述符;新增 `scripts/linux-pytest.sh` |
+| 2 statesync | `c3e154e` | M1 四条 + 链接一条;「库一律复制」那条测试按 M1 改写;镜像守卫扩到 import 传递闭包(删掉 fdtree 的 COPY 会红,已验) |
+| 3 poolsync | `b341525` | §9 全部攻击用例 |
+| 4 poolrun | `3809991` | 假 opencode 驱动真进程 11 条 |
+| 5 poolctl | `9d80ae6` | 28 条;**写测试时抓到 poolsync 会丢历史的缺陷**:库只搬快照、保留集合里却没有活着的库,主容器还没给快照的那一轮删除传播会删掉 NAS 上的 opencode.db(拿掉修复测试会红,已验) |
+| 6 镜像接线 | `4fa9247` | 没有控制密钥时副容器拒绝启动(退出码 2) |
+| 7 清单 | `1c7d3ac` | 结构化守卫第一轮就抓到模板注释里的 `$HOME` 会让 string.Template 渲染失败;渲染后服务端 dry-run 通过 |
+| 8 pool-sim | `8a7fdd7` | 14 条(含后加的) |
+| 9 e2e | 见下 | 三轮:37/3 → 39/1 → **41/0** |
+| 10 文档 | 见下 | 新增《池化接入手册》;参数手册、功能清单、仓库结构说明、接入手册、部署手册 |
+
+**e2e 三轮抓到的(都已修,有回归测试)**
+
+1. **收尾中途抛异常,沙箱卡在「解绑中」**:本人 NAS 目录在收尾前被删,退出备份抛 FileNotFoundError,处理线程死掉——
+   平台收到断开的连接,独占一直攥着。现在每一步单独兜住,必定走到退役并回 500。
+2. **解绑中收到 SIGTERM 直接退出**:`on_sigterm` 只等「绑定中」。平台在 unbind 没回应时删 Pod 正好是这种情况。
+3. **模拟器一次断连接就整个中断**:`RemoteDisconnected` 没接住,`down` 中断、沙箱残留在集群;`down` 还先让人退出、后清零目标数,
+   退出时的补建又建出新沙箱。
+4. **日志说假话**:上次绑定后一次回写都没来得及就被强杀时,NAS 上没有可快照的内容,日志却写「已先快照到 .unclean-…」。
+5. 退出备份与 NAS 上的库是 0644(快照按 umask 落盘),按需模式是 0600;响应里 `sandbox` 返回的是编号而不是 Pod 名。
+6. e2e 自身:`--force --grace-period=0` 模拟不出强杀(容器仍收到停止信号,副容器一两秒内收尾干净——方案 §6.3 据此修正);
+   改用 SIGSTOP 冻住副容器再强删。
+
+**第三轮实测(OrbStack k8s v1.35.6,镜像在节点上,池子 16)**:16 个就绪 7 秒;16 人登录 37 秒(每次两回 port-forward);
+第 17 人现建 + 绑定 5 秒;跨沙箱接续含 DeepSeek 真模型两轮(新沙箱里记得上一句);埋的三条链接(别人的库、全部用户目录、
+/proc/self/environ)一条都没上 NAS;强杀后 owner_busy 等 58 秒过期,再绑报 unclean_last_time,快照里有被杀前回写过的文件。
+日志 Mac `~/kf-verify/e2e-pool-20261014-1458.log`。
+
+**没做 / 没验的**
+
+- 网关形态的全套 e2e 回归(方案 §14 第 8 条):本地测试床已失效(11 天前起网关与前端 ImagePullBackOff、本机没有任何
+  gaussdb-agent 镜像、hostPath NAS 目录已不存在),本轮没去修它。网关形态这次只改了 statesync(普通文件改走 fdtree、M1),
+  由单测覆盖;上线前要在修好的测试床上跑一遍 `e2e-dash-full.sh` 与场景矩阵。
+- §14 第 7 条(工号随 GRMP 请求发出、签名 mock 校验):本轮没起 GRMP mock。只验了 4097 `/whoami.json` 回绑定的工号
+  ——技能读的是同一个 `GSDB_USER_ID`。
+- §14 第 9 条(50/200/500 MB 历史的载入曲线)、第 10 条(清空复用):未做。
+- M2(老会话归档):默认关闭的功能,等 Q9 定天数,本轮没写。

@@ -60,7 +60,8 @@ class Moved:
     skipped: int = 0
     deleted: int = 0
     seconds: float = 0.0
-    errors: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)       # 真失败:数据可能没搬全(解绑据此回 500、保留 dirty)
+    warnings: List[str] = field(default_factory=list)     # 有意不做的事,例如本轮不对某个子目录传播删除
 
     def add(self, st: fdtree.Stats) -> None:
         self.files += st.files
@@ -71,7 +72,8 @@ class Moved:
 
     def to_json(self) -> dict:
         return {"files": self.files, "dbs": self.dbs, "mb": round(self.bytes / 1048576.0, 1),
-                "seconds": round(self.seconds, 2), "skipped": self.skipped, "errors": len(self.errors)}
+                "seconds": round(self.seconds, 2), "skipped": self.skipped, "errors": len(self.errors),
+                "warnings": len(self.warnings)}
 
 
 def is_db_name(name: str) -> bool:
@@ -332,14 +334,27 @@ def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: b
 
     某个子目录在 state 卷上整个不见了(或被换成链接)时**不对它传播删除**:那更像是误删,
     NAS 上那份是这个人全部的历史。
+
+    **state 卷上还在的库,不管这一轮有没有快照,都算「还在」**:库不经普通复制,只搬快照;
+    要是保留集合里只有快照,主容器还没生成快照(或 20 秒内没响应)的那一轮,删除传播就会把
+    NAS 上这个人的 opencode.db 当成「已删」删掉。只有本地真没了这个库,NAS 上的才删。
     """
     t0 = time.monotonic()
     moved = Moved()
     for sub in POOL_LOCALIZED:
-        seen = _copy_sub(state_fd, user_fd, sub, moved, skip=lambda rel: is_db_name(_name(rel)))
+        live_dbs: set = set()
+
+        def skip_db(rel: str, _live=live_dbs) -> bool:
+            if is_db_name(_name(rel)):
+                _live.add(rel)
+                return True
+            return False
+
+        seen = _copy_sub(state_fd, user_fd, sub, moved, skip=skip_db)
         if seen is None:
-            moved.errors.append("%s:state 卷上没有这个目录,本轮不对它传播删除" % sub)
+            moved.warnings.append("%s:state 卷上没有这个目录(或不是普通目录),本轮不对它传播删除" % sub)
             continue
+        seen |= live_dbs
         _sync_snapshots(user_fd, state_fd, sub, snap_seen, seen, moved)
         if may_delete:
             try:

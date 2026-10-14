@@ -268,6 +268,20 @@ def test_sync_pushes_files_and_the_snapshot_but_never_the_live_db(env):
     assert moved.dbs == 1 and not (env.me / ".pool").exists()
 
 
+def test_a_round_without_a_snapshot_never_deletes_the_nas_db(env):
+    """**库只搬快照**——要是保留集合里只有快照,主容器还没生成快照(或没在时限内响应)的那一轮,
+    删除传播会把 NAS 上这个人的 opencode.db 当成「已删」删掉。只有本地真没了,NAS 上的才删。"""
+    _mkdb(env.me / "xdg-data" / "opencode" / "opencode.db", rows=8)
+    ps.load(env.user_fd, env.state_fd, log=lambda _m: None)
+    assert (env.state / "xdg-data" / "opencode" / "opencode.db").exists()
+    assert not (env.state / ".pool").exists()                   # 主容器一份快照都还没给
+    ps.sync(env.user_fd, env.state_fd, {}, may_delete=True)
+    assert _rows(env.me / "xdg-data" / "opencode" / "opencode.db") == 8
+    (env.state / "xdg-data" / "opencode" / "opencode.db").unlink()   # 本地真删了
+    ps.sync(env.user_fd, env.state_fd, {}, may_delete=True)
+    assert not (env.me / "xdg-data" / "opencode" / "opencode.db").exists()
+
+
 def test_an_unchanged_snapshot_is_not_copied_again(env):
     ps.load(env.user_fd, env.state_fd, log=lambda _m: None)
     _snapshot(env, rows=5)
@@ -342,7 +356,7 @@ def test_a_whole_missing_subdir_does_not_wipe_nas(env):
     shutil.rmtree(env.state / "workspace")
     moved = ps.sync(env.user_fd, env.state_fd, {})
     assert (env.me / "workspace" / "precious.sql").exists()
-    assert any("不对它传播删除" in e for e in moved.errors)
+    assert any("不对它传播删除" in w for w in moved.warnings) and not moved.errors
 
 
 def test_sync_without_may_delete_never_deletes(env):
@@ -367,5 +381,6 @@ def test_backup_copies_the_final_snapshot_and_keeps_three(env):
 
 def test_moved_to_json_shape(env):
     m = ps.Moved(files=3, dbs=1, bytes=1048576 * 2, seconds=0.456)
-    assert m.to_json() == {"files": 3, "dbs": 1, "mb": 2.0, "seconds": 0.46, "skipped": 0, "errors": 0}
+    assert m.to_json() == {"files": 3, "dbs": 1, "mb": 2.0, "seconds": 0.46, "skipped": 0, "errors": 0,
+                           "warnings": 0}
     json.dumps(m.to_json())

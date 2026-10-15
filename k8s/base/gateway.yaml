@@ -90,6 +90,7 @@ spec:
             # **给用户 Pod 用哪个版本的镜像。没有默认值** —— 默认成 latest 会让
             # 「升级」悄悄发生在下一次用户登录时。升级 = 改这里 + 重启网关。
             - {name: GATEWAY_IMAGE_TAG, valueFrom: {configMapKeyRef: {name: gateway-config, key: USER_IMAGE_TAG}}}
+            - {name: GATEWAY_IMAGE_REGISTRY, valueFrom: {configMapKeyRef: {name: gateway-config, key: USER_IMAGE_REGISTRY, optional: true}}}
             - {name: GATEWAY_PULL_POLICY, valueFrom: {configMapKeyRef: {name: gateway-config, key: PULL_POLICY, optional: true}}}
             - {name: GATEWAY_USER_HEADER, valueFrom: {configMapKeyRef: {name: gateway-config, key: USER_HEADER, optional: true}}}
             - {name: GATEWAY_ROLES_HEADER, valueFrom: {configMapKeyRef: {name: gateway-config, key: ROLES_HEADER, optional: true}}}

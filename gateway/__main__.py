@@ -37,7 +37,7 @@ def main(argv=None) -> int:
 
     mgr = pods.Manager(kube, namespace=cfg.namespace, image_tag=cfg.image_tag,
                        pull_policy=cfg.pull_policy, templates=templates,
-                       activity_interval_s=cfg.activity_interval_s)
+                       activity_interval_s=cfg.activity_interval_s, image_registry=cfg.image_registry)
     app = server.App(cfg, mgr)
     rp = reaper.Reaper(mgr, mode=cfg.reap_mode, idle_s=cfg.idle_seconds,
                        sweep_s=cfg.sweep_seconds, log=app.log)

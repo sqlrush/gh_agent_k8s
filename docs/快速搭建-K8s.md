@@ -74,14 +74,16 @@ docker push $REG/opengauss:7.0.0-RC1
 > 每条最后一行是 `digest: sha256:...`。
 
 ```bash
-sed -i "s#image: gaussdb-agent-#image: $REG/gaussdb-agent-#" k8s/base/gateway.yaml k8s/base/frontend.yaml k8s/templates/runtime.yaml k8s/templates/kb-import.yaml
-sed -i "s#image: opengauss/#image: $REG/opengauss:#" k8s/base/vectordb.yaml
+sed -i "s#image: gaussdb-agent-#image: $REG/gaussdb-agent-#" k8s/base/gateway.yaml k8s/base/frontend.yaml
+sed -i "s#USER_IMAGE_REGISTRY: \"\"#USER_IMAGE_REGISTRY: \"$REG\"#" k8s/base/configmap-gateway.yaml
+sed -i "s#image: opengauss/opengauss:#image: $REG/opengauss:#" k8s/base/vectordb.yaml
 ```
 
 ```bash
-grep -rh "image:" k8s/ | grep -v "#"
+grep -rh "image:\|USER_IMAGE_REGISTRY:" k8s/base/ | grep -v "^ *#"
 ```
-> 每行地址都以 `$REG` 开头。
+> 每行地址都以 `$REG` 开头，`USER_IMAGE_REGISTRY` 也是 `$REG`（网关按它给用户建容器；
+> 用户容器的镜像名是网关拼出来的，不在任何清单文件里，所以不能靠 sed 清单改）。
 
 ---
 

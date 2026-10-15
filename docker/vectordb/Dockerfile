@@ -24,10 +24,12 @@ ARG OG_VERSION=7.0.0-RC1
 #   openEuler 22.03 没有 glibc-langpack-en 这个包(dnf 默认还会静默跳过不存在的包名,所以加了 strict=True);
 #   整包 glibc-all-langpacks 几百 MB,这里装源码只生成 en_US 一个,同一层里再把源码卸掉。
 #   --no-archive:基础镜像的 locale-archive 是空文件,往里追加会报 cannot read archive header
-RUN dnf install -y --setopt=install_weak_deps=False --setopt=strict=True \
+# --repo OS --repo update:基础镜像默认还开着 everything / EPOL / debuginfo / source,光拉它们的元数据就要
+#   一两分钟(国外网络更久),要的包都在这两个仓库里。卸载用 rpm -e:dnf remove 会把全部仓库的元数据再拉一遍
+RUN dnf install -y --repo OS --repo update --setopt=install_weak_deps=False --setopt=strict=True \
         shadow tar gzip findutils libaio util-linux procps-ng glibc-locale-source \
     && localedef --no-archive -i en_US -f UTF-8 en_US.UTF-8 \
-    && dnf remove -y glibc-locale-source \
+    && rpm -e glibc-locale-source \
     && dnf clean all && rm -rf /var/cache/dnf \
     && locale -a | grep -qx en_US.utf8
 

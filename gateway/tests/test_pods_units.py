@@ -195,3 +195,23 @@ def test_restarting_a_scaled_down_pod_starts_a_fresh_grace_period():
         d = {**d, "metadata": {**d["metadata"], "creationTimestamp": "2026-09-23T00:00:00Z"},
              "spec": {**d["spec"], "replicas": 1}}
         assert not reaper.should_reap(d, now + 119, reaper.DEFAULT_IDLE_SECONDS)
+
+
+# --- 镜像名:内网仓库前缀 --------------------------------------------------------
+
+def _images(mgr, kind):
+    docs = mgr._render(kind, "u1234")
+    dep = [d for d in docs if d.get("kind") == "Deployment"][0]
+    return [c["image"] for c in dep["spec"]["template"]["spec"]["containers"]]
+
+
+def test_user_pod_image_has_no_prefix_by_default():
+    assert _images(_mgr(FakeKube()), "runtime") == ["gaussdb-agent-runtime:t1"]
+
+
+def test_user_pod_image_carries_the_registry_prefix():
+    """**原来没有这一项。** 镜像推在内网仓库时,不带前缀的名字会被节点当成 docker.io 上的镜像去拉,
+    用户一登录就 ImagePullBackOff(504)。手册里对 k8s/templates/ 的 sed 改不到它:模板里是 ${IMAGE}。"""
+    mgr = _mgr(FakeKube(), image_registry="registry.example/gaussdb-agent/")
+    assert _images(mgr, "runtime") == ["registry.example/gaussdb-agent/gaussdb-agent-runtime:t1"]
+    assert _images(mgr, "kb-import") == ["registry.example/gaussdb-agent/gaussdb-agent-kb-import:t1"]

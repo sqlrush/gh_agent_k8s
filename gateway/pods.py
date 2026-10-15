@@ -55,10 +55,11 @@ class PodState:
 
 class Manager:
     def __init__(self, kube, namespace: str, image_tag: str, pull_policy: str,
-                 templates: pathlib.Path, activity_interval_s: int = 60):
+                 templates: pathlib.Path, activity_interval_s: int = 60, image_registry: str = ""):
         self.kube = kube
         self.namespace = namespace
         self.image_tag = image_tag
+        self.image_registry = image_registry.rstrip("/")
         self.pull_policy = pull_policy
         self.templates = pathlib.Path(templates)
         self.activity_interval_s = activity_interval_s
@@ -91,10 +92,14 @@ class Manager:
         text = (self.templates / ("%s.yaml" % kind)).read_text(encoding="utf-8")
         rendered = string.Template(text).substitute(
             USER_ID=user_id,
-            IMAGE="gaussdb-agent-%s:%s" % (kind, self.image_tag),
+            IMAGE=self.image_for(kind),
             IMAGE_PULL_POLICY=self.pull_policy,
             SUBPATH_ROOT="admins" if kind == KIND_KB_IMPORT else "users")
         return _split_yaml_docs(rendered)
+
+    def image_for(self, kind: str) -> str:
+        name = "gaussdb-agent-%s:%s" % (kind, self.image_tag)
+        return "%s/%s" % (self.image_registry, name) if self.image_registry else name
 
     def kinds_for(self, kb_admin: bool) -> List[str]:
         return [KIND_RUNTIME] + ([KIND_KB_IMPORT] if kb_admin else [])

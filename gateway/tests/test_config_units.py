@@ -98,3 +98,16 @@ def test_frontend_service_defaults_and_overrides():
     """/dash/* 代理到哪个 Service。默认 frontend;ConfigMap 键 FRONTEND_SERVICE 经 gateway.yaml 映射进来。"""
     assert cfg.load(_MIN).frontend_service == "frontend"
     assert cfg.load({**_MIN, "GATEWAY_FRONTEND_SERVICE": "dash-web"}).frontend_service == "dash-web"
+
+
+def test_image_registry_is_optional_and_normalised():
+    assert cfg.load(_MIN).image_registry == ""
+    assert cfg.load({**_MIN, "GATEWAY_IMAGE_REGISTRY": " registry.example/gaussdb-agent/ "}).image_registry \
+        == "registry.example/gaussdb-agent"
+
+
+@pytest.mark.parametrize("bad", ["http://registry.example/x", "registry.example/ x"])
+def test_image_registry_with_scheme_or_spaces_is_refused(bad):
+    """写成 http://... 的话 k8s 拒收镜像名,但要等到第一个用户登录才以 504 的形态暴露。"""
+    with pytest.raises(cfg.ConfigError):
+        cfg.load({**_MIN, "GATEWAY_IMAGE_REGISTRY": bad})

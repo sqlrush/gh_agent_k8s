@@ -34,6 +34,8 @@ class ConfigError(Exception):
 class Config:
     namespace: str
     image_tag: str
+    # 用户 Pod 的镜像仓库前缀(如 registry.example/gaussdb-agent)。空 = 不带前缀,只认节点上已载入的镜像。
+    image_registry: str = ""
     pull_policy: str = "IfNotPresent"
     port: int = DEFAULT_PORT
     user_header: str = DEFAULT_USER_HEADER
@@ -79,6 +81,14 @@ def load(env: Mapping[str, str]) -> Config:
         raise ConfigError("缺 GATEWAY_IMAGE_TAG(给用户 Pod 用哪个版本的镜像)——"
                           "不给默认值:默认成 latest 会让升级悄悄发生在下一次登录")
 
+    # 镜像仓库前缀:原来没有这一项,用户 Pod 的镜像名固定是 gaussdb-agent-runtime:<TAG>。
+    # 镜像推在内网仓库里时,节点会去 docker.io 拉这个名字 —— 用户一登录就卡 ImagePullBackOff(504),
+    # 只有把镜像直接载到节点上的环境(kind load / docker load)才正常,所以一直没暴露。
+    registry = (env.get("GATEWAY_IMAGE_REGISTRY") or "").strip().rstrip("/")
+    if registry and ("://" in registry or any(c.isspace() for c in registry)):
+        raise ConfigError("GATEWAY_IMAGE_REGISTRY=%r 不对:只写仓库前缀,不带 http:// 与空格,"
+                          "例如 registry.example/gaussdb-agent" % registry)
+
     secret = (env.get("GATEWAY_TRUST_SECRET") or "").strip()
     cidrs = tuple(c.strip() for c in (env.get("GATEWAY_TRUST_CIDRS") or "").split(",") if c.strip())
     if not secret and not cidrs:
@@ -101,7 +111,7 @@ def load(env: Mapping[str, str]) -> Config:
     idle = _int(env, "GATEWAY_IDLE_SECONDS", reaper.DEFAULT_IDLE_SECONDS, minimum=300)
 
     return Config(
-        namespace=ns, image_tag=tag,
+        namespace=ns, image_tag=tag, image_registry=registry,
         pull_policy=(env.get("GATEWAY_PULL_POLICY") or "IfNotPresent").strip(),
         port=_int(env, ENV_PORT, DEFAULT_PORT, minimum=1),
         user_header=(env.get("GATEWAY_USER_HEADER") or DEFAULT_USER_HEADER).strip(),

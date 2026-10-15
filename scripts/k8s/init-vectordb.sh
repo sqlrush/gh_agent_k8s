@@ -10,7 +10,10 @@
 # 为什么分两个用户:runtime Pod 对 kb/ 是只读挂载。给它读写的库用户,用户就能让模型
 # 在自己 Pod 里读出口令、直接改派生索引 —— 只读挂载那道门就白设了。
 set -uo pipefail
-C=${CONTEXT:-orbstack}; NS=gaussdb-agent
+# 默认用 kubectl 的当前上下文。原来写死 orbstack(本地测试集群的名字):客户照手册在 kind 等别的集群上执行,
+# 会报 context "orbstack" does not exist。要指定别的集群用 CONTEXT=<上下文名>。
+C=${CONTEXT:-$(kubectl config current-context 2>/dev/null)}; NS=gaussdb-agent
+[ -n "$C" ] || { echo "kubectl 没有当前上下文:先 kubectl config use-context <集群>,或用 CONTEXT=<上下文名> 指定"; exit 1; }
 SS=vectordb-0
 K(){ kubectl --context "$C" -n "$NS" "$@"; }
 # 在库里跑一句 SQL(超级用户 omm,走容器内的本地连接,口令不经网络也不进命令行历史)。

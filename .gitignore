@@ -22,3 +22,6 @@ __pycache__/
 # 本地构建产物
 docker/vendor/
 dist/
+
+# 第 5 个镜像构建时下载的二进制包与 gosu(scripts/build-vectordb-image.sh)
+docker/vectordb/pkg/

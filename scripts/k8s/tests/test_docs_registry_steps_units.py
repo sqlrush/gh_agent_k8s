@@ -23,7 +23,7 @@ def _sed_commands(doc):
     lines = (_ROOT / "docs" / doc).read_text(encoding="utf-8").splitlines()
     cmds = []
     for i, line in enumerate(lines):
-        if re.search(r'sed -i ("|\'\' ")s#(image: |USER_IMAGE_REGISTRY)', line):
+        if re.search(r'sed -i ("|\'\' ")s#\s*(image: |USER_IMAGE_REGISTRY)', line):
             cmd = line.strip()
             if cmd.startswith("|") and i > 0:          # grep -rl ... \ 的下一行
                 cmd = lines[i - 1].strip().rstrip("\\") + " " + cmd
@@ -36,7 +36,7 @@ def test_registry_steps_produce_valid_image_names(doc, tmp_path):
     cmds = _sed_commands(doc)
     assert cmds, "%s 里找不到改镜像地址的 sed" % doc
     shutil.copytree(_ROOT / "k8s", tmp_path / "k8s")
-    script = "REG=%s\n" % _REG + "\n".join(c.replace("sed -i ''", "sed -i.bak").replace("sed -i ", "sed -i.bak ")
+    script = "REG=%s\nTAG=t1\n" % _REG + "\n".join(c.replace("sed -i ''", "sed -i.bak").replace("sed -i ", "sed -i.bak ")
                                             for c in cmds)
     subprocess.run(["bash", "-c", script], cwd=tmp_path, check=True)
 

@@ -385,8 +385,8 @@ runtime_status() {
   bad "${D} 没就绪:重启 ${restarts} 次,上次退出 ${last},当前 ${waiting:-运行中}"
   [ -n "$pod" ] || { advise "${D} 没就绪" "先修本输出里的其他问题;都正常了还起不来,把下面两条命令的输出发给我方" \
       "${KN} describe pod -l user=${U} | tail -25"; return; }
-  # 上一个容器的日志可能已被回收(只剩一句 unable to retrieve),和当前容器的合在一起看
-  logs=$({ K logs "$pod" --previous --tail=15; K logs "$pod" --tail=15; } 2>/dev/null | tr -d '\r' | grep -v '^unable to retrieve container logs')
+  # 上一个容器的日志可能已被回收(只剩一句 unable to retrieve),和当前容器的合在一起看;两边常是同样几行,去重
+  logs=$({ K logs "$pod" --previous --tail=15; K logs "$pod" --tail=15; } 2>/dev/null | tr -d '\r' | grep -v '^unable to retrieve container logs' | awk '!seen[$0]++')
   local why="先修本输出里的其他问题;都正常了还起不来,把下面两条命令的输出发给我方"
   if [ "${NEED_DIR:-0}" = 1 ]; then
     why="多半就是 ② 的个人目录写不进:容器以 uid 1000 运行,写不进就退出。--fix 修好目录后会重启它"

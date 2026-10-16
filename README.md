@@ -83,6 +83,8 @@ bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-ver
 - 2026-09-18 `agent-v0.6`：新 skill `gaussdb-kb-init`（入库前标准化：word / pdf / txt / 照片 / 表格 → 六要素统一 md，再交 kb-import 入库；照片由模型看图，不做 OCR），**只在 kb-import 镜像里**；抽文本逻辑搬到 `common/kb/extract.py` 共用；gh_skill 同步 `skills-v12.13`。
 - 2026-09-18 `agent-v0.6.1`：标准化→导入的交接（案例出处指回客户原件、已定字段核对）。
 - 2026-09-19 `agent-v0.7`：SM2 签名换雅可比坐标 + 固定基点预计算 + 缓存公钥/ZA，单次 10.3 ms → 0.72 ms（**14x**，纯 Python 零依赖）；gh_skill 同步 `skills-v12.15`。
+- 2026-09-23 `agent-v1.1.0`–`v1.1.5`：大盘前端（第四个镜像 `gaussdb-agent-frontend`）与真数据全面测试的修复。
+- 2026-10-16 `agent-v1.2.0`：大盘两种风格与直达链接、按时间段筛选；网关起不来时说清原因、知识库管理员入口、读 `agent-roles`；新工号首次登录不再因目录属主崩溃；api 模式库名核对与实例别名；WDR 按时间段定窗口；一键诊断 `runtime-doctor.sh`；池化沙箱；第 5 个镜像（向量库）。逐条见 `docs/版本说明.md`。
 - 剩下的在客户侧：NFS 压测 5 天、客户确认、网关（阶段 5）、**签名口径逐项确认**（交付手册 §7）；frontend 改造看客户要求。路线图见 `docs/plans/2026-09-17-roadmap.md`。
 
 ## 安全

@@ -460,7 +460,7 @@ grep -rn "image:\|USER_IMAGE_REGISTRY:\|USER_IMAGE_TAG:" k8s/base/ | grep -v ":\
 > k8s/base/configmap-gateway.yaml:12:  USER_IMAGE_TAG: "agent-v1.1.5-21-g292a4b0-oc1.18.27"
 > k8s/base/configmap-gateway.yaml:16:  USER_IMAGE_REGISTRY: "<REG>"
 > k8s/base/frontend.yaml:25:          image: <REG>/gaussdb-agent-frontend:agent-v1.1.5-21-g292a4b0-oc1.18.27
-> k8s/base/gateway.yaml:82:          image: <REG>/gaussdb-agent-gateway:agent-v1.1.5-21-g292a4b0-oc1.18.27
+> k8s/base/gateway.yaml:91:          image: <REG>/gaussdb-agent-gateway:agent-v1.1.5-21-g292a4b0-oc1.18.27
 > k8s/base/vectordb.yaml:43:          image: <REG>/gaussdb-agent-vectordb:7.0.0-RC1
 > ```
 

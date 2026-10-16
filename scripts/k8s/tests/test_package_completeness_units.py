@@ -155,3 +155,25 @@ def test_the_sso_simulator_ships_with_the_package():
     assert (_ROOT / "k8s" / "tools" / "sso-sim.py").is_file()
     assert not (_ROOT / "scripts" / "k8s" / "sso-sim.py").exists(), "只留一份,别两处各改各的"
     assert "k8s/tools/sso-sim.py" in (_ROOT / "docs" / "现场测试-模拟SSO.md").read_text(encoding="utf-8")
+
+
+def test_packaged_files_are_readable_by_everyone():
+    """离线包里的 k8s/ 与 docs/ 要对所有人可读(tar 原样保留权限)。
+
+    2026-10-16 发现:在沙箱里改过的文件落到工作树上是 0600 —— runtime-doctor.sh、vectordb 的 Dockerfile
+    与几份原型都是。打进包后客户解压出来,换个账号(或 sudo 之外的运维账号)就读不了;前端那份已经因此
+    让 nginx 回过 403(docker/tests 有守卫)。这里把包里的两个目录也钉住。
+    """
+    import os
+    import stat
+    import subprocess
+    out = subprocess.run(["git", "-C", str(_ROOT), "ls-files", "-z", "k8s", "docs", "scripts"],
+                         capture_output=True, check=True).stdout.split(b"\0")
+    bad = []
+    for raw in out:
+        if not raw:
+            continue
+        p = _ROOT / os.fsdecode(raw)
+        if p.is_file() and not stat.S_IMODE(p.stat().st_mode) & stat.S_IROTH:
+            bad.append("%s(%o)" % (p.relative_to(_ROOT), stat.S_IMODE(p.stat().st_mode)))
+    assert not bad, "这些文件 others 不可读,打包前 chmod 644(脚本 755):%s" % bad

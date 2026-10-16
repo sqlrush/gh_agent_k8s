@@ -42,6 +42,8 @@ export const kpiVal = (k, d) => {
   return k.calc ? k.calc(d, secs) : val(d, k.dim, k.col);
 };
 export const cpuShare = (d) => val(d, 'loadprofile', 'CPU占DBtime');
+/** DB Time 秒数:过百取整加千分位,小值留小数(近乎空闲的窗口只有零点几秒,取整成 0 就看不出差别)。 */
+export const fmtDbt = (v) => (v === null || v === undefined ? '—' : Math.abs(v) >= 100 ? fmtInt(Math.round(v)) : String(+v.toFixed(Math.abs(v) < 1 ? 2 : 1)));
 const fmtK = (v) => (Math.abs(v) >= 1e4 ? fmtInt(v) : Math.abs(v) >= 100 ? fmtInt(Math.round(v)) : String(+v.toFixed(v < 1 ? 3 : 1)));
 /** 数值 + 单位:MiB 上千就换成 GiB(19763 MiB 显示成「2.0 万 MiB」没人读得懂),万 / 亿进单位。 */
 export function showK(v, u) {

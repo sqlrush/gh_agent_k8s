@@ -66,7 +66,7 @@ function secWdr(wm) {
   return sheet('sec-wdr', 'C1', '负载 · WDR 分析', `${esc(wm.name)} · snap ${esc(w.begin_id)}–${esc(w.end_id)}，${esc(w.duration_min)} 分钟，${esc(w.scope || '')} ${esc(w.node || '')}${p ? ` · 对比 snap ${esc(p.window.begin_id)}–${esc(p.window.end_id)}` : wm.sameSkipped ? ' · 没有可对比的窗口（之前分析的是同一个窗口）' : ' · 没有上一窗口'}`,
     `<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <h3 class="sh3">八项负载指标前后对照　<span>墨线从上一窗口画到本窗口；比例尺从 0 开始</span></h3>${P.pairs(W.KPIS, d, p, W.kpiVal, W.showK)}</div>
-      <aside class="rcol"><div class="box"><h4>DB Time</h4><div class="numb big"><span class="v">${dbt === null ? '—' : esc(fmtInt(Math.round(dbt)))}</span><span class="l">秒，平均 ${w.duration_min && dbt !== null ? (dbt / (w.duration_min * 60)).toFixed(1) : '—'} 个活跃会话</span><span class="s">${cpu === null ? '' : `CPU ${cpu.toFixed(0)}%，等待 ${(100 - cpu).toFixed(0)}%`}</span></div></div>
+      <aside class="rcol"><div class="box"><h4>DB Time</h4><div class="numb big"><span class="v">${dbt === null ? '—' : esc(W.fmtDbt(dbt))}</span><span class="l">秒，平均 ${w.duration_min && dbt !== null ? (dbt / (w.duration_min * 60)).toFixed(dbt / (w.duration_min * 60) < 1 ? 2 : 1) : '—'} 个活跃会话</span><span class="s">${cpu === null ? '' : `CPU ${cpu.toFixed(0)}%，等待 ${(100 - cpu).toFixed(0)}%`}</span></div></div>
         ${wItems.length ? `<div class="box"><h4>等待构成</h4>${P.bars(wItems, true)}</div>` : ''}${fs.length ? `<div class="box"><h4>越线发现</h4><ul class="flist">${fl}</ul></div>` : ''}${nat ? `<p class="fine">${nat}</p>` : ''}</aside></div>
       <h3 class="sh3">窗口内 Top SQL　<span>${esc(cn((ts && ts.headline) || ''))}</span></h3>${tsTable}`);
 }

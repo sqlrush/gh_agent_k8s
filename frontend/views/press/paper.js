@@ -45,7 +45,8 @@ function numbers(hm, tm, wm, km) {
       if (best) items.push([`${best.x.toFixed(1)}×`, `${H.title(best.f.dimension)}超出阈值`, `${H.metricName(best.f)} ${best.f.value}，阈值 ${best.f.threshold}`]);
     }
   }
-  if (wm.ok && wm.p) { const a = W.kpiVal(W.KPIS[0], wm.d), b = W.kpiVal(W.KPIS[0], wm.p); if (a !== null && b) items.push([`${(a / b).toFixed(1)}×`, 'DB Time 对上一窗口', `${fmtInt(Math.round(b))} → ${fmtInt(Math.round(a))} 秒`]); }
+  // DB Time 变化只在真有变化时上「本期数字」(×1.5 以上或降到三分之二以下);零点几秒的空闲窗口互比没有意义
+  if (wm.ok && wm.p) { const a = W.kpiVal(W.KPIS[0], wm.d), b = W.kpiVal(W.KPIS[0], wm.p); if (a !== null && b && (a / b >= 1.5 || a / b <= 0.67)) items.push([`${(a / b).toFixed(1)}×`, 'DB Time 对上一窗口', `${W.fmtDbt(b)} → ${W.fmtDbt(a)} 秒`]); }
   if (tm.ok && !tm.missing && tm.rows.length) { const top = [...tm.rows].sort((a, b) => b.total_sec - a.total_sec)[0];
     items.push([`${tm.share(top).toFixed(1)}%`, '耗时第一的语句占上榜', `${top.sql_id}${T.isSkipped(tm.tune[top.sql_id]) ? '，系统 SQL' : ''}`]); }
   if (km.ok && km.cov !== null) items.push([`${km.cov}%`, '知识库向量覆盖', `${km.misses.length} 类诊断发现查不到知识`]);

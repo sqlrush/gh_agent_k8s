@@ -6,7 +6,7 @@ import { rise } from '../../lib/motion.js';
 import { setModel } from '../../lib/store.js';
 import { dumbbell, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
-import { KPIS, kpiVal, cpuShare, showK, change, dimOf, wPrompt } from '../../pages/wdr.js';
+import { KPIS, kpiVal, cpuShare, showK, change, dimOf, wPrompt, fmtDbt } from '../../pages/wdr.js';
 import { pageHead, tile, insightCard, emptyHero, errorHero, runPicker } from './common.js';
 
 /** 横向条形清单:dim 的每一行一根,valCol 是取值列。hero=true 时不写附加列(主视觉里放不下)。 */
@@ -22,8 +22,8 @@ function hero(m) {
   const comp = cpu === null ? '' : `<div class="stackbar"><i style="flex:${cpu};background:var(--sb-cpu)"${tipAttr(`<b>CPU ${cpu.toFixed(1)}%</b>`)}></i><i style="flex:${100 - cpu};background:var(--sb-wait)"${tipAttr(`<b>等待 ${(100 - cpu).toFixed(1)}%</b><div class="d">锁、IO、睡眠等</div>`)}></i></div>
     <div class="legend2"><span><i class="sw" style="background:var(--sb-cpu)"></i>CPU ${cpu.toFixed(1)}%</span><span><i class="sw" style="background:var(--sb-wait)"></i>等待 ${(100 - cpu).toFixed(1)}%</span></div>`;
   const dbBox = `<div class="glass dbt rise"${rise()}><div class="title">${I.clock}DB Time<span class="t3">${esc(w.duration_min)} 分钟窗口</span></div>
-    <div class="big num">${dbt === null ? '—' : cu(fmtInt(Math.round(dbt)))}<small>秒</small></div>
-    <div class="sub">平均 <b>${w.duration_min && dbt !== null ? (dbt / (w.duration_min * 60)).toFixed(1) : '—'}</b> 个活跃会话${ch ? `<span class="chg ${ch.cls}">${ch.dir > 0 ? I.up : ch.dir < 0 ? I.dn : ''}${esc(ch.text)}</span><span class="t3">上一窗口 ${esc(fmtInt(Math.round(pdb)))} 秒</span>` : ''}</div>
+    <div class="big num">${dbt === null ? '—' : cu(fmtDbt(dbt))}<small>秒</small></div>
+    <div class="sub">平均 <b>${w.duration_min && dbt !== null ? (dbt / (w.duration_min * 60)).toFixed(dbt / (w.duration_min * 60) < 1 ? 2 : 1) : '—'}</b> 个活跃会话${ch ? `<span class="chg ${ch.cls}">${ch.dir > 0 ? I.up : ch.dir < 0 ? I.dn : ''}${esc(ch.text)}</span><span class="t3">上一窗口 ${esc(fmtDbt(pdb))} 秒</span>` : ''}</div>
     ${comp}<div class="subt">等待按等待类拆开（占等待总时间）</div>${hb(waits, waits ? (waits.headers || []).length - 1 : 0, '%', true)}</div>`;
   const dumbs = `<div class="db-head"><b>负载对比</b><span>空心点是上一窗口${p ? `（snap ${esc(p.window.begin_id)}–${esc(p.window.end_id)}）` : ''}，实心点是本窗口；比例尺从 0 开始</span><span class="legend2" style="margin:0 0 0 auto"><span><i class="sw" style="background:var(--h-crit)"></i>明显变坏</span><span><i class="sw" style="background:var(--h-warn)"></i>变坏</span><span><i class="sw" style="background:var(--h-ok)"></i>变好</span><span><i class="sw" style="background:var(--h-t3)"></i>无好坏之分</span></span></div>
     <div class="dumbbells">${KPIS.map((k) => dumbbell(k, kpiVal(k, d), kpiVal(k, p), showK, rise)).join('')}</div>`;

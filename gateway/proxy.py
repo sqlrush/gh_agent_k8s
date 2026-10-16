@@ -27,7 +27,7 @@ _HOP_BY_HOP = frozenset({
     "te", "trailers", "transfer-encoding", "upgrade", "content-length", "host",
 })
 # 网关自己用的头,不往后端传。
-_GATEWAY_ONLY = frozenset({"x-agent-trust", "authorization"})
+_GATEWAY_ONLY = frozenset({"x-agent-trust", "authorization", "x-agent-target"})
 
 CHUNK = 8192
 UPSTREAM_USERNAME = "opencode"

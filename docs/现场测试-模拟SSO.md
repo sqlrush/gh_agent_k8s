@@ -115,7 +115,7 @@ python3 k8s/tools/sso-sim.py 18092 18089 u0003 ~/.agent-trust kb-admin
 ```
 
 网关会为这个工号另建一个知识库导入容器 `kb-import-u0003`（`kubectl -n gaussdb-agent get deploy` 能看到）。
-注意：经网关打开的对话页进入的仍是这个工号的诊断容器。
+对话页默认进诊断容器；浏览器打开 `http://127.0.0.1:18092/kb-import/` 切到导入容器，`/runtime/` 切回（接入手册 §2.5）。
 
 **贵方改过工号头 / 角色头的名字**（`gateway-config` 的 `USER_HEADER` / `ROLES_HEADER`）：模拟 SSO 要用同样的名字，否则 403：
 

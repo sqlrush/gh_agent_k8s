@@ -231,23 +231,34 @@ class Manager:
         for s in ("grmp-token-%s" % user_id, "pod-auth-%s" % user_id):
             self.kube.delete(CORE, "secrets", s)
         with self._lock:
-            self._last_touch.pop(user_id, None)
+            for kind in (KIND_RUNTIME, KIND_KB_IMPORT):
+                self._last_touch.pop("%s/%s" % (kind, user_id), None)
+
+    def retire(self, user_id: str, kind: str) -> None:
+        """闲置回收(delete 模式)用:只删这一个容器的 Deployment 与 Service。
+        口令 Secret 与平台签发的 grmp-token **都留着** —— 下次登录直接按模板重建。"""
+        name = "%s-%s" % (kind, user_id)
+        self.kube.delete(APPS, "deployments", name)
+        self.kube.delete(CORE, "services", name)
+        with self._lock:
+            self._last_touch.pop("%s/%s" % (kind, user_id), None)
 
     # -- 活动时间 -----------------------------------------------------------
 
-    def touch(self, user_id: str, now: Optional[float] = None) -> bool:
-        """记一次活动。节流:窗口内重复调用直接返回 False,不写 k8s。
+    def touch(self, user_id: str, now: Optional[float] = None, kind: str = KIND_RUNTIME) -> bool:
+        """记一次活动(记在正在用的那个容器上,两个容器各自节流)。窗口内重复调用直接返回 False,不写 k8s。
 
         Deployment 已被删(404)→ 抛 EnvironmentGone;k8s 一时写不进(连不上 / 5xx / 超时)
         → 记一行日志、返回 False,**不打断用户正在看的流**,下一个节流窗口再写。
         """
         now = time.time() if now is None else now
+        key = "%s/%s" % (kind, user_id)
         with self._lock:
-            last = self._last_touch.get(user_id, 0.0)
+            last = self._last_touch.get(key, 0.0)
             if now - last < self.activity_interval_s:
                 return False
-            self._last_touch[user_id] = now
-        name = "%s-%s" % (KIND_RUNTIME, user_id)
+            self._last_touch[key] = now
+        name = "%s-%s" % (kind, user_id)
         try:
             self.kube.patch(APPS, "deployments", name, {
                 "metadata": {"annotations": {ANNOTATION_ACTIVITY: "%d" % int(now)}}})

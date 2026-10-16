@@ -22,7 +22,7 @@ from __future__ import annotations
 import calendar
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 DEFAULT_IDLE_SECONDS = 1800          # 30 分钟
 DEFAULT_SWEEP_SECONDS = 120
@@ -34,12 +34,18 @@ MODE_SCALE = "scale"
 _PREFIXES = ("runtime-", "kb-import-")
 
 
-def user_of(deployment_name: str) -> Optional[str]:
-    """从 Deployment 名反推工号。不是用户 Pod(vectordb / gateway 之类)返回 None。"""
+def parse(deployment_name: str) -> Optional[Tuple[str, str]]:
+    """Deployment 名 → (形态, 工号)。不是用户 Pod(vectordb / gateway 之类)返回 None。"""
     for p in _PREFIXES:
         if deployment_name.startswith(p) and len(deployment_name) > len(p):
-            return deployment_name[len(p):]
+            return p[:-1], deployment_name[len(p):]
     return None
+
+
+def user_of(deployment_name: str) -> Optional[str]:
+    """从 Deployment 名反推工号。不是用户 Pod 返回 None。"""
+    got = parse(deployment_name)
+    return got[1] if got else None
 
 
 def _parse_rfc3339(text: str) -> Optional[float]:
@@ -100,13 +106,17 @@ class Reaper:
             return 0
         for dep in items:
             name = ((dep.get("metadata") or {}).get("name") or "")
-            uid = user_of(name)
-            if not uid or not should_reap(dep, now, self.idle_s):
+            got = parse(name)
+            if not got or not should_reap(dep, now, self.idle_s):
                 continue
+            kind, uid = got
             try:
                 if self.mode == MODE_DELETE:
-                    self.m.remove(uid)
-                    self._log("闲置回收:已删除 %s 的 Pod(NAS 数据保留)" % uid)
+                    # **只删闲置的这一个**(Deployment + Service)。以前调 remove(工号):两个容器连同口令与
+                    # 平台签发的 grmp-token 一起删 —— 管理员的导入容器一闲置,正在用的诊断容器跟着没了,
+                    # 下次登录还因缺令牌报「尚未开通」(2026-10-16 抓到)。
+                    self.m.retire(uid, kind)
+                    self._log("闲置回收:已删除 %s(NAS 数据、口令与令牌保留,下次登录重建)" % name)
                 else:
                     self.m.kube.patch("/apis/apps/v1", "deployments", name, {"spec": {"replicas": 0}})
                     self._log("闲置回收:已缩容 %s 到 0 副本" % name)

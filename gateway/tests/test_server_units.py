@@ -68,6 +68,7 @@ class _Upstream(BaseHTTPRequestHandler):
         body = json.dumps({"auth": self.headers.get("Authorization", ""),
                            "fwd_user": self.headers.get("X-Forwarded-User", ""),
                            "trust": self.headers.get("X-Agent-Trust", ""),
+                           "target": self.headers.get("X-Agent-Target", ""),
                            "path": self.path}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -365,7 +366,7 @@ def test_stream_ends_cleanly_when_the_environment_is_deleted_midway(stack, monke
     logs = []
     app.log = logs.append
 
-    def gone(_uid, now=None):
+    def gone(_uid, now=None, kind=pods.KIND_RUNTIME):
         raise pods.EnvironmentGone("runtime-u1234 已不存在")
     monkeypatch.setattr(app.mgr, "touch", gone)
     port = int(base.rsplit(":", 1)[1])
@@ -382,7 +383,7 @@ def test_stream_ends_cleanly_when_the_environment_is_deleted_midway(stack, monke
 def _seen_kb_admin(stack, monkeypatch, headers):
     base, kube, app = stack
     seen = []
-    monkeypatch.setattr(app, "ensure_ready", lambda uid, kb_admin: (seen.append((uid, kb_admin)), "pw")[1])
+    monkeypatch.setattr(app, "ensure_ready", lambda uid, kb_admin, kind=pods.KIND_RUNTIME: (seen.append((uid, kb_admin)), "pw")[1])
     _req(base, "/whoami", {idt.HEADER_TRUST: SECRET, **headers})
     return seen
 
@@ -458,3 +459,77 @@ def test_admin_api_gets_the_full_reason(stack, monkeypatch):
     assert code == 503
     j = json.loads(body)
     assert j["category"] == dg.CONFIG and "model-api" in j["error"] and j["permanent"] is True
+
+
+
+# --- 管理员经网关进导入容器(v1.1.6 待修第 6 项) ------------------------------------
+# 网关会给知识库管理员建 kb-import-<工号>,但以前所有对话请求都只转到 runtime —— 导入容器建出来了却没有入口。
+# 路径前缀走不通(opencode 网页用根绝对路径),所以按「目标」选:SSO 可给管理员入口加请求头
+# X-Agent-Target: kb-import;浏览器访问 /kb-import/ 设 cookie 切过去,/runtime/ 切回。每个请求都重新校验管理员身份。
+
+def _raw(base, path, headers):
+    import http.client
+    port = int(base.rsplit(":", 1)[1])
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request("GET", path, headers=headers)
+    r = c.getresponse()
+    out = (r.status, dict(r.getheaders()), r.read().decode("utf-8"))
+    c.close()
+    return out
+
+
+ADMIN_H = {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u2001", "X-Agent-Roles": "kb-admin"}
+
+
+def test_admin_switches_to_the_import_container_and_back(stack):
+    base, kube, app = stack
+    code, h, _ = _raw(base, "/kb-import/", ADMIN_H)
+    assert code == 303 and h["Location"] == server.LANDING
+    assert "gsa_target=kb-import" in h["Set-Cookie"] and "HttpOnly" in h["Set-Cookie"] and "Path=/" in h["Set-Cookie"]
+
+    code, body = _req(base, "/session", {**ADMIN_H, "Cookie": "gsa_target=kb-import"})
+    assert code == 200 and app.asked[-1] == ("kb-import-u2001.ns.svc", 4096)
+    assert json.loads(body)["auth"].startswith("Basic "), "导入容器同样要注入口令"
+    assert any(n == "kb-import-u2001" for k, n, _p in kube.patched), "在导入容器里的活动要记在导入容器上,否则它闲置 30 分钟就被缩掉"
+
+    code, h, _ = _raw(base, "/runtime/", ADMIN_H)
+    assert code == 303 and "gsa_target=" in h["Set-Cookie"] and "Max-Age=0" in h["Set-Cookie"]
+
+
+def test_sso_can_route_admins_with_a_header_and_it_is_not_forwarded(stack):
+    base, _k, app = stack
+    code, body = _req(base, "/session", {**ADMIN_H, "X-Agent-Target": "kb-import"})
+    assert code == 200 and app.asked[-1] == ("kb-import-u2001.ns.svc", 4096)
+    assert json.loads(body)["target"] == "", "选目标的头是给网关的,不往容器里传"
+
+
+def test_non_admin_cannot_switch_and_a_forged_cookie_goes_to_runtime(stack):
+    base, _k, app = stack
+    user = {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u3001"}
+    code, _h, body = _raw(base, "/kb-import/", user)
+    assert code == 403 and "知识库管理员" in body
+    code, _ = _req(base, "/session", {**user, "Cookie": "gsa_target=kb-import", "X-Agent-Target": "kb-import"})
+    assert code == 200 and app.asked[-1] == ("runtime-u3001.ns.svc", 4096)
+
+
+def test_reports_and_dash_ignore_the_target(stack):
+    base, _k, app = stack
+    _req(base, "/reports/health/latest.json", {**ADMIN_H, "Cookie": "gsa_target=kb-import"})
+    assert app.asked[-1] == ("runtime-u2001.ns.svc", 4097), "报告只在诊断容器里"
+
+
+def test_import_container_scaled_to_zero_is_brought_back_on_the_hot_path(stack, monkeypatch):
+    """以前热路径只看 runtime 就绪:导入容器被回收器缩到 0 之后,管理员再也进不去(网关不会再拉起它)。"""
+    base, kube, app = stack
+    applied = []
+    monkeypatch.setattr(pods.Manager, "state",
+                        lambda self, uid, kind=pods.KIND_RUNTIME:
+                        pods.PodState(uid, kind, exists=True,
+                                      ready=(kind == pods.KIND_RUNTIME or bool(applied))))
+    monkeypatch.setattr(pods.Manager, "require_prerequisites", lambda self, uid, kb: None)
+    real = pods.Manager.ensure
+    monkeypatch.setattr(pods.Manager, "ensure",
+                        lambda self, uid, kb, now=None: (applied.append((uid, kb)), real(self, uid, kb, now))[1])
+    code, _ = _req(base, "/session", {**ADMIN_H, "X-Agent-Target": "kb-import"})
+    assert code == 200 and applied == [("u2001", True)]
+    assert app.asked[-1] == ("kb-import-u2001.ns.svc", 4096)

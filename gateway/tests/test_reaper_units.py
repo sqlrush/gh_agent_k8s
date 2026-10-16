@@ -87,3 +87,50 @@ def test_user_id_is_derived_from_the_deployment_name():
 def test_grace_is_configurable_and_defaults_generously():
     """模型跑长任务时可能几分钟没有任何流量(它在等 LLM 回包),宽限要明显大于单个回合。"""
     assert reaper.DEFAULT_IDLE_SECONDS >= 1800
+
+
+
+class _Mgr:
+    """只记回收器调了什么。"""
+
+    def __init__(self, deps):
+        self.deps, self.retired, self.removed, self.patched = deps, [], [], []
+        mgr = self
+
+        class _K:
+            def list(self, api, kind, label_selector="", field_selector=""):
+                return {"items": mgr.deps}
+
+            def patch(self, api, kind, name, patch):
+                mgr.patched.append((name, patch))
+        self.kube = _K()
+
+    def retire(self, uid, kind):
+        self.retired.append((kind, uid))
+
+    def remove(self, uid):
+        self.removed.append(uid)
+
+
+def test_delete_mode_retires_only_the_idle_container_and_keeps_the_tokens():
+    """**2026-10-16 抓到。** delete 模式以前对闲置的 Deployment 调 remove(工号) —— 那会删掉这个人的
+    **两个**容器和**两个** Secret,其中 grmp-token-<工号> 是平台按人签发的、网关建不出来:
+    管理员的导入容器一闲置,正在用的诊断容器跟着没了,下次登录还因为缺令牌报「尚未开通」。
+    回收只该删闲置的那一个 Deployment 与它的 Service。"""
+    deps = [_dep("kb-import-u2001", last_activity=NOW - 4000), _dep("runtime-u2001", last_activity=NOW - 10)]
+    m = _Mgr(deps)
+    assert reaper.Reaper(m, mode=reaper.MODE_DELETE, idle_s=IDLE, log=lambda _x: None).sweep(now=NOW) == 1
+    assert m.retired == [("kb-import", "u2001")] and m.removed == []
+
+
+def test_scale_mode_scales_just_that_deployment():
+    deps = [_dep("kb-import-u2001", last_activity=NOW - 4000), _dep("runtime-u2001", last_activity=NOW - 10)]
+    m = _Mgr(deps)
+    reaper.Reaper(m, mode=reaper.MODE_SCALE, idle_s=IDLE, log=lambda _x: None).sweep(now=NOW)
+    assert m.patched == [("kb-import-u2001", {"spec": {"replicas": 0}})] and not m.retired
+
+
+def test_kind_and_user_are_parsed_from_the_deployment_name():
+    assert reaper.parse("kb-import-u2001") == ("kb-import", "u2001")
+    assert reaper.parse("runtime-u9-a") == ("runtime", "u9-a")
+    assert reaper.parse("vectordb") is None and reaper.parse("runtime-") is None

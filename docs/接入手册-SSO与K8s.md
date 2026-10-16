@@ -182,6 +182,20 @@ location /gaussdb-agent/ {
 - 大写会被转成小写 —— 贵方须保证大小写不敏感下仍然唯一
 - 不合法的工号直接拒绝，**错误信息不回显原值**（避免注入落点）
 
+### 2.5 知识库管理员怎么进导入容器
+
+管理员（角色头带 `KB_ADMIN_ROLES` 之一，或工号登记在 ConfigMap `agent-roles` 里）登录时，
+网关除了诊断容器 `runtime-<工号>` 还会建导入容器 `kb-import-<工号>`。对话默认进诊断容器，进导入容器有两种方式：
+
+| 方式 | 怎么做 | 适合 |
+|---|---|---|
+| 浏览器切换 | 访问 `<网关地址>/kb-import/`，网关记一个 cookie 并跳到对话页；`<网关地址>/runtime/` 切回诊断容器 | 同一个入口，管理员自己切 |
+| 单独的入口 | 贵方 SSO / WAF 为管理员另配一个入口，转发时加请求头 `X-Agent-Target: kb-import` | 想给管理员一个固定书签、或 `opencode attach` 命令行 |
+
+- **每个请求都在网关重新校验管理员身份**：不是管理员时 `/kb-import/` 回 403，带着 cookie 或请求头也只会进诊断容器。
+- 大盘（`/dash`）与报告（`/reports`）只在诊断容器里，不受切换影响。
+- cookie 按站点生效：切到导入容器后，这个浏览器里新开的对话标签页也在导入容器里，要回诊断容器访问一次 `/runtime/`。
+
 ---
 
 ## 3. 接入贵方的 K8s
@@ -299,7 +313,7 @@ GET    /admin/pods            列出全部
 | `USER_HEADER` | `X-Agent-User` | 工号在哪个头里 |
 | `ROLES_HEADER` | `X-Agent-Roles` | 角色在哪个头里 |
 | `KB_ADMIN_ROLES` | `kb-admin` | 哪些角色值算知识库管理员 |
-| `REAP_MODE` | `scale` | `scale`=缩到 0 副本；`delete`=删 Deployment。见 §7.2 |
+| `REAP_MODE` | `scale` | `scale`=缩到 0 副本；`delete`=删闲置容器的 Deployment 与 Service。见 §7.2 |
 | `IDLE_SECONDS` | `1800` | 闲置多久回收。**下限 300 秒**，低于此值拒绝启动 |
 | `TRUST_CIDRS` | 空 | 允许携带工号头的来源网段 |
 
@@ -447,7 +461,7 @@ embeddings: {source: url, base_url: http://<贵方端点>/v1, model: bge-m3, dim
 | 模式 | 动作 | 适用 |
 |---|---|---|
 | `scale`（默认） | 缩到 0 副本 | 省掉镜像拉取与冷启动。实测重连 7.6 秒拉起，会话原样还在 |
-| `delete` | 删 Deployment / Service / Secret | 彻底释放。下次登录重建，NAS 数据在，**不需要任何还原步骤** |
+| `delete` | 删闲置的那个容器的 Deployment 与 Service | 彻底释放。口令与 GRMP 令牌 Secret 保留，下次登录按模板重建，NAS 数据在，**不需要任何还原步骤** |
 
 **两种模式都不动 PVC 与 NAS 目录。**
 

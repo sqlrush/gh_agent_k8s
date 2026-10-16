@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import http.client
+import http.cookies
 import json
 import threading
 import time
@@ -31,6 +32,14 @@ DIAG_EVERY = 4                      # 每轮询这么多次读一次 Pod 状态:
 
 ROUTE_DASH, ROUTE_REPORTS, ROUTE_OPENCODE = "dash", "reports", "opencode"
 REPORTS_PORT = 4097          # 用户 Pod 里 podctl serve-reports 的端口(docker/entrypoint.sh)
+
+# 对话请求转到哪个容器(知识库管理员才有 kb-import)。路径前缀走不通 —— opencode 网页用根绝对路径,
+# 所以按「目标」选:SSO 可给管理员入口加请求头;浏览器访问切换地址设 cookie。都在网关校验身份。
+TARGET_HEADER = "X-Agent-Target"
+TARGET_COOKIE = "gsa_target"
+SWITCH_PATHS = {"/kb-import": pods.KIND_KB_IMPORT, "/runtime": pods.KIND_RUNTIME}
+# 切换后落到 opencode 的项目页:base64url("/data/state/workspace"),两个容器同一个工作目录(docker/entrypoint.sh)
+LANDING = "/L2RhdGEvc3RhdGUvd29ya3NwYWNl"
 
 
 def route_for(path: str) -> str:
@@ -202,6 +211,10 @@ class _Handler(BaseHTTPRequestHandler):
             # 不回细节:这是安全边界,错误信息会告诉试探者哪一步过了
             return self._text(403, "无法确认身份。请经统一认证入口访问。")
 
+        switch = SWITCH_PATHS.get(self.path.split("?", 1)[0].rstrip("/"))
+        if switch is not None:
+            return self._switch(who, switch)
+
         route = route_for(self.path)
         body = self._read_body()
         if body is None and int(self.headers.get("Content-Length") or 0) > 0:
@@ -215,8 +228,10 @@ class _Handler(BaseHTTPRequestHandler):
             path = self.path
         else:
             kb_admin = self.app.is_kb_admin(who)
+            # 报告只在诊断容器里;对话按目标选
+            kind = self._target(who, kb_admin) if route == ROUTE_OPENCODE else pods.KIND_RUNTIME
             try:
-                password = self.app.ensure_ready(who.user_id, kb_admin)
+                password = self.app.ensure_ready(who.user_id, kb_admin, kind)
             except pods.PrerequisiteMissing as exc:
                 # 配置缺失,等下去不会好。**日志里写清缺什么**,回给用户的话只说找谁 ——
                 # 报成「正在启动,请稍后重试」会让用户一直刷,而运维永远看不到原因。
@@ -232,7 +247,7 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as exc:                    # noqa: BLE001
                 self.app.log("为 %s 准备环境失败:%s" % (who.user_id, exc))
                 return self._text(502, "环境准备失败,请联系管理员。")
-            host = "runtime-%s.%s.svc" % (who.user_id, self.app.cfg.namespace)
+            host = "%s-%s.%s.svc" % (kind, who.user_id, self.app.cfg.namespace)
             if route == ROUTE_REPORTS:
                 # 报告端口没有口令(鉴权就是「网关只把本人的请求路由过来」);它以 reports/ 为根
                 up = proxy.Upstream(host, REPORTS_PORT)
@@ -265,7 +280,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self._streaming = True
         # 建连时先记一次,免得长连接期间被判闲置;静态页除外
-        touch = (lambda: self.app.mgr.touch(who.user_id)) if route != ROUTE_DASH else (lambda: None)
+        touch = (lambda: self.app.mgr.touch(who.user_id, kind=kind)) if route != ROUTE_DASH else (lambda: None)
         try:
             touch()
             proxy.pump(resp, self._write_chunk, self.wfile.flush, on_bytes=lambda _n: touch())
@@ -282,6 +297,37 @@ class _Handler(BaseHTTPRequestHandler):
             pass                                     # 用户关了页面,正常
         finally:
             resp.close()
+
+    def _target(self, who: idt.Identity, kb_admin: bool) -> str:
+        """请求头优先(SSO 给管理员入口加的),其次 cookie(浏览器切换过)。不是管理员一律回诊断容器。"""
+        want = (self.headers.get(TARGET_HEADER) or "").strip().lower()
+        if not want:
+            jar = http.cookies.SimpleCookie()
+            try:
+                jar.load(self.headers.get("Cookie") or "")
+            except http.cookies.CookieError:
+                pass
+            want = jar[TARGET_COOKIE].value if TARGET_COOKIE in jar else ""
+        if want == pods.KIND_KB_IMPORT:
+            if kb_admin:
+                return pods.KIND_KB_IMPORT
+            self.app.log("%s 要进导入容器但不是知识库管理员,转到诊断容器" % who.user_id)
+        return pods.KIND_RUNTIME
+
+    def _switch(self, who: idt.Identity, kind: str) -> None:
+        """/kb-import/ 切到导入容器,/runtime/ 切回;之后落到对话页。"""
+        if kind == pods.KIND_KB_IMPORT and not self.app.is_kb_admin(who):
+            return self._text(403, "您不是知识库管理员,没有导入容器。")
+        if kind == pods.KIND_KB_IMPORT:
+            cookie = "%s=%s; Path=/; HttpOnly; SameSite=Lax" % (TARGET_COOKIE, kind)
+        else:
+            cookie = "%s=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0" % TARGET_COOKIE
+        self.send_response(303)
+        self.send_header("Location", LANDING)
+        self.send_header("Set-Cookie", cookie)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _write_chunk(self, data: bytes) -> None:
         self.wfile.write(b"%x\r\n" % len(data) + data + b"\r\n")
@@ -303,16 +349,17 @@ class App:
             return True
         return who.user_id in self.mgr.kb_admins()
 
-    def ensure_ready(self, user_id: str, kb_admin: bool) -> str:
-        """保证这个人的 Pod 存在且就绪,返回它的 Basic 口令。
+    def ensure_ready(self, user_id: str, kb_admin: bool, kind: str = pods.KIND_RUNTIME) -> str:
+        """保证这个人的 Pod(kind 那一个)存在且就绪,返回它的 Basic 口令(两个容器同一个口令)。
 
         同一个人的并发请求只让第一个去建 —— 否则浏览器一开就是十几个并发请求,
-        每个都去 apply 一遍 Deployment。
+        每个都去 apply 一遍 Deployment。**按 kind 判就绪**:导入容器被回收器缩到 0 后,
+        runtime 仍就绪 —— 只看 runtime 的话管理员就再也进不去导入容器了。
         """
         with self._lock:
             lock = self._waiters.setdefault(user_id, threading.Lock())
         with lock:
-            st = self.mgr.state(user_id)
+            st = self.mgr.state(user_id, kind)
             if st.exists and st.ready:
                 # **热路径上不做 apply。** 两个原因:
                 # ① server-side apply 会按模板重写对象,而模板里没有 last-activity 注解,
@@ -326,16 +373,16 @@ class App:
             deadline = start + self.cfg.ready_timeout_s
             polls = 0
             while time.time() < deadline:
-                if self.mgr.state(user_id).ready:
+                if self.mgr.state(user_id, kind).ready:
                     return password
                 polls += 1
                 if polls % DIAG_EVERY == 0:
                     # 拉不到镜像 / 配置缺失 / 个人目录初始化失败:等满超时也不会好,不让用户白等
-                    d = self.mgr.diagnose(user_id)
+                    d = self.mgr.diagnose(user_id, kind)
                     if d is not None and d.permanent:
                         raise NotReady(d, int(time.time() - start))
                 time.sleep(POLL_S)
-            raise NotReady(self.mgr.diagnose(user_id), self.cfg.ready_timeout_s)
+            raise NotReady(self.mgr.diagnose(user_id, kind), self.cfg.ready_timeout_s)
 
     def list_pods(self) -> list:
         from . import reaper

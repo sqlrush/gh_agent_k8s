@@ -313,3 +313,20 @@ def test_diagnose_without_permission_logs_once_and_returns_none():
     m = _mgr(NoPods(), log=logs.append)
     assert m.diagnose("u1234") is None and m.diagnose("u1234") is None
     assert len(logs) == 1 and "gateway.yaml" in logs[0]
+
+
+
+def test_touch_can_record_activity_on_the_import_container_separately():
+    k = FakeKube()
+    m = _mgr(k, activity_interval_s=60)
+    m.touch("u2001", now=1000.0)
+    m.touch("u2001", now=1001.0, kind=pods.KIND_KB_IMPORT)
+    assert [n for _k, n, _p in k.patched] == ["runtime-u2001", "kb-import-u2001"], "两个容器各自节流、各记各的"
+
+
+
+def test_retire_deletes_one_container_and_nothing_else():
+    k = FakeKube()
+    _mgr(k).retire("u2001", pods.KIND_KB_IMPORT)
+    assert sorted(k.deleted) == [("deployments", "kb-import-u2001"), ("services", "kb-import-u2001")], \
+        "闲置回收不能删口令和平台签发的 grmp-token"

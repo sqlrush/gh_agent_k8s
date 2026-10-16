@@ -88,6 +88,35 @@ def render_opencode_config(env: Mapping[str, str]) -> dict:
     }
 
 
+_ALIAS_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+_ALIAS_LINE = re.compile(r"^\s*(?P<name>[^=\s]+)\s*=\s*(?P<ip>[^/\s]+)\s*/\s*(?P<db>[^/\s]+)\s*$")
+
+
+def parse_instance_aliases(text: str):
+    """GRMP_INSTANCE_ALIASES → (别名清单, 写错的行)。每项 `别名=实例IP/库名  # 说明`,换行或分号分隔。
+
+    写错的行**不让 Pod 起不来**(只影响这一个功能),但也不悄悄丢掉:原文进 instance_aliases_errors,
+    login --list 时说出来。别名重复(不分大小写)只认第一个。
+    """
+    items, errors, seen = [], [], set()
+    parts = [p for line in (text or "").splitlines() for p in line.split(";")]
+    for i, raw in enumerate(p for p in parts if p.strip()):
+        body, _, note = raw.partition("#")
+        m = _ALIAS_LINE.match(body)
+        if not m:
+            errors.append("第 %d 项「%s」:要写成 别名=实例IP/库名" % (i + 1, raw.strip()))
+            continue
+        name, ip, db = m.group("name"), m.group("ip"), m.group("db")
+        if not _ALIAS_NAME.match(name):
+            errors.append("第 %d 项「%s」:别名只能用字母、数字、._-" % (i + 1, raw.strip()))
+        elif name.lower() in seen:
+            errors.append("第 %d 项「%s」:别名 %s 重复,只认第一个" % (i + 1, raw.strip(), name))
+        else:
+            seen.add(name.lower())
+            items.append({"name": name, "ip": ip, "database": db, "note": note.strip()})
+    return items, errors
+
+
 def render_gdaa_config(env: Mapping[str, str]) -> str:
     host = env.get("GRMP_API_HOST")
     if not host:
@@ -98,13 +127,20 @@ def render_gdaa_config(env: Mapping[str, str]) -> str:
     appkey = env.get("GRMP_APPKEY", "")
     if appkey and not env.get("GRMP_SM2_PRIVATE_KEY"):
         raise ConfigError("配了 GRMP_APPKEY=%s 却没有 GRMP_SM2_PRIVATE_KEY(SM2 私钥由平台以 Secret grmp-sm2 注入)" % appkey)
-    return ("# 由 podctl 在 Pod 启动时按环境变量生成;不要手工改,重启即覆盖。\n"
+    text = ("# 由 podctl 在 Pod 启动时按环境变量生成;不要手工改,重启即覆盖。\n"
             "connection_mode: api\n"
             "api_connection:\n"
             "  - host: %s\n"
             "    port: %d\n"
             "    token_env: GRMP_AUTH_TOKEN\n" % (host, port)
             + ("    appkey_env: GRMP_APPKEY\n" if appkey else ""))
+    aliases, errors = parse_instance_aliases(env.get("GRMP_INSTANCE_ALIASES", ""))
+    # json.dumps 的结果是合法的 YAML 流式写法:中文、引号、冒号都不用另外转义
+    if aliases:
+        text += "instance_aliases:\n" + "".join("  - %s\n" % json.dumps(a, ensure_ascii=False) for a in aliases)
+    if errors:
+        text += "instance_aliases_errors:\n" + "".join("  - %s\n" % json.dumps(e, ensure_ascii=False) for e in errors)
+    return text
 
 
 def _write_private(path: pathlib.Path, text: str) -> None:

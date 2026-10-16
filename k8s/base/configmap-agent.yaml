@@ -28,6 +28,9 @@ data:
   # 填了字段名而 GSDB_USER_ID 为空时,建连接就报错——不会悄悄发一个空工号。
   GRMP_USER_ID_HEADER: ""
   GRMP_USER_ID_PARAM: ""
+  # 实例别名:用户说「核心库」时智能体能直接登录,不用反问是哪个库。每项 `别名=实例IP/库名  # 说明`,
+  # 换行或分号分隔;login --list 只给模型看别名、库名与说明(不显示 IP)。写错的项不影响 Pod 启动,会在 --list 里提示。
+  GRMP_INSTANCE_ALIASES: ""
   MODEL_BASE_URL: http://llm.example.internal/v1
   MODEL_ID: qwen3-32b
   MODEL_PROVIDER_NAME: model-service

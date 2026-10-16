@@ -328,6 +328,7 @@ Secret `gateway-auth`：`TRUST_SECRET`、`ADMIN_TOKEN`。
 | `GRMP_SIGN_MODE` | `full`（三个头）/ `headers-only`（只 Appkey + Timestamp）。见 §5.2 |
 | `GRMP_SIGN_TIMESTAMP` | `ms` / `s` |
 | `GRMP_USER_ID_HEADER` / `GRMP_USER_ID_PARAM` | 把工号发给中间件时用的字段名。见 §5.4 |
+| `GRMP_INSTANCE_ALIASES` | 实例别名：`别名=实例IP/库名  # 说明`，换行或分号分隔。空 = 不登记（参数手册「实例别名」） |
 | `MODEL_BASE_URL` / `MODEL_ID` | 模型服务 |
 
 ---

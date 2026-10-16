@@ -385,3 +385,36 @@ def test_serve_reports_passes_kb_dir(monkeypatch, tmp_path):
                         lambda root, port, user_id="", kb_dir=None: called.setdefault("kb", kb_dir) and _Srv() or _Srv())
     assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097", "--kb-dir", str(tmp_path / "kb")]) == 0
     assert called["kb"] == tmp_path / "kb"
+
+
+# ---- 实例别名(api 模式) ------------------------------------------------------
+# 2026-10-16 测试时模型每次都问「og5 是哪个库」:api 模式没有预置连接清单,而登录按对话隔离不能放松。
+# 部署时登记「别名 → 实例 IP / 库名」,login --list 能列、--alias 能登。写错一行不能让 Pod 起不来
+# (只影响这一个功能),但也不能悄悄丢掉 —— 错误原文写进配置,login --list 时说出来。
+
+def test_instance_aliases_are_rendered_into_the_api_config():
+    import yaml
+    env = {"GRMP_API_HOST": "grmp.internal",
+           "GRMP_INSTANCE_ALIASES": "og5 = 10.0.0.9 / postgres   # 测试库\ncore=10.1.2.3/coredb; rpt = 10.1.2.4/report"}
+    cfg = yaml.safe_load(podctl.render_gdaa_config(env))
+    assert cfg["instance_aliases"] == [
+        {"name": "og5", "ip": "10.0.0.9", "database": "postgres", "note": "测试库"},
+        {"name": "core", "ip": "10.1.2.3", "database": "coredb", "note": ""},
+        {"name": "rpt", "ip": "10.1.2.4", "database": "report", "note": ""}]
+    assert "instance_aliases_errors" not in cfg
+
+
+def test_bad_alias_lines_are_kept_as_errors_not_dropped_and_not_fatal():
+    import yaml
+    env = {"GRMP_API_HOST": "grmp.internal",
+           "GRMP_INSTANCE_ALIASES": "og5=10.0.0.9/postgres\nbroken line\nog5=10.0.0.10/x\nbad name!=1.2.3.4/db"}
+    cfg = yaml.safe_load(podctl.render_gdaa_config(env))
+    assert [a["name"] for a in cfg["instance_aliases"]] == ["og5"]
+    errs = cfg["instance_aliases_errors"]
+    assert len(errs) == 3 and any("broken line" in e for e in errs) and any("重复" in e for e in errs)
+
+
+def test_no_aliases_means_no_alias_keys():
+    import yaml
+    cfg = yaml.safe_load(podctl.render_gdaa_config({"GRMP_API_HOST": "grmp.internal", "GRMP_INSTANCE_ALIASES": "  "}))
+    assert "instance_aliases" not in cfg and "instance_aliases_errors" not in cfg

@@ -103,6 +103,29 @@ def _api_connection(ip: str, database: str, endpoint) -> Connection:
     )
 
 
+def _find_alias(name: str):
+    """别名不分大小写。"""
+    want = name.strip().lower()
+    return next((a for a in config.instance_aliases() if a.name.lower() == want), None)
+
+
+def _render_aliases(aliases, errors) -> str:
+    """--list 的 api 部分。**不列实例 IP**:红线只放行用户自己给的、或已连上的实例 IP,
+    别名清单里的 IP 两者都不是;登录时 --alias 在脚本里换成 IP,模型不需要看到它。"""
+    if aliases:
+        out = "部署时登记的实例别名（%d 个）：\n\n" % len(aliases)
+        out += render.table(["别名", "库名", "说明"], [[a.name, a.database, a.note or "—"] for a in aliases])
+        out += ("\n\n用户说的是清单里的别名时，用 `--alias <别名>` 登录；"
+                "不在清单里的库，照样用 `--ip <实例IP> --database <库名>`。")
+    else:
+        out = ("api 模式没有预置的连接清单（部署时也没有登记实例别名）—— 目标由你指定。\n"
+               "用 `--ip <实例IP> --database <库名>` 登录。")
+    if errors:
+        out += ("\n\n> ⚠ 部署时登记的别名里有 %d 项写法不对，没有生效（请运维修正 agent-config 的 "
+                "GRMP_INSTANCE_ALIASES）：\n" % len(errors)) + "".join("> - %s\n" % e for e in errors)
+    return out
+
+
 # --- 连通性验证 ---------------------------------------------------------------
 
 def _verify(conn: Connection) -> tuple:
@@ -343,6 +366,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--conn", help="gsql 模式：连接名")
     ap.add_argument("--ip", help="api 模式：目标实例 IP（接口一的 dataIp）")
     ap.add_argument("--database", help="api 模式：要访问的数据库名")
+    ap.add_argument("--alias", help="api 模式：部署时登记的实例别名（--list 能看到），代替 --ip/--database")
     ap.add_argument("--list", action="store_true", help="只列出可选项，不登录")
     ap.add_argument("--status", action="store_true", help="看本对话的会话（要带 --session；不带就是未登录）")
     ap.add_argument("--logout", action="store_true", help="退出本对话的会话（要带 --session；运维清空全部用 --all）")
@@ -383,9 +407,20 @@ def main(argv: Optional[List[str]] = None) -> int:
             if args.list:
                 print("模式：api（GRMP 中间件）\n端点：%s:%s\n"
                       % (endpoint.host, endpoint.port))
-                print("api 模式没有预置的连接清单 —— 目标由你指定。\n"
-                      "用 `--ip <实例IP> --database <库名>` 登录。")
+                print(_render_aliases(config.instance_aliases(), config.instance_alias_errors()))
                 return 0
+            if args.alias:
+                if args.ip or args.database:
+                    print("--alias 与 --ip/--database 二选一：别名已经代表一个实例 IP 和库名。", file=sys.stderr)
+                    return 2
+                hit = _find_alias(args.alias)
+                if hit is None:
+                    names = "、".join(a.name for a in config.instance_aliases()) or "（部署时没有登记任何别名）"
+                    print("没有叫「%s」的实例别名。登记过的别名：%s。\n"
+                          "不在清单里的库，请向用户要实例 IP 和库名，用 `--ip <实例IP> --database <库名>` 登录。"
+                          % (args.alias, names), file=sys.stderr)
+                    return 2
+                args.ip, args.database = hit.ip, hit.database
             missing = [f for f, v in (("--ip", args.ip),
                                       ("--database", args.database)) if not v]
             if missing:

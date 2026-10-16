@@ -20,7 +20,7 @@
 # --fix 做的事(每一条都打印改了什么):
 #   · 出网策略挡了模型 → runtime-policy / kb-import-policy 的模型规则放宽到 --model-cidr(默认 0.0.0.0/0)
 #   · 给了 --proxy → agent-config 加上 HTTPS_PROXY / NO_PROXY,模型规则改成只放行代理的 IP 与端口
-#   · 个人目录缺失或写不进 → 用一个临时 root Pod 建好目录、属主改成 1000
+#   · 个人目录写不进(或缺失且上一层不可写)→ 用一个临时 root Pod 建好目录、属主改成 1000
 #   · 给了 --grmp → 改 agent-config 的中间件地址,出网策略的中间件规则改成这个地址与端口
 #   · 改了目录、代理或中间件地址 → 重启这个用户的容器,让它重新读取
 # 诊断会建几个临时 Pod(名字以 doctor- 开头),结束时自动删掉。
@@ -284,7 +284,8 @@ NAS_SH='for d in $DIRS; do
   if [ -d "/nas/$d" ]; then
     if [ -w "/nas/$d" ]; then w=yes; else w=no; fi
     echo "DIR $d $(stat -c %u "/nas/$d") $w"
-  else echo "DIR $d missing -"; fi
+  elif [ -w "/nas/${d%/*}" ]; then echo "DIR $d missing yes"
+  else echo "DIR $d missing no"; fi
 done'
 FIX_SH='set -e
 for d in $DIRS; do mkdir -p "/nas/$d"; chown 1000:1000 "/nas/$d"; chmod 775 "/nas/$d"; echo "DIR $d $(stat -c %u "/nas/$d")"; done'
@@ -353,9 +354,12 @@ check_nas() {
   for d in $dirs; do
     line=$(printf '%s\n' "$nasout" | awk -v d="$d" '$1 == "DIR" && $2 == d { print $3, $4 }')
     owner=${line%% *}; w=${line##* }
-    if [ "$owner" = missing ]; then
-      NEED_DIR=1; bad "$d 还没建:首次登录时会被自动建成 root 属主,容器写不进"
-      advise "$d 还没建" "首次登录时 kubelet 会把它建成 root 属主,容器以 uid 1000 写不进。--fix 用临时 root Pod 先建好并改属主" "${CMD} ${U} --fix"
+    if [ "$owner" = missing ] && [ "$w" = yes ]; then
+      # v1.2.0 起用户容器的初始化步骤(prepare-home)以 uid 1000 自己建,前提是上一层目录 uid 1000 可写
+      ok "$d 还没建:上一层 ${d%/*}/ uid 1000 可写,首次登录时用户容器会自己建好"
+    elif [ "$owner" = missing ]; then
+      NEED_DIR=1; bad "$d 还没建,而且上一层 ${d%/*}/ uid 1000 写不进 —— 首次登录时容器建不了它,会一直起不来"
+      advise "$d 还没建且 ${d%/*}/ 不可写" "NAS 上的 ${d%/*}/ 要预先建好、属主 1000:1000、权限 775(部署手册 §2.1)。--fix 用临时 root Pod 直接建好 $d 并改属主;同一 NAS 上的其他新工号还会撞上,根治要改 ${d%/*}/ 本身" "${CMD} ${U} --fix"
     elif [ "$w" = yes ]; then
       if [ "$owner" = 1000 ]; then ok "$d 存在,属主 1000,可写"
       else ok "$d 存在,uid 1000 可写(属主显示 uid ${owner},这个存储映射了属主)"; fi

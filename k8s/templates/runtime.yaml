@@ -25,6 +25,39 @@ spec:
       # 本 Pod 不需要任何 Service 发现:中间件地址来自 ConfigMap,向量库用 DNS 名。
       enableServiceLinks: false
       securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, runAsNonRoot: true}
+      # **新工号第一次登录:个人目录还不存在。** 主容器按 subPath 挂 ${SUBPATH_ROOT}/<工号> 时,kubelet 会以 root 建出它,
+      # 而本 Pod 以 uid 1000 运行 → 写不进 → opencode 反复崩溃重启(2026-09-24 客户现场、10-15 全新 NAS 实测;
+      # 以前只能先跑 runtime-doctor.sh <工号> --fix 绕过)。这里以 uid 1000 挂**父目录**先把它建好并确认可写 ——
+      # 挂到工号这一级的话 kubelet 一样会先以 root 建出来。只有这个初始化容器挂得到整个 ${SUBPATH_ROOT}/,模型所在的主容器仍只挂本人那份。
+      # 失败原因写进容器的终止消息,网关在用户等待时读得到(不用等满超时再让人去 describe)。
+      initContainers:
+        - name: prepare-home
+          image: ${IMAGE}
+          imagePullPolicy: ${IMAGE_PULL_POLICY}
+          securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          terminationMessagePolicy: FallbackToLogsOnError
+          command:
+            - sh
+            - -c
+            - |
+              d=/nas/root/${USER_ID}
+              who() { ls -ldn "$$1" 2>/dev/null | awk '{print "属主 "$$3":"$$4"、权限 "$$1}'; }
+              fix="请管理员把它的属主改成 1000:1000、权限 775,或执行 k8s/tools/runtime-doctor.sh ${USER_ID} --fix"
+              if ! err=$$(mkdir -p "$$d" 2>&1); then
+                echo "建不了个人目录 ${SUBPATH_ROOT}/${USER_ID}($$err)。上一层 ${SUBPATH_ROOT}/ 现在是 $$(who /nas/root),本容器以 uid 1000 运行。$$fix" >&2
+                exit 1
+              fi
+              if ! err=$$(touch "$$d/.prepare-home-probe" 2>&1); then
+                echo "个人目录 ${SUBPATH_ROOT}/${USER_ID} 不可写($$(who "$$d"),本容器以 uid 1000 运行)。多半是之前某次登录时被 kubelet 以 root 建出来的。$$fix" >&2
+                exit 1
+              fi
+              rm -f "$$d/.prepare-home-probe"
+              echo "个人目录 ${SUBPATH_ROOT}/${USER_ID} 就绪"
+          volumeMounts:
+            - {name: nas, mountPath: /nas/root, subPath: ${SUBPATH_ROOT}}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}
       containers:
         - name: opencode
           image: ${IMAGE}

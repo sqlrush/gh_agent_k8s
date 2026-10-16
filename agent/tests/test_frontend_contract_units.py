@@ -172,6 +172,17 @@ def test_wdr_kpi_columns_exist_in_the_collectors_headers():
     assert cols and not missing, "WDR 页按列名取值,采集代码的表头里没有这些列:%s" % missing
 
 
+def test_health_key_figures_read_real_collector_columns():
+    """健康检查各维度的关键读数按表头前缀取值(pages/health.js 里的 cell(d, 行, '列名')):列名要在采集代码的表头里,
+    否则真数据上维度格只剩「—」。"""
+    src = (_PAGES / "health.js").read_text(encoding="utf-8")
+    cols = set(re.findall(r"cell\(d, \w+, '([^']+)'\)", src))
+    coll = (_SKILLS / "gaussdb-health" / "scripts" / "collectors.py").read_text(encoding="utf-8")
+    headers = [h for block in re.findall(r"headers=\[([^\]]*)\]", coll) for h in re.findall(r'"([^"]+)"', block)]
+    missing = [c for c in cols if not any(h.startswith(c) for h in headers)]
+    assert cols and not missing, "健康检查页按列名取读数,采集代码的表头里没有这些列:%s" % missing
+
+
 def test_kb_catalog_contract(samples):
     """知识库三个页签读的目录:由 docker/kbcatalog.build 从样例知识库真实生成。"""
     _check("kb_catalog", _load(samples / "_kb" / "catalog.json"))

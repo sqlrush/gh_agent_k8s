@@ -7,7 +7,7 @@
 // 这里没有任何创建 / 查询 Pod 的逻辑:请求经网关,网关的 ensure_ready 复用已有 Pod
 //(在跑 → 直接用;缩到 0 → 拉起;没建过 → 才建)。前端不知道也不需要知道 Pod 的事。
 
-import { toast } from './shell.js';
+import { toast } from './overlay.js';
 
 // opencode Web 的项目路由 = base64url(工作目录);容器里工作目录固定是 /data/state/workspace
 const WORKSPACE = '/data/state/workspace';
@@ -56,12 +56,14 @@ export async function openDig(prompt, title = '大盘深挖') {
   }
 }
 
-/** 给 <a data-dig="..."> 统一挂点击:页面里只写属性,不各自写 handler。 */
-export function bindDigLinks(root) {
-  root.querySelectorAll('[data-dig]').forEach((el) => {
-    el.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      openDig(el.getAttribute('data-dig'), el.getAttribute('data-dig-title') || '大盘深挖');
-    });
+/** 深挖统一走事件委托:页面、抽屉、命令面板里任何带 data-dig 的元素都能点,重画后不必重新绑定。只挂一次。 */
+export function installDig() {
+  if (installDig.done) return;
+  installDig.done = true;
+  document.addEventListener('click', (ev) => {
+    const el = ev.target.closest && ev.target.closest('[data-dig]');
+    if (!el) return;
+    ev.preventDefault();
+    openDig(el.getAttribute('data-dig'), el.getAttribute('data-dig-title') || '大盘深挖');
   });
 }

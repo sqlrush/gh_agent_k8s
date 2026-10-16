@@ -1,90 +1,181 @@
-// 外壳:侧栏(四个大盘 + 对话链接 + 当前工号 / 实例)、按 pathname 装页面、实例切换、提示条。
+// 外壳:按风格搭页面框架(普通 = R6 顶栏 + 侧栏;文艺 = R10 报头 + 版面导航),按 pathname 装页面,
+// 实例切换、页面内导航(不刷新)、风格滑块,以及全页的点击委托(明细抽屉、切报告、排序页签、复制)。
 //
-// 页面在 /dash/ 下端出:/dash/health、/dash/topsql、/dash/wdr、/dash/kb(nginx try_files 都落到
-// index.html)。导航用绝对路径,模块导入用相对本文件的路径(../pages/x.js)。
+// 页面在 /dash/ 下端出:/dash/health、/dash/topsql、/dash/wdr、/dash/kb(nginx try_files 都落到 index.html)。
 
 import { fetchWhoami, fetchTargets } from './data.js';
-import { setDigTarget } from './dig.js';
+import { setDigTarget, openDig, installDig, CHAT_HOME } from './dig.js';
 import { esc, stamp } from './fmt.js';
+import { I } from './ui.js';
+import { currentStyle, saveStyle, applyStyle, styleSwitch } from './style.js';
+import { toast, menu, closeMenu, closeDrawer, installTips } from './overlay.js';
+import { clearModels, getModel } from './store.js';
+import { enter, resetRise } from './motion.js';
+import * as D from './details.js';
+import * as cmdk from './cmdk.js';
+import * as assist from './assist.js';
+import * as insight from './insight.js';
+import { writeBy } from '../pages/topsql.js';
 
 const PAGES = [
-  { name: 'health', label: '◎ 健康检查', skill: 'health' },
-  { name: 'topsql', label: '▤ Top SQL', skill: 'topsql' },
-  { name: 'wdr',    label: '◔ WDR 分析', skill: 'wdr' },
-  { name: 'kb',     label: '▥ 知识库',   skill: null },     // 全体共享,不分实例
+  { name: 'health', label: '健康检查', icon: 'pulse', skill: 'health', sec: 'sec-health' },
+  { name: 'topsql', label: 'Top SQL', icon: 'list', skill: 'topsql', sec: 'sec-topsql' },
+  { name: 'wdr', label: 'WDR 分析', icon: 'clock', skill: 'wdr', sec: 'sec-wdr' },
+  { name: 'kb', label: '知识库', icon: 'book', skill: null, sec: 'sec-kb' },   // 全体共享,不分实例
 ];
 const KEY_STORE = 'dash.instance';
-const WORKSPACE = '/data/state/workspace';
-const b64url = (s) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const CHAT_HOME = '/' + b64url(WORKSPACE);
-
-let toastTimer = null;
-export function toast(msg) {
-  let el = document.querySelector('.toast');
-  if (!el) { el = document.createElement('div'); el.className = 'toast'; document.body.appendChild(el); }
-  el.textContent = msg;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), 4000);
-}
+const S = { run: {}, ctx: null, targets: [], whoami: '' };
 
 export function pageName() {
   const seg = location.pathname.replace(/\/+$/, '').split('/').pop();
   return PAGES.some((p) => p.name === seg) ? seg : 'health';
 }
-
 function readKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (_) { return ''; } }
 function writeKey(k) { try { localStorage.setItem(KEY_STORE, k); } catch (_) { /* 隐私模式等,忽略 */ } }
-
-/** 当前页的实例:localStorage 里的那个若在 targets 里就用它,否则用最近跑过的那个。 */
+/** 当前实例:地址里 ?inst=<key>(便于把某个实例的链接发给别人)> localStorage 里的那个 > 最近跑过的那个;都要在 targets 里。 */
 export function pickKey(targets) {
+  const q = new URLSearchParams(location.search).get('inst');
+  if (q && targets.some((t) => t.key === q)) return q;
   const saved = readKey();
   if (targets.some((t) => t.key === saved)) return saved;
   return targets.length ? targets[0].key : '';
 }
 
-function sidebar(current, whoami, targets, key) {
-  const nav = PAGES.map((p) => `<a href="/dash/${p.name}" class="${p.name === current ? 'on' : ''}">${p.label}</a>`).join('');
-  const inst = targets.length
-    ? `<select id="inst">${targets.map((t) => `<option value="${esc(t.key)}" ${t.key === key ? 'selected' : ''}>${esc(t.label || t.conn)} · ${esc(stamp(t.last_at))}</option>`).join('')}</select>`
-    : `<div style="font-size:12.5px;color:var(--dim);padding:4px 8px">还没有报告</div>`;
-  return `
-    <div class="brand"><i></i>GaussDB 智能体<small>v1.1</small></div>
-    <div class="sec">大盘</div><div class="nav">${nav}</div>
-    <div class="sec">对话</div>
-    <div class="nav">
-      <a href="${CHAT_HOME}" target="_blank" rel="noopener">⊕ 新对话 ↗</a>
-      <a href="${CHAT_HOME}" target="_blank" rel="noopener">◌ 最近对话 ↗</a>
-    </div>
-    <div class="sec">当前</div>
-    <div class="nav"><a href="#" onclick="return false">工号 ${esc(whoami || '—')}</a></div>
-    ${current === 'kb' ? '' : `<div class="sec">实例</div>${inst}`}`;
+/** 实例列表:普通风格按本页技能取;文艺风格一份报纸含三个技能,取并集(按最近报告时间倒序)。 */
+async function loadTargets(page, style) {
+  const skills = style === 'press' ? ['health', 'topsql', 'wdr'] : page.skill ? [page.skill] : [];
+  const lists = await Promise.all(skills.map((s) => fetchTargets(s).then((t) => (t.ok && Array.isArray(t.data) ? t.data : []))));
+  const by = new Map();
+  lists.flat().forEach((t) => { const o = by.get(t.key); if (!o || String(t.last_at) > String(o.last_at)) by.set(t.key, { ...o, ...t }); });
+  return [...by.values()].sort((a, b) => String(b.last_at).localeCompare(String(a.last_at)));
 }
 
+const instBtn = (t, has) => (has ? `<button class="inst" id="inst"><span class="t3">实例</span>${esc((t && (t.label || t.conn)) || '—')}<span class="chev">${I.chev}</span></button>` : '<span class="inst" style="cursor:default"><span class="t3">还没有报告</span></span>');
+
+function chromeNormal(page, style, ctx) {
+  const nav = PAGES.map((p) => `<a href="/dash/${p.name}" data-go="${p.name}" class="${p.name === page.name ? 'on' : ''}">${I[p.icon]}${esc(p.label)}</a>`);
+  return `<header class="topbar">
+      <div class="logo"><span class="mark">${I.db}</span><b>GaussDB 智能体</b></div>
+      ${page.skill ? instBtn(ctx.target, ctx.targets.length) : ''}
+      <button class="cmdk-trigger" id="cmdk-btn">${I.search}搜索页面、SQL、维度、案例…<span class="kbd"><kbd>⌘</kbd><kbd>K</kbd></span></button>
+      <div class="right">${styleSwitch(style)}<button class="ask-btn" id="ask-btn"><span class="spark">${I.spark}</span>问智能体<span class="kbd"><kbd>⌘</kbd><kbd>J</kbd></span></button>
+        <div class="user"><span class="av">${esc((ctx.whoami || '?').slice(0, 1).toUpperCase())}</span><span>${esc(ctx.whoami || '—')}</span></div></div>
+    </header>
+    <div class="shell"><nav class="side" id="nav">
+      <div class="grp">诊断大盘</div>${nav.slice(0, 3).join('')}<div class="grp">知识</div>${nav[3]}
+      <div class="grp">对话</div><a href="${CHAT_HOME}" target="_blank" rel="noopener">${I.plus}新对话<span class="ext">${I.ext}</span></a><a href="${CHAT_HOME}" target="_blank" rel="noopener">${I.chat}最近对话<span class="ext">${I.ext}</span></a>
+      <div class="side-ai"><b>随时问智能体</b><p>它带着你当前打开的报告去回答，在新标签页里开会话。</p><span class="kbd"><kbd>⌘</kbd><kbd>J</kbd></span><span class="t3">打开侧栏</span></div>
+    </nav><main class="content" id="main"><div class="empty-state">加载中…</div></main></div>`;
+}
+function chromePress(page, style, ctx) {
+  const nav = [['health', '头版'], ['', 'A2 要闻 · 健康检查', 'sec-health'], ['topsql', 'B1 慢语句 · Top SQL'], ['wdr', 'C1 负载 · WDR'], ['kb', 'D1 知识 · 知识库']]
+    .map(([p, l, jump]) => (jump ? `<a href="#" data-jump="${jump}">${esc(l)}</a>` : `<a href="/dash/${p}" data-go="${p}" data-p="${p}" class="${p === page.name ? 'on' : ''}">${esc(l)}</a>`)).join('');
+  return `<header class="mast"><div class="mast-top"><span id="issue-date"></span><span class="dot">·</span><span id="issue-no"></span><span class="dot">·</span><span>实例版</span>${instBtn(ctx.target, ctx.targets.length)}
+      <span class="r">${styleSwitch(style)}<button class="mt-btn" id="cmdk-btn">检索<kbd>⌘K</kbd></button><button class="mt-btn" id="ask-btn">问智能体<kbd>⌘J</kbd></button><span class="sub">订阅者 <b>${esc(ctx.whoami || '—')}</b></span></span></div>
+      <h1 class="title">运维日报</h1><div class="mast-sub">GAUSSDB 智能体　·　每日巡检与诊断　·　由智能体编写，级别由巡检脚本判定</div></header>
+    <nav class="secnav" id="nav">${nav}<a class="proto" href="${CHAT_HOME}" target="_blank" rel="noopener">新对话 ↗</a></nav>
+    <main class="paper" id="main"><div class="sheet-empty">加载中…</div></main>`;
+}
+
+function scrollToSection(id, smooth) {
+  const el = id && document.getElementById(id);
+  window.scrollTo({ top: el ? el.getBoundingClientRect().top + window.scrollY - 64 : 0, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+/** 装页面:取工号与实例 → 按风格搭框架 → 画当前路由。切风格、切实例、切报告都走这里(原地重画,不刷新)。 */
 export async function mount() {
-  const side = document.getElementById('side');
+  const style = currentStyle();
+  applyStyle(style);
+  const page = PAGES.find((p) => p.name === pageName());
+  if (!S.whoami) { const who = await fetchWhoami(); S.whoami = who.ok ? who.data.user_id : ''; }
+  const targets = await loadTargets(page, style);
+  const key = style === 'press' || page.skill ? pickKey(targets) : '';
+  const ctx = { page: page.name, key, targets, whoami: S.whoami, target: targets.find((t) => t.key === key) || null, run: S.run, style };
+  S.ctx = ctx;
+  setDigTarget(ctx.target);          // 深挖首句带上「先登录哪个库」;没有实例时传 null
+  clearModels(); closeDrawer(); closeMenu(); resetRise();
+  document.getElementById('app').innerHTML = style === 'press' ? chromePress(page, style, ctx) : chromeNormal(page, style, ctx);
   const main = document.getElementById('main');
-  const name = pageName();
-  const page = PAGES.find((p) => p.name === name);
-
-  const who = await fetchWhoami();
-  const whoami = who.ok ? who.data.user_id : '';
-  let targets = [];
-  if (page.skill) {
-    const t = await fetchTargets(page.skill);
-    targets = t.ok && Array.isArray(t.data) ? t.data : [];
-  }
-  const key = page.skill ? pickKey(targets) : '';
-  side.innerHTML = sidebar(name, whoami, targets, key);
-  const sel = document.getElementById('inst');
-  if (sel) sel.addEventListener('change', () => { writeKey(sel.value); mount(); });
-
-  const ctx = { key, targets, whoami, target: targets.find((t) => t.key === key) || null };
-  setDigTarget(ctx.target);          // 深挖首句带上「先登录哪个库」;知识库页没有实例,传 null
-  main.innerHTML = '<div class="loading">加载中…</div>';
   try {
-    const mod = await import(`../pages/${name}.js`);
-    await mod.render(main, ctx);
+    if (style === 'press') {
+      const paper = await import('../views/press/paper.js');
+      await paper.render(main, ctx);
+      if (page.name !== 'health') scrollToSection(page.sec, false); else window.scrollTo(0, 0);
+    } else {
+      const mod = await import(`../pages/${page.name}.js`);
+      await mod.render(main, ctx);
+    }
+    enter(main);
   } catch (e) {
-    main.innerHTML = `<div class="empty"><b>页面加载失败</b>${esc(e && e.message || e)}</div>`;
+    main.innerHTML = `<div class="empty-state">${I.info}<h4>页面加载失败</h4><p>${esc(e && e.message || e)}</p></div>`;
   }
+}
+
+function goPage(p) {
+  if (p === pageName() && currentStyle() !== 'press') return;
+  history.pushState(null, '', `/dash/${p}`);
+  if (currentStyle() === 'press') {                      // 同一份报纸:翻到那一版即可,不重取
+    const page = PAGES.find((x) => x.name === p);
+    document.querySelectorAll('#nav a[data-p]').forEach((a) => a.classList.toggle('on', a.dataset.p === p));
+    scrollToSection(p === 'health' ? null : page.sec, true);
+  } else mount();
+}
+const rerun = (skill, file) => { S.run = { ...S.run, [skill]: file }; mount(); };
+const askPrefix = () => {
+  const c = S.ctx, page = c && PAGES.find((p) => p.name === c.page);
+  return c && c.target ? `关于实例 ${c.target.label || c.target.conn} 的${page ? page.label : '大盘'}报告:` : '';
+};
+function assistContext() {
+  const c = S.ctx, page = PAGES.find((p) => p.name === c.page), m = getModel(c.page);
+  const ins = m && m.ok !== false && !m.missing ? insight[c.page](m) : null;
+  const when = m && m.entry ? stamp(m.entry.at) : '';
+  return { ctx: [page.label, ...(c.target ? [`实例 ${c.target.label || c.target.conn}`] : []), ...(when ? [`报告 ${when}`] : [])],
+    sugg: ins ? ins.chips : [['这个页面怎么看', `请介绍一下大盘的「${page.label}」页面怎么看。`]] };
+}
+
+function onClick(ev) {
+  const t = ev.target.closest && ev.target.closest('[data-style-to],[data-go],[data-jump],[data-inst],#inst,[data-run-menu],[data-pick],[data-run],[data-by],[data-dim],[data-xdim],[data-sql],[data-wdim],[data-open-case],[data-close],#scrim,[data-copy],#cmdk-btn,#ask-btn');
+  if (!t) { if (!(ev.target.closest && ev.target.closest('#menu'))) closeMenu(); return; }
+  const ds = t.dataset;
+  if (ds.go && (ev.metaKey || ev.ctrlKey || ev.shiftKey)) return;      // 新标签页打开,交给浏览器
+  ev.preventDefault();
+  if (ds.styleTo) { if (ds.styleTo !== currentStyle()) { saveStyle(ds.styleTo); mount(); } return; }
+  if (ds.go) return goPage(ds.go);
+  if (ds.jump) return scrollToSection(ds.jump, true);
+  if (ds.inst) { writeKey(ds.inst); S.run = {}; closeMenu(); return mount(); }
+  if (t.id === 'inst') return menu(t, `<div class="mh">切换实例（右侧是最近一份报告的时间）</div>${S.ctx.targets.map((x) => `<div class="mi ${x.key === S.ctx.key ? 'on' : ''}" data-inst="${esc(x.key)}">${esc(x.label || x.conn || x.key)}<span class="r">${esc(stamp(x.last_at))}</span></div>`).join('')}`);
+  if (ds.runMenu) return import('../views/normal/common.js').then((c) => c.openRunMenu(t, ds.runMenu));
+  if (ds.pick || ds.run) { const [sk, f] = (ds.pick || ds.run).split('|'); closeMenu(); return rerun(sk, f); }
+  if (ds.by) { writeBy(ds.by); return mount(); }
+  if (ds.dim !== undefined) return D.openDim(ds.dim);
+  if (ds.xdim) return D.openXdim(ds.xdim);
+  if (ds.sql) return D.openSql(ds.sql, S.ctx && S.ctx.key);
+  if (ds.wdim) return D.openWdim(ds.wdim);
+  if (ds.openCase) return D.openCase(ds.openCase);
+  if (ds.close !== undefined || t.id === 'scrim') return closeDrawer();
+  if (ds.copy) { if (navigator.clipboard) navigator.clipboard.writeText(ds.copy); return toast(`已复制 ${ds.copy}`); }
+  if (t.id === 'cmdk-btn') return cmdk.open();
+  if (t.id === 'ask-btn') return assist.toggle();
+}
+
+export function start() {
+  installDig(); installTips();
+  cmdk.install({ pages: PAGES.map((p) => [p.name, p.label, p.icon]), page: () => S.ctx && S.ctx.page, key: () => S.ctx && S.ctx.key,
+    instances: () => (S.ctx ? S.ctx.targets : []), goPage, switchInstance: (k) => { writeKey(k); S.run = {}; mount(); },
+    openAssist: () => assist.open(), askPrefix, chatHome: CHAT_HOME });
+  assist.install({ context: assistContext, askPrefix, who: () => S.whoami });
+  document.addEventListener('click', onClick);
+  // 智能体解读卡里的提问框:带上这份报告的上下文开会话(openDig 在提交事件里同步开标签页)
+  document.addEventListener('submit', (ev) => {
+    const f = ev.target.closest && ev.target.closest('[data-askform]');
+    if (!f) return;
+    ev.preventDefault();
+    const i = f.querySelector('input'), q = i.value.trim();
+    if (!q) return;
+    i.value = '';
+    openDig((f.dataset.ctx || askPrefix()) + q, '大盘提问');
+  });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { closeDrawer(); closeMenu(); } });
+  window.addEventListener('popstate', mount);
+  mount();
 }

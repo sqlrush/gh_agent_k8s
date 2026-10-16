@@ -61,3 +61,30 @@ export function cellTd(c, i) {
   if (i && NUMLIKE.test(s.trim())) return `<td class="r tnum">${esc(s)}</td>`;
   return `<td${i && s.length > 12 ? ' class="txt"' : ""}>${esc(s)}</td>`;
 }
+
+// ---------------------------------------------------------------- 两种风格的版式要用到的几样
+/** 字符串里的数字(可带千分位);取不到返回 null。 */
+export const num = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : null; };
+/** "8.4 s" → ["8.4", "s"]:数值与单位分开排。 */
+export const split = (s) => { const m = /^(-?[\d.,]+)\s*(.*)$/.exec(String(s)); return m ? [m[1], m[2]] : [String(s), '']; };
+/** 中文与西文、数字之间补一个空格。 */
+export const pangu = (s) => String(s).replace(/([㐀-鿿])([A-Za-z0-9])/g, '$1 $2').replace(/([A-Za-z0-9%])([㐀-鿿])/g, '$1 $2');
+/** 报告里的中文句子常混着半角标点:挨着汉字的 , : ; ( ) 换成全角,再补中英文间距。 */
+const FW = { ',': '，', ':': '：', ';': '；' };
+export const cn = (s) => pangu(String(s ?? '')
+  .replace(/([㐀-鿿）])\s*([,:;])\s*/g, (m, a, p) => a + FW[p])
+  .replace(/\s*([,:;])\s*(?=[㐀-鿿（])/g, (m, p) => FW[p])
+  .replace(/\(([^()]*[㐀-鿿][^()]*)\)/g, '（$1）'));
+export const joinCn = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join('、') + '和' + xs[xs.length - 1]);
+const toDate = (s) => { const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(s || ''); return m ? new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6])) : new Date(s); };
+/** "2026 年 9 月 22 日 星期二"(本地时区),报纸报头用。 */
+export function fullDate(s) {
+  const d = toDate(s);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 星期${'日一二三四五六'[d.getDay()]}`;
+}
+/** 表格列格式:整列最大值过百万时用「万 / 亿」,否则千分位;非数字原样。 */
+export const colFmt = (rows, i) => {
+  const mx = Math.max(0, ...rows.map((r) => Math.abs(num(r[i]) || 0)));
+  return (c) => { const n = num(c); if (!/^-?[\d.]+$/.test(String(c)) || n === null) return String(c); return mx >= 1e6 ? fmtInt(n) : Number.isInteger(n) ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { maximumFractionDigits: 2 }); };
+};

@@ -15,6 +15,8 @@ import { jump, kicker, paras } from './bits.js';
 
 /* ------------------------------------------------------------ 头条 */
 function lead(hm) {
+  if (!hm.ok && hm.reason === 'range') return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">所选时间段内没有巡检报告</h2>
+    <p class="deck">时间段只筛选已经跑过的报告，不会替你去取数。可以在报头的「时间段」里改选，或者看全部报告。</p><button class="btn" data-range-clear>看全部报告</button></article>`;
   if (!hm.ok) return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">${hm.reason === 'error' ? '巡检报告读取失败' : '本期没有巡检报告'}</h2>
     <p class="deck">${esc(hm.reason === 'error' ? hm.error || '' : '这个实例还没有健康检查报告。在会话里做一次巡检，下一期就会刊出。')}</p>${hm.reason === 'error' ? '' : primary('请对当前库做一次健康检查。', '在会话里跑一次健康检查', '健康检查')}</article>`;
   const ins = insight.health(hm), failed = hm.subs.filter((s) => !s.ok).map((s) => s.skill.replace('gaussdb-', ''));
@@ -87,7 +89,8 @@ function masthead(hm, ctx) {
 }
 
 export async function render(root, ctx) {
-  const [h0, t0, w0, km] = await Promise.all([H.load(ctx.key, ctx.run.health), T.load(ctx.key, T.readBy()), W.load(ctx.key, ctx.run.wdr), K.load()]);
+  const [h0, t0, w0, km] = await Promise.all([H.load(ctx.key, ctx.run.health, ctx.range), T.load(ctx.key, T.readBy(), ctx.range),
+    W.load(ctx.key, ctx.run.wdr, ctx.range), K.load()]);
   const hm = h0.ok ? { ...h0, name: instName(ctx, h0.d.conn) } : h0;
   const tm = t0.ok && !t0.missing ? { ...t0, name: instName(ctx, t0.rep.conn) } : t0;
   const wm = w0.ok ? { ...w0, name: instName(ctx, w0.d.conn) } : w0;

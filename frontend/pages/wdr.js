@@ -5,6 +5,7 @@
 import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { fmtInt, num, split } from '../lib/fmt.js';
 import { instName } from '../lib/ui.js';
+import { loadInRange } from '../lib/range.js';
 
 // 维度名 = gaussdb-wdr/scripts/model.py 的 DIM_* 常量。
 // **第一版对着自编的样例写,维度名和行列形状都与真技能不符,真数据上 KPI 全是「未采集」。**
@@ -63,11 +64,21 @@ export function change(k, cur, prev) {
 export const wPrompt = (f) => `请针对 WDR 发现 ${f.code}(${f.metric}=${f.value})做深入分析:${f.evidence}`;
 
 /** 取一份报告(file 为空取最新)与它的上一窗口并建模。 */
-export async function load(key, file) {
+export async function load(key, file, range) {
   if (!key) return { ok: false, reason: 'none' };
-  const [rep, index] = await Promise.all([file ? fetchReport('wdr', key, file) : fetchLatest('wdr', key), fetchIndex('wdr', key)]);
-  if (!rep.ok) return { ok: false, reason: rep.status === 404 ? 'none' : 'error', error: rep.error };
-  const d = rep.data, idx = index.ok && Array.isArray(index.data) ? index.data : [];
+  let rep, idx;
+  if (range) {                     // 时间段按快照窗口筛(lib/range.js),上一窗口也只在时间段内找
+    const got = await loadInRange('wdr', key, file, range);
+    if (!got.ok) return got;
+    ({ rep, idx } = got);
+    file = got.file;
+  } else {
+    const [r, index] = await Promise.all([file ? fetchReport('wdr', key, file) : fetchLatest('wdr', key), fetchIndex('wdr', key)]);
+    if (!r.ok) return { ok: false, reason: r.status === 404 ? 'none' : 'error', error: r.error };
+    rep = r;
+    idx = index.ok && Array.isArray(index.data) ? index.data : [];
+  }
+  const d = rep.data;
   const pos = file ? idx.findIndex((e) => e.file === file) : idx.length - 1;
   // 上一窗口 = 往前找第一份**分析的不是同一个快照窗口**的报告。同一个窗口分析了两次(重跑很常见)时,
   // 拿它跟自己比只会得出「与上一窗口相当」的假结论(2026-10-15 真数据上撞到)。最多往前看 5 份。
@@ -90,6 +101,6 @@ export async function load(key, file) {
 /** 普通风格的 WDR 页。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/wdr.js');
-  const m = await load(ctx.key, ctx.run && ctx.run.wdr);
+  const m = await load(ctx.key, ctx.run && ctx.run.wdr, ctx.range);
   return view.render(root, m.ok ? { ...m, name: instName(ctx, m.d.conn) } : m, ctx);
 }

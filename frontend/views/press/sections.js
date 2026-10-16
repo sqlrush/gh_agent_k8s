@@ -13,7 +13,7 @@ import { paras } from './bits.js';
 
 const sheet = (id, pg, title, sub, body, tools = '') => `<section class="sheet" id="${id}"><div class="sheet-h"><span class="pg">${pg}</span><b>${esc(title)}</b><span class="sub">${sub}</span><span class="tools">${tools}</span></div>${body}</section>`;
 const none = (text, prompt, label) => `<div class="sheet-empty"><p>${esc(text)}</p>${prompt ? primary(prompt, label) : ''}</div>`;
-const fail = (m) => (m.reason === 'error' ? `报告读取失败：${m.error || ''}` : '');
+const fail = (m) => (m.reason === 'error' ? `报告读取失败：${m.error || ''}` : m.reason === 'range' ? '所选时间段内没有这一类报告（在报头的「时间段」里改选或清除）。' : '');
 
 /* ------------------------------------------------------------ A2 要闻 · 健康检查 */
 function secHealth(hm) {

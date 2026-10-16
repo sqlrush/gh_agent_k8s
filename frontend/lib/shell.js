@@ -3,7 +3,7 @@
 //
 // 页面在 /dash/ 下端出:/dash/health、/dash/topsql、/dash/wdr、/dash/kb(nginx try_files 都落到 index.html)。
 
-import { fetchWhoami, fetchTargets } from './data.js';
+import { fetchWhoami, fetchTargets, fetchIndex } from './data.js';
 import { setDigTarget, openDig, installDig, CHAT_HOME } from './dig.js';
 import { esc, stamp } from './fmt.js';
 import { I } from './ui.js';
@@ -15,7 +15,8 @@ import * as D from './details.js';
 import * as cmdk from './cmdk.js';
 import * as assist from './assist.js';
 import * as insight from './insight.js';
-import { writeBy } from '../pages/topsql.js';
+import { writeBy, BY } from '../pages/topsql.js';
+import { readRange, saveRange, valid as rangeValid, label as rangeLabel, fromQuery } from './range.js';
 
 const PAGES = [
   { name: 'health', label: '健康检查', icon: 'pulse', skill: 'health', sec: 'sec-health' },
@@ -25,6 +26,10 @@ const PAGES = [
 ];
 const KEY_STORE = 'dash.instance';
 const S = { run: {}, ctx: null, targets: [], whoami: '' };
+// 首次进入时地址里的 ?run=<文件> / ?by=<维度> / ?from=&to=:技能存档后打印的「已存入大盘」直达链接
+// (reports.dash_link)与带时间段的链接。只在第一次装页面时读一次 —— 之后以页面上的选择为准。
+let booted = false;
+const RUN_FILE = /^[A-Za-z0-9_.-]+\.json$/;
 
 export function pageName() {
   const seg = location.pathname.replace(/\/+$/, '').split('/').pop();
@@ -50,13 +55,29 @@ async function loadTargets(page, style) {
   return [...by.values()].sort((a, b) => String(b.last_at).localeCompare(String(a.last_at)));
 }
 
+const rangeBtn = (r) => `<button class="inst range${r ? ' on' : ''}" id="range" title="只看这段时间内跑过的报告"><span class="t3">时间段</span>${esc(rangeLabel(r))}<span class="chev">${I.chev}</span></button>`;
+function rangeMenu(anchor) {
+  const r = S.ctx.range || {};
+  menu(anchor, `<div class="mh">只看这段时间内跑过的报告（WDR 按快照窗口算）</div>
+    <div class="rg"><label>从<input type="datetime-local" id="rg-from" value="${esc(r.from || '')}"></label>
+      <label>到<input type="datetime-local" id="rg-to" value="${esc(r.to || '')}"></label>
+      <div class="rg-act"><button class="btn" data-range-clear>看全部</button><button class="btn primary" data-range-apply>应用</button></div></div>`);
+}
+function applyRange(r) {
+  if (r && !rangeValid(r)) return toast('时间段不对：至少填一头，开始不能晚于结束。');
+  saveRange(r);
+  S.run = {};                                      // 选过的那份报告可能不在新时间段里
+  closeMenu();
+  return mount();
+}
+
 const instBtn = (t, has) => (has ? `<button class="inst" id="inst"><span class="t3">实例</span>${esc((t && (t.label || t.conn)) || '—')}<span class="chev">${I.chev}</span></button>` : '<span class="inst" style="cursor:default"><span class="t3">还没有报告</span></span>');
 
 function chromeNormal(page, style, ctx) {
   const nav = PAGES.map((p) => `<a href="/dash/${p.name}" data-go="${p.name}" class="${p.name === page.name ? 'on' : ''}">${I[p.icon]}${esc(p.label)}</a>`);
   return `<header class="topbar">
       <div class="logo"><span class="mark">${I.db}</span><b>GaussDB 智能体</b></div>
-      ${page.skill ? instBtn(ctx.target, ctx.targets.length) : ''}
+      ${page.skill ? instBtn(ctx.target, ctx.targets.length) : ''}${page.skill && ctx.targets.length ? rangeBtn(ctx.range) : ''}
       <button class="cmdk-trigger" id="cmdk-btn">${I.search}搜索页面、SQL、维度、案例…<span class="kbd"><kbd>⌘</kbd><kbd>K</kbd></span></button>
       <div class="right">${styleSwitch(style)}<button class="ask-btn" id="ask-btn"><span class="spark">${I.spark}</span>问智能体<span class="kbd"><kbd>⌘</kbd><kbd>J</kbd></span></button>
         <div class="user"><span class="av">${esc((ctx.whoami || '?').slice(0, 1).toUpperCase())}</span><span>${esc(ctx.whoami || '—')}</span></div></div>
@@ -70,7 +91,7 @@ function chromeNormal(page, style, ctx) {
 function chromePress(page, style, ctx) {
   const nav = [['health', '头版'], ['', 'A2 要闻 · 健康检查', 'sec-health'], ['topsql', 'B1 慢语句 · Top SQL'], ['wdr', 'C1 负载 · WDR'], ['kb', 'D1 知识 · 知识库']]
     .map(([p, l, jump]) => (jump ? `<a href="#" data-jump="${jump}">${esc(l)}</a>` : `<a href="/dash/${p}" data-go="${p}" data-p="${p}" class="${p === page.name ? 'on' : ''}">${esc(l)}</a>`)).join('');
-  return `<header class="mast"><div class="mast-top"><span id="issue-date"></span><span class="dot">·</span><span id="issue-no"></span><span class="dot">·</span><span>实例版</span>${instBtn(ctx.target, ctx.targets.length)}
+  return `<header class="mast"><div class="mast-top"><span id="issue-date"></span><span class="dot">·</span><span id="issue-no"></span><span class="dot">·</span><span>实例版</span>${instBtn(ctx.target, ctx.targets.length)}${ctx.targets.length ? rangeBtn(ctx.range) : ''}
       <span class="r">${styleSwitch(style)}<button class="mt-btn" id="cmdk-btn">检索<kbd>⌘K</kbd></button><button class="mt-btn" id="ask-btn">问智能体<kbd>⌘J</kbd></button><span class="sub">订阅者 <b>${esc(ctx.whoami || '—')}</b></span></span></div>
       <h1 class="title">GaussDB<span class="cjk">智能体日报</span></h1><div class="mast-sub">每日巡检与诊断　·　由智能体编写，级别由巡检脚本判定</div></header>
     <nav class="secnav" id="nav">${nav}<a class="proto" href="${CHAT_HOME}" target="_blank" rel="noopener">新对话 ↗</a></nav>
@@ -88,9 +109,14 @@ export async function mount() {
   applyStyle(style);
   const page = PAGES.find((p) => p.name === pageName());
   if (!S.whoami) { const who = await fetchWhoami(); S.whoami = who.ok ? who.data.user_id : ''; }
+  const boot = booted ? null : new URLSearchParams(location.search);
+  booted = true;
+  if (boot) { const r = fromQuery(boot); if (r) saveRange(r); }        // 链接里带了时间段
   const targets = await loadTargets(page, style);
   const key = style === 'press' || page.skill ? pickKey(targets) : '';
-  const ctx = { page: page.name, key, targets, whoami: S.whoami, target: targets.find((t) => t.key === key) || null, run: S.run, style };
+  if (boot) await useBootParams(boot, page, key);
+  const ctx = { page: page.name, key, targets, whoami: S.whoami, target: targets.find((t) => t.key === key) || null, run: S.run, style,
+    range: readRange() };
   S.ctx = ctx;
   setDigTarget(ctx.target);          // 深挖首句带上「先登录哪个库」;没有实例时传 null
   clearModels(); closeDrawer(); closeMenu(); resetRise();
@@ -109,6 +135,16 @@ export async function mount() {
   } catch (e) {
     main.innerHTML = `<div class="empty-state">${I.info}<h4>页面加载失败</h4><p>${esc(e && e.message || e)}</p></div>`;
   }
+}
+
+/** 直达链接里的那一份报告:在本实例的索引里才用(只保留最近 50 份,老链接可能已过期),否则提示并显示最新一份。 */
+async function useBootParams(boot, page, key) {
+  const run = boot.get('run'), by = boot.get('by');
+  if (by && page.name === 'topsql' && BY.some(([b]) => b === by)) writeBy(by);
+  if (!run || !page.skill || !key || !RUN_FILE.test(run)) return;
+  const idx = await fetchIndex(page.skill, key);
+  if (idx.ok && Array.isArray(idx.data) && idx.data.some((e) => e.file === run)) S.run = { ...S.run, [page.skill]: run };
+  else toast('链接里的那份报告已不在存档里（每个实例只保留最近 50 份），显示的是最新一份。');
 }
 
 function goPage(p) {
@@ -134,7 +170,7 @@ function assistContext() {
 }
 
 function onClick(ev) {
-  const t = ev.target.closest && ev.target.closest('[data-style-to],[data-go],[data-jump],[data-inst],#inst,[data-run-menu],[data-pick],[data-run],[data-by],[data-dim],[data-xdim],[data-sql],[data-wdim],[data-open-case],[data-close],#scrim,[data-copy],#cmdk-btn,#ask-btn');
+  const t = ev.target.closest && ev.target.closest('[data-style-to],[data-go],[data-jump],[data-inst],#inst,#range,[data-range-apply],[data-range-clear],[data-run-menu],[data-pick],[data-run],[data-by],[data-dim],[data-xdim],[data-sql],[data-wdim],[data-open-case],[data-close],#scrim,[data-copy],#cmdk-btn,#ask-btn');
   if (!t) { if (!(ev.target.closest && ev.target.closest('#menu'))) closeMenu(); return; }
   const ds = t.dataset;
   if (ds.go && (ev.metaKey || ev.ctrlKey || ev.shiftKey)) return;      // 新标签页打开,交给浏览器
@@ -143,6 +179,9 @@ function onClick(ev) {
   if (ds.go) return goPage(ds.go);
   if (ds.jump) return scrollToSection(ds.jump, true);
   if (ds.inst) { writeKey(ds.inst); S.run = {}; closeMenu(); return mount(); }
+  if (t.id === 'range') return rangeMenu(t);
+  if (ds.rangeApply !== undefined) return applyRange({ from: document.getElementById('rg-from').value, to: document.getElementById('rg-to').value });
+  if (ds.rangeClear !== undefined) return applyRange(null);
   if (t.id === 'inst') return menu(t, `<div class="mh">切换实例（右侧是最近一份报告的时间）</div>${S.ctx.targets.map((x) => `<div class="mi ${x.key === S.ctx.key ? 'on' : ''}" data-inst="${esc(x.key)}">${esc(x.label || x.conn || x.key)}<span class="r">${esc(stamp(x.last_at))}</span></div>`).join('')}`);
   if (ds.runMenu) return import('../views/normal/common.js').then((c) => c.openRunMenu(t, ds.runMenu));
   if (ds.pick || ds.run) { const [sk, f] = (ds.pick || ds.run).split('|'); closeMenu(); return rerun(sk, f); }

@@ -5,6 +5,7 @@
 import { fetchIndex, fetchReport, fetchSqltune } from '../lib/data.js';
 import { fmtMs, brief } from '../lib/fmt.js';
 import { instName } from '../lib/ui.js';
+import { filterIndex } from '../lib/range.js';
 
 export const BY = [['time', '总耗时', 'total_sec'], ['avg', '平均耗时', 'avg_ms'], ['calls', '调用次数', 'calls'], ['reads', '逻辑读', 'total_sec'], ['rows', '返回行', 'rows']];
 export const byLabel = (by) => (BY.find(([b]) => b === by) || [, by])[1];
@@ -33,13 +34,14 @@ export const isSkipped = (t) => !!(t && t.skipped);
 export const READS_NOTE = '取数脚本(客户中间件白名单里注册的那条)不返回逻辑读数值,占比仍按耗时;要看数值需客户重新注册脚本';
 
 /** 取某个排序维度最近一份榜单并建模。没取过的维度返回 {ok:true, missing:true},页面给「去会话里取」。 */
-export async function load(key, byPref) {
+export async function load(key, byPref, range) {
   if (!key) return { ok: false, reason: 'none' };
   const index = await fetchIndex('topsql', key);
   if (!index.ok) return { ok: false, reason: index.status === 404 ? 'none' : 'error', error: index.error };
-  const per = latestPerBy(index.data || []);
+  const all = Array.isArray(index.data) ? index.data : [];
+  const per = latestPerBy(filterIndex('topsql', all, range));      // 时间段内各维度最近一份
   const avail = BY.filter(([b]) => per[b]);
-  if (!avail.length) return { ok: false, reason: 'none' };
+  if (!avail.length) return { ok: false, reason: range && all.length ? 'range' : 'none' };
   const by = BY.some(([b]) => b === byPref) ? byPref : avail[0][0];
   if (!per[by]) return { ok: true, key, per, avail, by, missing: true };
   const rep = await fetchReport('topsql', key, per[by].file);
@@ -54,6 +56,6 @@ export async function load(key, byPref) {
 /** 普通风格的 Top SQL 页。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/topsql.js');
-  const m = await load(ctx.key, readBy());
+  const m = await load(ctx.key, readBy(), ctx.range);
   return view.render(root, m.ok && !m.missing ? { ...m, name: instName(ctx, m.rep.conn) } : m, ctx);
 }

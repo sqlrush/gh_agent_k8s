@@ -8,7 +8,7 @@ import { setModel } from '../../lib/store.js';
 import { treemap, scatter } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { BY, byLabel, tunePrompt, isSkipped, READS_NOTE } from '../../pages/topsql.js';
-import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero } from './common.js';
+import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, rangeHero } from './common.js';
 
 /** 五个排序页签都能点:取过的切过去(data-by),没取过的写「未取」,点了也切过去并给「去会话里取」。 */
 const byTabs = (m) => `<div class="seg">${BY.map(([b, l]) => `<button data-by="${b}" class="${b === m.by ? 'on' : ''}"${m.per[b] ? '' : tipAttr(`还没按「${esc(l)}」取过<div class="d">点一下看怎么取</div>`)}>${esc(l)}${m.per[b] ? '' : '<small class="t3"> 未取</small>'}</button>`).join('')}</div>`;
@@ -17,7 +17,7 @@ export function render(root, m, ctx) {
   const target = m.name || (ctx.target && ctx.target.label) || '';
   const head = (act, desc) => pageHead('Top SQL', '', act, desc);
   if (!m.ok) {
-    root.innerHTML = head('', []) + (m.reason === 'error' ? errorHero(m.error) : emptyHero(ctx.key ? '这个实例还没有 Top SQL 报告' : '还没有 Top SQL 报告', '在会话里取一次，结果会自动出现在这里。', '请列出当前库的 Top SQL(按总耗时)。', '在会话里取一次 Top SQL'));
+    root.innerHTML = head('', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : emptyHero(ctx.key ? '这个实例还没有 Top SQL 报告' : '还没有 Top SQL 报告', '在会话里取一次，结果会自动出现在这里。', '请列出当前库的 Top SQL(按总耗时)。', '在会话里取一次 Top SQL'));
     return;
   }
   if (m.missing) {

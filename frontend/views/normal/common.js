@@ -6,6 +6,7 @@ import { rise } from '../../lib/motion.js';
 import { menu } from '../../lib/overlay.js';
 import { getModel } from '../../lib/store.js';
 import { entryLevel } from '../../pages/health.js';
+import { label as rangeLabel } from '../../lib/range.js';
 
 export function pageHead(crumb, statusTag, actions, desc) {
   return `<div class="crumb">诊断大盘<span>/</span><b>${esc(crumb)}</b></div>
@@ -27,6 +28,8 @@ export const insightCard = (o) => `<div class="glass insight rise"${rise()}>
 export const heroStats = (items) => `<div class="hero-stats">${items.map((x) => `<div class="glass rise"${rise()}><div class="l">${x.l}</div><div class="v num">${x.v}<small>${esc(x.u || '')}</small></div><div class="s">${x.s || ''}</div></div>`).join('')}</div>`;
 
 export const emptyHero = (title, text, prompt, label) => `<section class="hero rise"${rise()}><div class="empty-state">${glyph(null)}<h4>${esc(title)}</h4><p>${esc(text)}</p>${primary(prompt, label)}</div></section>`;
+/** 选了时间段、时间段内一份都没有:明说是时间段的缘故(不是「还没跑过」),给一键看全部。 */
+export const rangeHero = (r) => `<section class="hero rise"${rise()}><div class="empty-state">${glyph(null)}<h4>所选时间段（${esc(rangeLabel(r))}）内没有这类报告</h4><p>时间段只筛选已经跑过的报告，不会替你去取数。要看这段时间的情况，在会话里对它做一次分析；或者先看全部报告。</p><button class="btn" data-range-clear>${I.cal}看全部报告</button></div></section>`;
 export const errorHero = (error) => `<section class="hero"><div class="empty-state">${glyph(2)}<h4>报告读取失败</h4><p>${esc(error || '')}</p></div></section>`;
 
 /** 「巡检 09-22 14:03 ▾」:点开列出最近的报告,选一份即切过去(data-pick)。 */

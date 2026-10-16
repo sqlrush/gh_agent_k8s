@@ -7,7 +7,7 @@ import { setModel } from '../../lib/store.js';
 import { dial, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { title, metricName, keyFig, fPrompt, countsOf } from '../../pages/health.js';
-import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker } from './common.js';
+import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker, rangeHero } from './common.js';
 
 function hero(m) {
   const cnt = {};
@@ -51,7 +51,7 @@ function findingsTable(m) {
 export function render(root, m, ctx) {
   const head = (st, act, desc) => pageHead('健康检查', st, act, desc);
   if (!m.ok) {
-    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : emptyHero(ctx.key ? '这个实例还没有健康检查报告' : '还没有健康检查报告', '在会话里做一次巡检，报告会自动出现在这里。', '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
+    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : emptyHero(ctx.key ? '这个实例还没有健康检查报告' : '还没有健康检查报告', '在会话里做一次巡检，报告会自动出现在这里。', '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
     return;
   }
   setModel('health', m);

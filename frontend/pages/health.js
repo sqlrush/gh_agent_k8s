@@ -4,6 +4,7 @@
 import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { esc, num, split, fmtMs, fmtSec, fmtInt, cn } from '../lib/fmt.js';
 import { lk, instName } from '../lib/ui.js';
+import { loadInRange } from '../lib/range.js';
 
 // 维度名 = gaussdb-health/scripts/model.py 的 DIM_* 常量(契约守卫逐个核对,技能改名这里会先红)。
 // 子技能的发现带它们自己的维度名(如 DB Time),不在这张表里就原样显示。
@@ -46,9 +47,14 @@ export const fPrompt = (f) => (f.sql_id
   ? `请解释并优化 sql_id 为 ${f.sql_id} 的语句:健康检查发现 ${f.code},${f.metric}=${f.value}(阈值 ${f.threshold})。`
   : `请针对健康检查发现 ${f.code}(${f.metric}=${f.value},阈值 ${f.threshold})做深入分析:${f.evidence}`);
 
-/** 取一份报告并建模。file 为空取最新;key 为空或 404 返回 {ok:false, reason:'none'}。 */
-export async function load(key, file) {
+/** 取一份报告并建模。file 为空取最新;key 为空或 404 返回 {ok:false, reason:'none'}。
+ *  range(时间段)给了:只在时间段内的报告里取,走势与上期对比也只算时间段内的;一份都没有 → reason 'range'。 */
+export async function load(key, file, range) {
   if (!key) return { ok: false, reason: 'none' };
+  if (range) {
+    const got = await loadInRange('health', key, file, range);
+    return got.ok ? model(key, got.rep.data, got.idx, got.file) : got;
+  }
   const [rep, index] = await Promise.all([file ? fetchReport('health', key, file) : fetchLatest('health', key), fetchIndex('health', key)]);
   if (!rep.ok) return { ok: false, reason: rep.status === 404 ? 'none' : 'error', error: rep.error };
   return model(key, rep.data, index.ok && Array.isArray(index.data) ? index.data : [], file);
@@ -75,6 +81,6 @@ export function model(key, d, idx, file) {
 /** 普通风格的健康检查页。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/health.js');
-  const m = await load(ctx.key, ctx.run && ctx.run.health);
+  const m = await load(ctx.key, ctx.run && ctx.run.health, ctx.range);
   return view.render(root, m.ok ? { ...m, name: instName(ctx, m.d.conn) } : m, ctx);
 }

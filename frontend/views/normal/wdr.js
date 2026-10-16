@@ -7,7 +7,7 @@ import { setModel } from '../../lib/store.js';
 import { dumbbell, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { KPIS, kpiVal, cpuShare, showK, change, dimOf, wPrompt, fmtDbt } from '../../pages/wdr.js';
-import { pageHead, tile, insightCard, emptyHero, errorHero, runPicker } from './common.js';
+import { pageHead, tile, insightCard, emptyHero, errorHero, runPicker, rangeHero } from './common.js';
 
 /** 横向条形清单:dim 的每一行一根,valCol 是取值列。hero=true 时不写附加列(主视觉里放不下)。 */
 export function hb(dim, valCol, unit, hero) {
@@ -33,7 +33,7 @@ function hero(m) {
 export function render(root, m, ctx) {
   const head = (st, act, desc) => pageHead('WDR 分析', st, act, desc);
   if (!m.ok) {
-    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : emptyHero(ctx.key ? '这个实例还没有 WDR 报告' : '还没有 WDR 报告', '在会话里对一个快照窗口做分析，报告会自动出现在这里。', '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析'));
+    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : emptyHero(ctx.key ? '这个实例还没有 WDR 报告' : '还没有 WDR 报告', '在会话里对一个快照窗口做分析，报告会自动出现在这里。', '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析'));
     return;
   }
   if (m.w.wdr_enabled === false) {

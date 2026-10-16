@@ -80,7 +80,8 @@ def _cmd_collect(args) -> int:
         else:
             print(render_evidence(ev), end="")
         # 存档在输出之后:大盘读 latest.json 与上一份做窗口对比;失败只 warn
-        reports.archive("wdr", _archive_payload(ev, args.save_html), instance=ev.conn)
+        saved = reports.archive("wdr", _archive_payload(ev, args.save_html), instance=ev.conn)
+        reports.announce("wdr", saved, ev.conn)
         return 0
     except common.DBError as exc:
         print(f"error: {exc}", file=sys.stderr)

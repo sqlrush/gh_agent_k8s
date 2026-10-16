@@ -1,4 +1,4 @@
-// 文艺风格:四个大盘排成一份「运维日报」。头版 = 头条(健康检查)、本期数字、八项检查一览,折线以下三个小栏目;
+// 文艺风格:四个大盘排成一份「GaussDB智能体日报」。头版 = 头条(健康检查)、本期数字、八项检查一览,折线以下三个小栏目;
 // 内页 A2–D1 见 sections.js。路由只决定翻到哪一版(/dash/topsql → B1),所以这里一次并行取四个技能的报告。
 
 import { esc, stamp, cn, pangu, fmtInt, fullDate } from '../../lib/fmt.js';
@@ -94,6 +94,6 @@ export async function render(root, ctx) {
   root.innerHTML = `<section class="front"><div class="front-main">${lead(hm)}</div><aside class="front-side">${numbers(hm, tm, wm, km)}${dimsBox(hm)}</aside></section>
     <div class="fold"><span>折线以下</span></div>
     <section class="below">${storyWdr(wm)}${storyTop(tm)}${storyKb(km)}</section>${sections(hm, tm, wm, km)}
-    <footer class="colophon"><b>运维日报</b>　由 GaussDB 智能体依据巡检、WDR、Top SQL 与知识库报告自动编排。级别由巡检脚本按阈值判定，模型不改；文中数字均取自报告。</footer>`;
+    <footer class="colophon"><b>GaussDB智能体日报</b>　由 GaussDB 智能体依据巡检、WDR、Top SQL 与知识库报告自动编排。级别由巡检脚本按阈值判定，模型不改；文中数字均取自报告。</footer>`;
   masthead(hm, ctx);
 }

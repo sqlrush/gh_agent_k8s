@@ -28,7 +28,8 @@
 [data-style="press"] .mt-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; padding: 0; }
 [data-style="press"] .mt-btn:hover { color: var(--accent); }
 [data-style="press"] .mt-btn kbd, [data-style="press"] .kbd kbd { font-family: var(--sans); font-size: 11px; color: var(--ink-2); background: transparent; border: 1px solid var(--hair); border-radius: 0; padding: 0 4px; line-height: 16px; }
-[data-style="press"] .title { margin: 14px 0 0; font-family: var(--serif); font-weight: 900; font-size: 92px; line-height: 1.12; letter-spacing: 0.34em; text-indent: 0.34em; }
+[data-style="press"] .title { margin: 16px 0 0; font-family: var(--serif); font-weight: 900; font-size: 80px; line-height: 1.12; letter-spacing: 0; white-space: nowrap; }
+[data-style="press"] .title .cjk { letter-spacing: 0.14em; margin-left: 0.12em; margin-right: -0.14em; }
 [data-style="press"] .mast-sub { margin-top: 6px; padding: 7px 0 9px; border-top: 4px double var(--ink); font-size: 12.5px; letter-spacing: 0.18em; color: var(--ink-2); }
 [data-style="press"] .secnav { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: center; gap: 30px; max-width: 1240px; margin: 0 auto; padding: 10px 32px;
   background: var(--paper); border-top: 1px solid var(--ink); border-bottom: 3px double var(--ink); font-size: 14px; }
@@ -257,4 +258,4 @@
 [data-style="press"] .below { grid-template-columns: 1fr; }
 [data-style="press"] .story { padding: 16px 0; border-left: 0; border-top: 1px solid var(--hair); }
 [data-style="press"] .cols2 { column-count: 1; }
-[data-style="press"] .title { font-size: 60px; } }
+[data-style="press"] .title { font-size: 52px; } }

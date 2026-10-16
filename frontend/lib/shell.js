@@ -72,7 +72,7 @@ function chromePress(page, style, ctx) {
     .map(([p, l, jump]) => (jump ? `<a href="#" data-jump="${jump}">${esc(l)}</a>` : `<a href="/dash/${p}" data-go="${p}" data-p="${p}" class="${p === page.name ? 'on' : ''}">${esc(l)}</a>`)).join('');
   return `<header class="mast"><div class="mast-top"><span id="issue-date"></span><span class="dot">·</span><span id="issue-no"></span><span class="dot">·</span><span>实例版</span>${instBtn(ctx.target, ctx.targets.length)}
       <span class="r">${styleSwitch(style)}<button class="mt-btn" id="cmdk-btn">检索<kbd>⌘K</kbd></button><button class="mt-btn" id="ask-btn">问智能体<kbd>⌘J</kbd></button><span class="sub">订阅者 <b>${esc(ctx.whoami || '—')}</b></span></span></div>
-      <h1 class="title">运维日报</h1><div class="mast-sub">GAUSSDB 智能体　·　每日巡检与诊断　·　由智能体编写，级别由巡检脚本判定</div></header>
+      <h1 class="title">GaussDB<span class="cjk">智能体日报</span></h1><div class="mast-sub">每日巡检与诊断　·　由智能体编写，级别由巡检脚本判定</div></header>
     <nav class="secnav" id="nav">${nav}<a class="proto" href="${CHAT_HOME}" target="_blank" rel="noopener">新对话 ↗</a></nav>
     <main class="paper" id="main"><div class="sheet-empty">加载中…</div></main>`;
 }

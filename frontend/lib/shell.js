@@ -58,7 +58,7 @@ async function loadTargets(page, style) {
 const rangeBtn = (r) => `<button class="inst range${r ? ' on' : ''}" id="range" title="只看这段时间内跑过的报告"><span class="t3">时间段</span>${esc(rangeLabel(r))}<span class="chev">${I.chev}</span></button>`;
 function rangeMenu(anchor) {
   const r = S.ctx.range || {};
-  menu(anchor, `<div class="mh">只看这段时间内跑过的报告（WDR 按快照窗口算）</div>
+  menu(anchor, `<div class="mh">只看这段时间内跑过的报告（WDR 按快照窗口算，快照时间是数据库所在时区）</div>
     <div class="rg"><label>从<input type="datetime-local" id="rg-from" value="${esc(r.from || '')}"></label>
       <label>到<input type="datetime-local" id="rg-to" value="${esc(r.to || '')}"></label>
       <div class="rg-act"><button class="btn" data-range-clear>看全部</button><button class="btn primary" data-range-apply>应用</button></div></div>`);

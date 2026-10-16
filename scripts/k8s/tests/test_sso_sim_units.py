@@ -47,6 +47,12 @@ def upstream():
             pass
 
         def do_GET(self):
+            if self.path.endswith("/cached") or self.path.endswith("/nocontent"):
+                # 浏览器再验证静态文件时网关回的 304;204 同理 —— 都没有消息体
+                self.send_response(304 if self.path.endswith("/cached") else 204)
+                self.send_header("ETag", '"v1"')
+                self.end_headers()
+                return
             seen["headers"] = {k.lower(): v for k, v in self.headers.items()}
             body = json.dumps(seen["headers"]).encode()
             self.send_response(200)
@@ -107,3 +113,34 @@ def test_usage_and_empty_trust_file_are_refused(monkeypatch, tmp_path, capsys):
 def test_listens_only_on_loopback():
     src = _PATH.read_text(encoding="utf-8")
     assert 'Server(("127.0.0.1", listen)' in src, "只许监听本机:谁连得上谁就是那个工号"
+
+
+def test_bodyless_responses_carry_no_body_so_the_connection_stays_usable(monkeypatch, upstream):
+    """**2026-10-15 抓到**(网关同一个毛病,一起修的):304 / 204 被加上分块编码和结束块 `0\\r\\n\\r\\n`,
+    浏览器把这 5 个字节当成同一连接上下一个响应的开头(ERR_INVALID_HTTP_RESPONSE)→ 大盘第二次打开整页空白。
+    裸 socket 在一条连接上连发两个请求,第二个响应必须从状态行开始。"""
+    mod = _load(monkeypatch)
+    port = _free_port()
+    srv = mod.Server(("127.0.0.1", port), mod.make_handler(upstream, "u0001", "s" * 20))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        for path, code in (("/dash/cached", 304), ("/dash/nocontent", 204)):
+            s = socket.create_connection(("127.0.0.1", port), timeout=5)
+            s.sendall(("GET %s HTTP/1.1\r\nHost: x\r\n\r\n" % path).encode())
+            buf = b""
+            while b"\r\n\r\n" not in buf:
+                buf += s.recv(4096)
+            head, rest = buf.split(b"\r\n\r\n", 1)
+            assert head.startswith(b"HTTP/1.1 %d" % code), head[:40]
+            assert b"transfer-encoding" not in head.lower(), "%d 不该带分块编码" % code
+            s.sendall(b"GET /dash/echo HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            nxt = rest
+            while True:
+                data = s.recv(4096)
+                if not data:
+                    break
+                nxt += data
+            s.close()
+            assert nxt.startswith(b"HTTP/1.1 200"), "%d 的响应后面多出了字节:%r" % (code, nxt[:16])
+    finally:
+        srv.shutdown()

@@ -46,6 +46,8 @@ export const I = {
   grid: sv('<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>', 1.7),
 };
 
+/** 实例在页面上的名字:targets.json 的 label(如「10.0.0.9 / postgres」);报告里的 conn 是内部键,只在没有 label 时兜底。 */
+export const instName = (ctx, conn) => (ctx && ctx.target && (ctx.target.label || ctx.target.conn)) || conn || '—';
 export const tipAttr = (h) => ` data-tip="${esc(h)}"`;
 /** 深挖:点击后在新标签页开一个已发出首句的 opencode 会话(lib/dig.js 统一处理)。 */
 export const dig = (prompt, title) => ` data-dig="${esc(prompt)}"${title ? ` data-dig-title="${esc(title)}"` : ''}`;

@@ -27,7 +27,7 @@ function hero(m) {
     ${comp}<div class="subt">等待按等待类拆开（占等待总时间）</div>${hb(waits, waits ? (waits.headers || []).length - 1 : 0, '%', true)}</div>`;
   const dumbs = `<div class="db-head"><b>负载对比</b><span>空心点是上一窗口${p ? `（snap ${esc(p.window.begin_id)}–${esc(p.window.end_id)}）` : ''}，实心点是本窗口；比例尺从 0 开始</span><span class="legend2" style="margin:0 0 0 auto"><span><i class="sw" style="background:var(--h-crit)"></i>明显变坏</span><span><i class="sw" style="background:var(--h-warn)"></i>变坏</span><span><i class="sw" style="background:var(--h-ok)"></i>变好</span><span><i class="sw" style="background:var(--h-t3)"></i>无好坏之分</span></span></div>
     <div class="dumbbells">${KPIS.map((k) => dumbbell(k, kpiVal(k, d), kpiVal(k, p), showK, rise)).join('')}</div>`;
-  return `<section class="hero"><div class="hero-grid">${dbBox}${insightCard({ ...insight.wdr(m), ctx: `关于实例 ${d.conn} 的 WDR 窗口 snap ${w.begin_id}–${w.end_id}:` })}</div>${dumbs}</section>`;
+  return `<section class="hero"><div class="hero-grid">${dbBox}${insightCard({ ...insight.wdr(m), ctx: `关于实例 ${m.name} 的 WDR 窗口 snap ${w.begin_id}–${w.end_id}:` })}</div>${dumbs}</section>`;
 }
 
 export function render(root, m, ctx) {
@@ -48,9 +48,9 @@ export function render(root, m, ctx) {
   const ck = dimOf(d, 'checkpoint');
   const ckBody = ck && (ck.rows || [])[0] ? `<p class="t2" style="margin:0 0 14px;font-size:13px">${esc(cn(ck.headline || ''))}</p><div class="kvs" style="--cols:${Math.min(4, (ck.headers || []).length)}">${(ck.headers || []).slice(0, 4).map((h, i) => `<div><div class="kv"><div class="k">${esc(h)}</div><div class="v num" style="font-size:20px">${esc(ck.rows[0][i])}</div></div></div>`).join('')}</div>` : `<p class="t3">${esc(cn((ck && ck.note) || '未采集'))}</p>`;
   const nat = native.generated ? (m.nativeUrl ? `<a class="btn" href="${esc(m.nativeUrl)}" target="_blank" rel="noopener">${I.down}原生报告 ${fmtInt(Math.round((native.bytes || 0) / 1024))} KB</a>` : `<span class="tag gray">原生报告已生成，${fmtInt(Math.round((native.bytes || 0) / 1024))} KB</span>`) : `<span class="tag gray"${tipAttr(esc(native.note || ''))}>原生报告未生成</span>`;
-  const target = (ctx.target && ctx.target.label) || d.conn || '';
+  const target = m.name;
   root.innerHTML = head(tag(d.overall | 0), runPicker('wdr', m.entry, '窗口') + nat + primary('请分析最近一个 WDR 窗口的 DB Time 构成,说明是算力型还是等待型负载。', '在会话里深挖', 'WDR'),
-    [['实例', esc(target)], ['窗口', `snap ${esc(w.begin_id)} 至 ${esc(w.end_id)}`], ['时间', `${esc(w.begin_ts || '')} 至 ${esc(String(w.end_ts || '').slice(11, 16))}，${esc(w.duration_min)} 分钟`], ['范围', `${esc(w.scope || '')} ${esc(w.node || '')}`], ['对比', p ? `snap ${esc(p.window.begin_id)} 至 ${esc(p.window.end_id)}` : '没有上一窗口（第一份报告）']])
+    [['实例', esc(target)], ['窗口', `snap ${esc(w.begin_id)} 至 ${esc(w.end_id)}`], ['时间', `${esc(w.begin_ts || '')} 至 ${esc(String(w.end_ts || '').slice(11, 16))}，${esc(w.duration_min)} 分钟`], ['范围', `${esc(w.scope || '')} ${esc(w.node || '')}`], ['对比', p ? `snap ${esc(p.window.begin_id)} 至 ${esc(p.window.end_id)}` : m.sameSkipped ? '没有（之前分析的是同一个窗口）' : '没有上一窗口（第一份报告）']])
     + hero(m)
     + `<div class="bento">${tile({ title: '窗口内 Top SQL', desc: esc(cn((ts && ts.headline) || '')), body: tsTable, flush: true })}
       ${tile({ span: 'b4', title: `结论<span class="cnt">${fs.length}</span>`, desc: '脚本按阈值判定', body: verdicts })}

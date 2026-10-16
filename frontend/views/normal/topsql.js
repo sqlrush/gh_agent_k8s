@@ -14,7 +14,7 @@ import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero } from './
 const byTabs = (m) => `<div class="seg">${BY.map(([b, l]) => `<button data-by="${b}" class="${b === m.by ? 'on' : ''}"${m.per[b] ? '' : tipAttr(`还没按「${esc(l)}」取过<div class="d">点一下看怎么取</div>`)}>${esc(l)}${m.per[b] ? '' : '<small class="t3"> 未取</small>'}</button>`).join('')}</div>`;
 
 export function render(root, m, ctx) {
-  const target = (ctx.target && ctx.target.label) || (m.rep && m.rep.conn) || '';
+  const target = m.name || (ctx.target && ctx.target.label) || '';
   const head = (act, desc) => pageHead('Top SQL', '', act, desc);
   if (!m.ok) {
     root.innerHTML = head('', []) + (m.reason === 'error' ? errorHero(m.error) : emptyHero(ctx.key ? '这个实例还没有 Top SQL 报告' : '还没有 Top SQL 报告', '在会话里取一次，结果会自动出现在这里。', '请列出当前库的 Top SQL(按总耗时)。', '在会话里取一次 Top SQL'));
@@ -45,7 +45,7 @@ export function render(root, m, ctx) {
   const nTuned = rows.filter((r) => m.tune[r.sql_id] && !isSkipped(m.tune[r.sql_id])).length, nNone = rows.filter((r) => !m.tune[r.sql_id]).length;
   root.innerHTML = head(`<button class="btn"${dig('请重新取一次当前库的 Top SQL。', 'Top SQL')}>${I.redo}重新取数</button>` + primary('请基于最近一次 Top SQL 结果分析哪些语句最值得优化,给出优先级。', '在会话里深挖', 'Top SQL'),
     [['实例', esc(target)], ['取数时间', esc(stamp(m.entry.at))], ['口径', '累计统计视图，不是时间窗口；含系统与监控 SQL（调优按策略跳过这类）']])
-    + `<section class="hero"><div class="hero-grid tm">${tm}${insightCard({ ...insight.topsql(m), ctx: `关于实例 ${m.rep.conn} 在 ${stamp(m.entry.at)} 取的 Top SQL 榜单:` })}</div>${heroStats(stats)}</section>`
+    + `<section class="hero"><div class="hero-grid tm">${tm}${insightCard({ ...insight.topsql(m), ctx: `关于实例 ${m.name} 在 ${stamp(m.entry.at)} 取的 Top SQL 榜单:` })}</div>${heroStats(stats)}</section>`
     + `<div class="bento">${tile({ title: 'SQL 榜单', desc: `按${esc(label)}排序，点 sql_id 查看语句与调优结论${m.by === 'reads' ? `；${esc(READS_NOTE)}` : ''}`, body: table, tools: byTabs(m), flush: true })}
       ${tile({ span: 'b7', title: '调用次数 × 平均耗时', desc: '找又多又慢的语句', body: scatter(rows, m.tune, isSkipped, 700) })}
       ${tile({ span: 'b5', title: '调优进度', desc: `${nTuned} 条已调优，${nNone} 条未调优`, body: progress })}</div>`;

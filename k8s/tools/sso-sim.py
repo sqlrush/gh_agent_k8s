@@ -62,6 +62,12 @@ def make_handler(target: int, user: str, trust: str, roles: str = ""):
                 if k.lower() in HOP or k.lower() == "content-length":
                     continue
                 self.send_header(k, v)
+            # 1xx / 204 / 304 与 HEAD 按协议没有消息体:不加分块编码、不写结束块,否则多出的字节会被浏览器
+            # 当成同一连接上下一个响应的开头(大盘第二次打开时静态文件全是 304 → 整页空白,2026-10-15)
+            if self.command == "HEAD" or resp.status in (204, 304) or 100 <= resp.status < 200:
+                self.end_headers()
+                conn.close()
+                return
             chunked = stream or resp.getheader("Content-Length") is None
             if chunked:
                 self.send_header("Transfer-Encoding", "chunked")

@@ -4,6 +4,7 @@
 
 import { fetchIndex, fetchReport, fetchSqltune } from '../lib/data.js';
 import { fmtMs, brief } from '../lib/fmt.js';
+import { instName } from '../lib/ui.js';
 
 export const BY = [['time', '总耗时', 'total_sec'], ['avg', '平均耗时', 'avg_ms'], ['calls', '调用次数', 'calls'], ['reads', '逻辑读', 'total_sec'], ['rows', '返回行', 'rows']];
 export const byLabel = (by) => (BY.find(([b]) => b === by) || [, by])[1];
@@ -53,5 +54,6 @@ export async function load(key, byPref) {
 /** 普通风格的 Top SQL 页。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/topsql.js');
-  return view.render(root, await load(ctx.key, readBy()), ctx);
+  const m = await load(ctx.key, readBy());
+  return view.render(root, m.ok && !m.missing ? { ...m, name: instName(ctx, m.rep.conn) } : m, ctx);
 }

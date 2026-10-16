@@ -28,7 +28,7 @@ function hero(m) {
   const ins = insight.health(m);
   return `<section class="hero"><div class="hero-grid">
       <div class="glass ringbox rise"${rise()}><div class="title">${I.grid}检查项<span class="t3">点一项看明细</span></div>${dial(m.checks, m.level, `${m.checks.length} 项检查`)}<div class="ring-legend">${legend}</div></div>
-      ${insightCard({ ...ins, ctx: `关于实例 ${m.d.conn} 在 ${stamp(m.entry && m.entry.at)} 的健康检查报告:` })}
+      ${insightCard({ ...ins, ctx: `关于实例 ${m.name} 在 ${stamp(m.entry && m.entry.at)} 的健康检查报告:` })}
     </div>${heroStats(stats)}</section>`;
 }
 
@@ -61,7 +61,7 @@ export function render(root, m, ctx) {
   const kb = r.kb_refs && r.kb_refs.status;
   const subs = `<div class="list">${m.subs.length ? m.subs.map((s) => `<div class="it">${glyph(s.ok ? 0 : null)}<div class="m"><b>${esc(s.skill.replace('gaussdb-', ''))}</b>${s.ok ? '' : `<small>${esc(cn(s.error || '失败'))}</small>`}</div><span class="r">${s.ok ? '已纳入' : '失败'}</span></div>`).join('') : '<p class="t3">本次未运行子技能</p>'}</div>
     ${(r.uncovered_capabilities || []).length || kb ? `<div class="note">${(r.uncovered_capabilities || []).length ? `不在巡检里的能力：${esc(r.uncovered_capabilities.map((x) => x.replace('gaussdb-', '')).join('、'))}，需要时在会话里单独运行。` : ''}${kb ? `${(r.uncovered_capabilities || []).length ? '<br>' : ''}知识库参照：${kb.attached ? `已接入，命中 ${(r.kb_refs.items || []).length} 条` : '未接入'}。` : ''}</div>` : ''}`;
-  const target = (ctx.target && ctx.target.label) || r.conn || '—';
+  const target = m.name;
   root.innerHTML = head(tag(m.level) + (m.level !== null && m.dims.some((d) => d.level === null) ? ` <span class="tag gray">${m.dims.filter((d) => d.level === null).length} 个维度没采到，结论不完整</span>` : ''),
     runPicker('health', m.entry, '巡检') + `<button class="btn"${dig('请对当前库重新做一次完整健康检查。', '健康检查')}>${I.redo}重新巡检</button>` + primary('请基于最近一次健康检查报告做一次深入分析,给出处理优先级。', '在会话里深挖', '健康检查'),
     [['实例', esc(target)], ['执行人', esc(ctx.whoami || '—')], ['巡检时间', esc(stamp(m.entry && m.entry.at))], ['存档', `${m.idx.length} 份`]])

@@ -4,6 +4,7 @@
 
 import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { fmtInt, num, split } from '../lib/fmt.js';
+import { instName } from '../lib/ui.js';
 
 // 维度名 = gaussdb-wdr/scripts/model.py 的 DIM_* 常量。
 // **第一版对着自编的样例写,维度名和行列形状都与真技能不符,真数据上 KPI 全是「未采集」。**
@@ -66,12 +67,20 @@ export async function load(key, file) {
   if (!rep.ok) return { ok: false, reason: rep.status === 404 ? 'none' : 'error', error: rep.error };
   const d = rep.data, idx = index.ok && Array.isArray(index.data) ? index.data : [];
   const pos = file ? idx.findIndex((e) => e.file === file) : idx.length - 1;
-  const prevEntry = pos > 0 ? idx[pos - 1] : null;
-  const prevRep = prevEntry ? await fetchReport('wdr', key, prevEntry.file) : null;
+  // 上一窗口 = 往前找第一份**分析的不是同一个快照窗口**的报告。同一个窗口分析了两次(重跑很常见)时,
+  // 拿它跟自己比只会得出「与上一窗口相当」的假结论(2026-10-15 真数据上撞到)。最多往前看 5 份。
+  const same = (a, b) => a && b && String(a.begin_id) === String(b.begin_id) && String(a.end_id) === String(b.end_id);
+  let prevRep = null, sameSkipped = 0;
+  for (let i = pos - 1; i >= 0 && i >= pos - 5; i--) {
+    const r = await fetchReport('wdr', key, idx[i].file);
+    if (!r.ok) continue;
+    if (same(r.data.window, d.window)) { sameSkipped++; continue; }
+    prevRep = r; break;
+  }
   const native = d.native || {};
   // 只有原生报告在本实例的报告目录里才给下载链接:显式 --save-html 到 /tmp 的老报告,给链接就是 404
   const nativeName = native.saved_path && String(native.saved_path).includes(`/wdr/${key}/`) ? String(native.saved_path).split('/').pop() : '';
-  return { ok: true, key, d, idx, pos, entry: idx[pos] || null, w: d.window || {}, p: prevRep && prevRep.ok ? prevRep.data : null,
+  return { ok: true, key, d, idx, pos, entry: idx[pos] || null, w: d.window || {}, p: prevRep && prevRep.ok ? prevRep.data : null, sameSkipped,
     findings: [...(d.findings || [])].sort((a, b) => (b.severity | 0) - (a.severity | 0)), native, nativeName,
     nativeUrl: nativeName ? `/reports/wdr/${encodeURIComponent(key)}/${encodeURIComponent(nativeName)}` : '' };
 }
@@ -79,5 +88,6 @@ export async function load(key, file) {
 /** 普通风格的 WDR 页。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/wdr.js');
-  return view.render(root, await load(ctx.key, ctx.run && ctx.run.wdr), ctx);
+  const m = await load(ctx.key, ctx.run && ctx.run.wdr);
+  return view.render(root, m.ok ? { ...m, name: instName(ctx, m.d.conn) } : m, ctx);
 }

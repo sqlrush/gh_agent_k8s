@@ -102,7 +102,7 @@ export function wdr(m) {
   if (moved.some((x) => x.k.l === '临时溢出')) chips.push(['临时溢出怎么降', '这个 WDR 窗口临时溢出明显上升,请找出溢出的语句并给出 work_mem 或改写建议。']);
   chips.push(['负载为什么变了', '请解读这个 WDR 窗口,说明负载变化的主要原因。']);
   return { src: `依据 snap ${m.w.begin_id}–${m.w.end_id} 窗口报告 · 级别由脚本判定`, ask: '问问这个窗口，比如：负载为什么变了？', head: pangu(head0), chips: chips.slice(0, 4),
-    lines: [fs[0] && fl(fs[0]), fs[1] && fl(fs[1]), mv.length ? `与上一窗口相比，${mv.slice(0, 3).join('，')}。` : p ? '其余指标与上一窗口相比没有明显变坏。' : '这是第一份报告，没有可对比的窗口。',
+    lines: [fs[0] && fl(fs[0]), fs[1] && fl(fs[1]), mv.length ? `与上一窗口相比，${mv.slice(0, 3).join('，')}。` : p ? '其余指标与上一窗口相比没有明显变坏。' : m.sameSkipped ? '之前的报告分析的都是同一个快照窗口，没有可对比的窗口；对更早的窗口做一次分析就能对比。' : '这是第一份报告，没有可对比的窗口。',
       cpu !== null && pcpu !== null && Math.abs(cpu - pcpu) >= 5 ? `CPU 占 DB Time 从 ${pcpu}% ${cpu < pcpu ? '降' : '升'}到 ${cpu}%，等待占比${cpu < pcpu ? '升' : '降'}到 <b>${(100 - cpu).toFixed(0)}%</b>。` : ''] };
 }
 

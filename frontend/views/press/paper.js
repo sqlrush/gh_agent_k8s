@@ -2,7 +2,7 @@
 // 内页 A2–D1 见 sections.js。路由只决定翻到哪一版(/dash/topsql → B1),所以这里一次并行取四个技能的报告。
 
 import { esc, stamp, cn, pangu, fmtInt, fullDate } from '../../lib/fmt.js';
-import { lname, status, primary } from '../../lib/ui.js';
+import { lname, status, primary, instName } from '../../lib/ui.js';
 import { setModel } from '../../lib/store.js';
 import * as insight from '../../lib/insight.js';
 import * as P from '../../lib/press-charts.js';
@@ -19,12 +19,12 @@ function lead(hm) {
     <p class="deck">${esc(hm.reason === 'error' ? hm.error || '' : '这个实例还没有健康检查报告。在会话里做一次巡检，下一期就会刊出。')}</p>${hm.reason === 'error' ? '' : primary('请对当前库做一次健康检查。', '在会话里跑一次健康检查', '健康检查')}</article>`;
   const ins = insight.health(hm), failed = hm.subs.filter((s) => !s.ok).map((s) => s.skill.replace('gaussdb-', ''));
   const d = hm.prev ? hm.findings.length - H.countsOf(hm.prev) : null;
-  const deck = hm.level === null ? `${hm.d.conn} 本期 ${hm.dims.length} 个维度全部采集失败${failed.length ? `，子技能 ${failed.join('、')} 也未执行成功` : ''}。`
-    : `${hm.d.conn} 本期 ${hm.findings.length} 条越线发现，${d === null ? '这是第一份报告' : d > 0 ? `比上期多 ${d} 条` : d < 0 ? `比上期少 ${-d} 条` : '与上期持平'}；${failed.length ? `子技能 ${failed.join('、')} 未能执行，相关检查未纳入。` : '子技能全部执行成功。'}`;
+  const deck = hm.level === null ? `${hm.name} 本期 ${hm.dims.length} 个维度全部采集失败${failed.length ? `，子技能 ${failed.join('、')} 也未执行成功` : ''}。`
+    : `${hm.name} 本期 ${hm.findings.length} 条越线发现，${d === null ? '这是第一份报告' : d > 0 ? `比上期多 ${d} 条` : d < 0 ? `比上期少 ${-d} 条` : '与上期持平'}；${failed.length ? `子技能 ${failed.join('、')} 未能执行，相关检查未纳入。` : '子技能全部执行成功。'}`;
   const when = stamp(hm.entry && hm.entry.at);
   const intro = hm.level === null
-    ? `本期例行巡检于 ${when} 在 ${hm.d.conn} 实例上进行，计划检查 ${hm.dims.length} 个维度，一个都没有采到，因此无法判级。以下各条由智能体依据本次报告整理。`
-    : `本期例行巡检于 ${when} 在 ${hm.d.conn} 实例上进行，共检查 ${hm.checks.length} 项，巡检脚本按阈值判定总体为「${lname(hm.level)}」。以下各条由智能体依据本次报告整理，数字均取自报告原文。`;
+    ? `本期例行巡检于 ${when} 在 ${hm.name} 实例上进行，计划检查 ${hm.dims.length} 个维度，一个都没有采到，因此无法判级。以下各条由智能体依据本次报告整理。`
+    : `本期例行巡检于 ${when} 在 ${hm.name} 实例上进行，共检查 ${hm.checks.length} 项，巡检脚本按阈值判定总体为「${lname(hm.level)}」。以下各条由智能体依据本次报告整理，数字均取自报告原文。`;
   // 走势至少要两份报告;这次什么都没采到时「0 条」没有意义,不画
   const showTrend = hm.idx.length >= 2 && hm.level !== null;
   return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">${ins.head}</h2><p class="deck">${esc(pangu(deck))}</p>
@@ -86,7 +86,10 @@ function masthead(hm, ctx) {
 }
 
 export async function render(root, ctx) {
-  const [hm, tm, wm, km] = await Promise.all([H.load(ctx.key, ctx.run.health), T.load(ctx.key, T.readBy()), W.load(ctx.key, ctx.run.wdr), K.load()]);
+  const [h0, t0, w0, km] = await Promise.all([H.load(ctx.key, ctx.run.health), T.load(ctx.key, T.readBy()), W.load(ctx.key, ctx.run.wdr), K.load()]);
+  const hm = h0.ok ? { ...h0, name: instName(ctx, h0.d.conn) } : h0;
+  const tm = t0.ok && !t0.missing ? { ...t0, name: instName(ctx, t0.rep.conn) } : t0;
+  const wm = w0.ok ? { ...w0, name: instName(ctx, w0.d.conn) } : w0;
   if (hm.ok) setModel('health', hm);
   if (tm.ok && !tm.missing) setModel('topsql', tm);
   if (wm.ok) setModel('wdr', wm);

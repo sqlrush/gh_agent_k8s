@@ -41,3 +41,13 @@ def test_dockerfile_copies_frontend_and_conf_only():
     assert "COPY frontend/ /usr/share/nginx/html/dash/" in _DOCKERFILE
     assert "COPY docker/nginx-dash.conf /etc/nginx/conf.d/default.conf" in _DOCKERFILE
     assert "agent/" not in _DOCKERFILE and "gateway/" not in _DOCKERFILE, "前端镜像里不该有技能或网关代码"
+
+
+def test_every_frontend_file_is_world_readable():
+    """**2026-10-15 抓到。** `COPY frontend/` 原样带上工作树里的文件权限;nginx-unprivileged 以 uid 101 运行,
+    哪个文件是 0600 它就回 403 —— 当时是 styles/press.css,文艺风格整页没有样式。git 只记 644,
+    所以从干净克隆构建没事,从改过的工作树构建就出事。这里在构建前把关。"""
+    import stat
+    bad = [str(p.relative_to(_ROOT)) for p in (_ROOT / "frontend").rglob("*")
+           if p.is_file() and not p.stat().st_mode & stat.S_IROTH]
+    assert not bad, "这些文件 others 不可读,进镜像后 nginx 会回 403:%s(chmod 644 即可)" % bad

@@ -3,7 +3,7 @@
 
 import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { esc, num, split, fmtMs, fmtSec, fmtInt, cn } from '../lib/fmt.js';
-import { lk } from '../lib/ui.js';
+import { lk, instName } from '../lib/ui.js';
 
 // 维度名 = gaussdb-health/scripts/model.py 的 DIM_* 常量(契约守卫逐个核对,技能改名这里会先红)。
 // 子技能的发现带它们自己的维度名(如 DB Time),不在这张表里就原样显示。
@@ -75,5 +75,6 @@ export function model(key, d, idx, file) {
 /** 普通风格的健康检查页。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/health.js');
-  return view.render(root, await load(ctx.key, ctx.run && ctx.run.health), ctx);
+  const m = await load(ctx.key, ctx.run && ctx.run.health);
+  return view.render(root, m.ok ? { ...m, name: instName(ctx, m.d.conn) } : m, ctx);
 }

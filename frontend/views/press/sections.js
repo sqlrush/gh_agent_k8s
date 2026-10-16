@@ -29,7 +29,7 @@ function secHealth(hm) {
     ${unc.length ? `<p>不在巡检里的能力：${esc(unc.map((x) => x.replace('gaussdb-', '')).join('、'))}，需要时在会话里单独运行。</p>` : ''}`;
   const past = `<ol class="past">${[...hm.idx].reverse().slice(0, 20).map((e) => { const on = hm.entry && e.file === hm.entry.file;
     return `<li class="${on ? 'on' : ''}" data-run="health|${esc(e.file)}"><span class="d num">${esc(stamp(e.at))}</span>${status(H.entryLevel(e))}<span class="n num">${H.countsOf(e)} 条</span></li>`; }).join('')}</ol>`;
-  return sheet('sec-health', 'A2', '要闻 · 健康检查', `${esc(hm.d.conn)} · ${esc(stamp(hm.entry && hm.entry.at))} 巡检全文`,
+  return sheet('sec-health', 'A2', '要闻 · 健康检查', `${esc(hm.name)} · ${esc(stamp(hm.entry && hm.entry.at))} 巡检全文`,
     `<div class="sheet-b"><div class="main"><h3 class="sh3">全部越线发现　<span>${hm.findings.length} 条，按级别从高到低；点一行看明细</span></h3>${table}
       <h3 class="sh3">${hm.dims.length} 个维度　<span>每格是该维度的关键读数</span></h3>${smalls}</div>
       <aside class="rcol"><div class="box"><h4>编者按：本期过程</h4>${note}</div>${hm.idx.length ? `<div class="box"><h4>往期巡检</h4>${past}</div>` : ''}</aside></div>`);
@@ -42,14 +42,15 @@ function secTop(tm) {
   if (tm.missing) return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', '', none(`「${T.byLabel(tm.by)}」这个维度还没取过。大盘只刊登在会话里真正取过的维度。`, `请按${T.byLabel(tm.by)}取一次 Top SQL。`, `在会话里按${T.byLabel(tm.by)}取一次`), `<span class="byx">${by}</span>`);
   const rows = tm.rows, ins = insight.topsql(tm), b = insight.bizTop(tm), label = T.byLabel(tm.by);
   const tg = (r) => { const x = tm.tune[r.sql_id]; return T.isSkipped(x) ? '系统 SQL' : x ? '已调优' : '未调优'; };
-  const table = `<table class="ptable"><thead><tr><th>#</th><th>sql_id</th><th>语句</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th>调优</th></tr></thead><tbody>${rows.map((r, i) => `<tr data-sql="${esc(r.sql_id)}"><td class="t3 num">${i + 1}</td><td><b>${esc(r.sql_id)}</b></td><td class="q mono" title="${esc(T.fullQuery(r.query))}">${esc(r.query)}</td><td class="r num">${fmtInt(r.calls)}</td><td class="r num">${fmtSec(r.total_sec)}</td><td class="r num">${fmtMs(r.avg_ms)}</td><td class="r num">${fmtInt(r.rows)}</td><td>${tg(r)}</td></tr>`).join('')}</tbody></table>`;
+  const table = `<table class="ptable"><thead><tr><th>#</th><th>sql_id</th><th>语句</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th>调优</th></tr></thead><tbody>${rows.slice(0, 20).map((r, i) => `<tr data-sql="${esc(r.sql_id)}"><td class="t3 num">${i + 1}</td><td><b>${esc(r.sql_id)}</b></td><td class="q mono" title="${esc(T.fullQuery(r.query))}">${esc(r.query)}</td><td class="r num">${fmtInt(r.calls)}</td><td class="r num">${fmtSec(r.total_sec)}</td><td class="r num">${fmtMs(r.avg_ms)}</td><td class="r num">${fmtInt(r.rows)}</td><td>${tg(r)}</td></tr>`).join('')}</tbody></table>`;
   const notes = `<ol class="notes">${rows.slice(0, 10).map((r) => { const x = tm.tune[r.sql_id], f = x && x.evidence && (x.evidence.findings || [])[0];
     return `<li data-sql="${esc(r.sql_id)}"><b>${esc(r.sql_id)}</b>　${T.isSkipped(x) ? `系统 SQL，只引用 ${esc((x.system_objects || []).join('、'))}，按策略不调优。` : f ? `${esc(cn(f.detail || ''))}。${f.advice ? `建议：${esc(cn(f.advice))}。` : ''}` : x ? '已调优。' : '还没有调优过。'}</li>`; }).join('')}</ol>`;
-  return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', `${esc(tm.rep.conn)} · ${esc(stamp(tm.entry.at))} 取数 · 累计统计视图，按${esc(label)}排序`,
+  return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', `${esc(tm.name)} · ${esc(stamp(tm.entry.at))} 取数 · 累计统计视图，按${esc(label)}排序`,
     `<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <figure class="fig">${P.shares(rows, tm.tune, T.isSkipped, b && b.sql_id)}<figcaption>图　上榜语句占上榜总耗时的比例（报告只有 Top N，没有全量合计）。斜纹为系统 SQL；红色为业务语句里耗时最高的一条。${tm.by === 'reads' ? esc(T.READS_NOTE) + '。' : ''}</figcaption></figure></div>
       <aside class="rcol"><div class="box"><h4>调优札记</h4>${notes}</div></aside></div>
-      <h3 class="sh3">完整榜单　<span>按${esc(label)}排序；语句满 ${T.QUERY_CAP} 字的是取数时截断的，悬停看原文</span></h3>${table}`, `<span class="byx">${by}</span>`);
+      <h3 class="sh3">${rows.length > 20 ? `榜单前 20 条（共 ${rows.length} 条）` : '完整榜单'}　<span>按${esc(label)}排序；语句满 ${T.QUERY_CAP} 字的是取数时截断的，悬停看原文</span></h3>${table}
+      ${rows.length > 20 ? `<p class="fine"><a href="/dash/topsql?style=normal">其余 ${rows.length - 20} 条见普通风格的 Top SQL 页 →</a></p>` : ''}`, `<span class="byx">${by}</span>`);
 }
 
 /* ------------------------------------------------------------ C1 负载 · WDR */
@@ -62,7 +63,7 @@ function secWdr(wm) {
   const tsTable = ts && (ts.rows || []).length ? `<table class="ptable"><thead><tr>${tsh.map((h, i) => `<th class="${i && i < tsh.length - 1 ? 'r' : ''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${ts.rows.slice(0, 10).map((r) => `<tr>${r.map((c, i) => (i === 0 ? `<td><b>${esc(c)}</b></td>` : i === r.length - 1 ? `<td class="q mono" title="${esc(c)}">${esc(c)}</td>` : `<td class="r num">${esc(TF[i](c))}</td>`)).join('')}</tr>`).join('')}</tbody></table>` : `<p class="t3">${esc(cn((ts && ts.note) || '未采集'))}</p>`;
   const fl = fs.map((f) => `<li data-wdim="${esc(f.dimension)}">${status(f.severity)}<b>${esc(cn(f.metric))}：${esc(f.value)}</b>　阈值 ${esc(f.threshold)}。${esc(cn(f.evidence))}</li>`).join('');
   const nat = wm.native.generated ? (wm.nativeUrl ? `<a href="${esc(wm.nativeUrl)}" target="_blank" rel="noopener">原生报告（${fmtInt(Math.round((wm.native.bytes || 0) / 1024))} KB）→</a>` : `原生报告已生成，${fmtInt(Math.round((wm.native.bytes || 0) / 1024))} KB`) : '';
-  return sheet('sec-wdr', 'C1', '负载 · WDR 分析', `${esc(d.conn)} · snap ${esc(w.begin_id)}–${esc(w.end_id)}，${esc(w.duration_min)} 分钟，${esc(w.scope || '')} ${esc(w.node || '')}${p ? ` · 对比 snap ${esc(p.window.begin_id)}–${esc(p.window.end_id)}` : ' · 没有上一窗口'}`,
+  return sheet('sec-wdr', 'C1', '负载 · WDR 分析', `${esc(wm.name)} · snap ${esc(w.begin_id)}–${esc(w.end_id)}，${esc(w.duration_min)} 分钟，${esc(w.scope || '')} ${esc(w.node || '')}${p ? ` · 对比 snap ${esc(p.window.begin_id)}–${esc(p.window.end_id)}` : wm.sameSkipped ? ' · 没有可对比的窗口（之前分析的是同一个窗口）' : ' · 没有上一窗口'}`,
     `<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <h3 class="sh3">八项负载指标前后对照　<span>墨线从上一窗口画到本窗口；比例尺从 0 开始</span></h3>${P.pairs(W.KPIS, d, p, W.kpiVal, W.showK)}</div>
       <aside class="rcol"><div class="box"><h4>DB Time</h4><div class="numb big"><span class="v">${dbt === null ? '—' : esc(fmtInt(Math.round(dbt)))}</span><span class="l">秒，平均 ${w.duration_min && dbt !== null ? (dbt / (w.duration_min * 60)).toFixed(1) : '—'} 个活跃会话</span><span class="s">${cpu === null ? '' : `CPU ${cpu.toFixed(0)}%，等待 ${(100 - cpu).toFixed(0)}%`}</span></div></div>

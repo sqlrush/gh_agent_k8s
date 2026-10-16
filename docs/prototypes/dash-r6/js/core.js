@@ -17,6 +17,7 @@
     3: '<svg viewBox="0 0 16 16"><path d="M5.2 1h5.6L15 5.2v5.6L10.8 15H5.2L1 10.8V5.2z" fill="currentColor"/><path d="m5.8 5.8 4.4 4.4m0-4.4-4.4 4.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
     na: '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 2"/><path d="M5.4 8h5.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   };
+  R.G = G;
   const lk = (R.lk = (l) => (l === null || l === undefined ? 'na' : String(Math.max(0, Math.min(3, l | 0)))));
   const lname = (R.lname = (l) => (l === null || l === undefined ? '采集失败' : LVN[l | 0] || '正常'));
   const glyph = (R.glyph = (l) => `<span class="glyph" data-lv="${lk(l)}">${G[lk(l)]}</span>`);

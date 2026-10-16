@@ -79,7 +79,7 @@
   function hero(cur, r, lvl, fs) {
     const segs = checks(r), cnt = {};
     segs.forEach((s) => { cnt[s.lv] = (cnt[s.lv] || 0) + 1; });
-    const legend = [['3', '严重'], ['2', '告警'], ['1', '关注'], ['0', '正常'], ['na', '采集失败']].filter(([k]) => cnt[k]).map(([k, n]) => `<span data-lv="${k}"><i class="sw${k === '0' ? ' calm' : ''}"></i>${n}<b>${cnt[k]}</b></span>`).join('');
+    const legend = [['3', '严重'], ['2', '告警'], ['1', '关注'], ['0', '正常'], ['na', '采集失败']].filter(([k]) => cnt[k]).map(([k, n]) => `<span>${glyph(k === 'na' ? null : +k)}${n}<b>${cnt[k]}</b></span>`).join('');
     const pc = (cur.prev && cur.prev.entry.counts) || {}, sum = (c) => Object.values(c).reduce((a, b) => a + (+b || 0), 0), dTot = fs.length - sum(pc);
     const subs = r.sub_skills || [], okN = subs.filter((s) => s.ok).length, hi = fs.filter((f) => (f.severity | 0) >= 2), lo = fs.filter((f) => (f.severity | 0) === 1);
     const stats = lvl === null
@@ -92,7 +92,7 @@
          { l: `${glyph(1)}需要关注`, v: R.cu(String(lo.length)), u: '条', s: '需要跟进' },
          { l: '子技能', v: R.cu(String(okN)), u: `/ ${subs.length} 成功`, s: okN < subs.length ? `${esc(subs.filter((s) => !s.ok).map((s) => s.skill.replace('gaussdb-', '')).join('、'))} 失败` : '全部成功' }];
     return `<section class="hero"><div class="hero-grid">
-        <div class="glass ringbox rise"${R.rise()}><div class="title">${I.grid}检查项<span class="t3">点圆环看明细</span></div>${R.ring(segs, lvl, `${segs.length} 项检查`)}<div class="ring-legend">${legend}</div></div>
+        <div class="glass ringbox rise"${R.rise()}><div class="title">${I.grid}检查项<span class="t3">点一项看明细</span></div>${R.ring(segs, lvl, `${segs.length} 项检查`)}<div class="ring-legend">${legend}</div></div>
         ${R.insight(insightFor(cur, r, lvl, fs))}
       </div>${R.heroStats(stats)}</section>`;
   }

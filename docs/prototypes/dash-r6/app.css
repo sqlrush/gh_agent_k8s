@@ -32,7 +32,6 @@
   --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.04), 0 4px 16px rgba(17, 24, 39, 0.04);
   --shadow-2: 0 18px 50px rgba(10, 20, 48, 0.22), 0 2px 6px rgba(10, 20, 48, 0.08);
   /* 主视觉带里图形的配色(R6 是深底上的浅色);换风格只改这里 */
-  --ring-track: rgba(255, 255, 255, 0.05); --ring-core: rgba(255, 255, 255, 0.035);
   --tm-biz: linear-gradient(160deg, #3a78f2, #2858cc);
   --tm-sys: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0 7px, transparent 7px 14px), #3a4868;
   --db-track: rgba(255, 255, 255, 0.10); --db-prev: #13265a; --db-prev-line: rgba(255, 255, 255, 0.65); --db-ring: #fff;
@@ -134,19 +133,33 @@ a:hover { color: var(--primary-hover); }
 /* 维度圆环 */
 .ringbox { padding: 18px 18px 16px; display: flex; flex-direction: column; align-items: center; }
 .ringbox .title { align-self: stretch; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--h-t2); }
-.ring { width: 236px; height: 236px; margin: 6px 0 4px; }
-.ring .arc { fill: none; stroke-linecap: butt; cursor: pointer; transition: stroke-width .15s, opacity .15s; }
-.ring .arc:hover { stroke-width: 22; }
-.ring .lvl { font-size: 30px; font-weight: 600; fill: var(--h-t1); font-family: var(--sans); }
-.ring .sub { font-size: 12.5px; fill: var(--h-t2); font-family: var(--sans); }
-.ring-legend { display: flex; gap: 6px 16px; flex-wrap: wrap; justify-content: center; font-size: 12.5px; color: var(--h-t2); }
-.ring-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ring-legend { display: flex; gap: 6px 20px; flex-wrap: wrap; justify-content: center; font-size: 14px; color: var(--h-t2); }
+.ring-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .ring-legend b { color: var(--h-t1); font-weight: 600; }
-.ring-legend .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--hc); }
-.ring-legend .sw.calm { background: var(--h-calm); }
-.ring .track { stroke: var(--ring-track); } .ring .core { fill: var(--ring-core); }
-@keyframes draw { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
-.anim .ring .arc { stroke-dasharray: var(--len) 999; animation: draw .7s cubic-bezier(.3, .7, .2, 1) both; animation-delay: calc(var(--i) * 70ms); }
+.ring-legend .glyph svg { width: 15px; height: 15px; }
+.ring-legend .glyph[data-lv="0"] { color: var(--h-t3); }
+
+/* 检查项表盘 */
+.dial { width: 460px; max-width: 100%; height: auto; display: block; margin: 8px auto 10px; overflow: visible; font-family: var(--sans); }
+.dial .orbit { fill: none; stroke: rgba(255, 255, 255, 0.16); stroke-width: 1; }
+.dial .inner { fill: rgba(255, 255, 255, 0.03); stroke: rgba(255, 255, 255, 0.08); stroke-width: 1; }
+.dial .lvl { font-size: 34px; font-weight: 600; fill: var(--hc, var(--h-t1)); }
+.dial .lvl.long { font-size: 24px; }
+.dial .sub { font-size: 13.5px; fill: var(--h-t2); }
+.dial .node { cursor: pointer; }
+.dial .hit { fill: transparent; }
+.dial .gl { color: var(--hc); overflow: visible; }
+.dial .node[data-lv="0"] .gl { color: var(--h-t3); }
+.dial .halo { fill: var(--hc); opacity: 0.2; transition: opacity .15s; }
+.dial .spoke { stroke: var(--hc); stroke-width: 1.5; opacity: 0.55; stroke-linecap: round; }
+.dial .nm { font-size: 15px; fill: var(--h-t2); transition: fill .15s; }
+.dial .bad .nm { font-size: 16px; font-weight: 600; fill: var(--h-t1); }
+.dial .wd { font-size: 13.5px; fill: var(--h-t2); }
+.dial .node:hover .nm { fill: #fff; }
+.dial .node:hover .halo { opacity: 0.38; }
+@keyframes dialdraw { from { stroke-dashoffset: 553; } to { stroke-dashoffset: 0; } }
+.anim .dial .orbit { stroke-dasharray: 553; animation: dialdraw .9s cubic-bezier(.3, .7, .2, 1) both; }
+.anim .dial .node { animation: fadein .45s ease-out both; animation-delay: calc(250ms + var(--i) * 60ms); }
 
 /* 智能体解读(AI 是页面的一等内容) */
 .insight { position: relative; padding: 18px 20px 16px; display: flex; flex-direction: column; }
@@ -458,11 +471,6 @@ a:hover { color: var(--primary-hover); }
 .anim .rise { animation: rise .6s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i) * 55ms); }
 .anim .hero { animation: fadein .5s ease-out both; }
 
-/* 圆环补充 */
-.ring .lvl { fill: var(--hc, var(--h-t1)); }
-/* 采集失败:细虚线,读作「这里本该有一段,但没采到」 */
-.ring .arc.na, .anim .ring .arc.na { stroke-width: 3; stroke-dasharray: 4 5; animation: fadein .6s both; }
-.ring .arc.na:hover { stroke-width: 5; }
 
 /* 树图 */
 .tmbox { padding: 16px 18px 18px; display: flex; flex-direction: column; }

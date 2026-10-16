@@ -5,20 +5,30 @@
   const { D, esc, lk, lname, tipAttr, stamp, day, fmtInt, fmtMs, fmtSec } = R;
   const f1 = (v) => v.toFixed(1);
 
-  /** 维度圆环:每个检查项一段;异常段用级别色,正常段素色,采集失败为虚线。中心是总体级别。 */
+  /** 检查项表盘:每项一个「状态图标 + 名称」的点,等距排在一圈细线上(位置只表示固定顺序,不表示比例);
+      异常项放大、带光晕和指向圆心的细线,名称下写出级别;正常项小而暗,只留勾形图标。中心是总体级别。 */
   R.ring = (segs, lvl, sub) => {
-    const C = 120, RA = 94, SW = 18, n = segs.length, per = (2 * Math.PI) / n, gap = n > 1 ? 0.045 : 0;
-    const pt = (a) => `${f1(C + RA * Math.cos(a))},${f1(C + RA * Math.sin(a))}`;
-    const arcs = segs.map((s, i) => {
-      const a0 = -Math.PI / 2 + i * per + gap / 2, a1 = a0 + per - gap, len = f1(RA * (a1 - a0));
-      const stroke = s.lv === '0' ? 'var(--h-calm)' : 'var(--hc)';
-      return `<path class="arc${s.lv === 'na' ? ' na' : ''}" data-lv="${s.lv}" d="M${pt(a0)} A${RA},${RA} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${pt(a1)}" stroke="${stroke}" stroke-width="${SW}" style="--len:${len};--i:${i}"${s.attr}${tipAttr(s.tip)}/>`;
-    }).join('');
-    return `<svg class="ring" viewBox="0 0 240 240" role="img" aria-label="总体${esc(lname(lvl))}">
-      <circle class="track" cx="${C}" cy="${C}" r="${RA}" fill="none" stroke-width="${SW + 10}"/>
-      <circle class="core" cx="${C}" cy="${C}" r="${RA - 22}"/>${arcs}
-      <text class="lvl" data-lv="${lk(lvl)}" x="${C}" y="${C + 4}" text-anchor="middle">${esc(lname(lvl))}</text>
-      <text class="sub" x="${C}" y="${C + 30}" text-anchor="middle">${esc(sub)}</text></svg>`;
+    // 按卡片实际宽度(1728 宽的窗口里约 460px)1:1 绘制,文字不被缩放;高度按标签实际落点算
+    const W = 460, CX = 210, RO = 88, RI = 52, n = segs.length;
+    const gl = (lv, x, y, s) => R.G[lv].replace('<svg viewBox="0 0 16 16"', `<svg class="gl" data-lv="${lv}" x="${f1(x - s / 2)}" y="${f1(y - s / 2)}" width="${s}" height="${s}" viewBox="0 0 16 16"`);
+    const pts = segs.map((s, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / n, c = Math.cos(a), sn = Math.sin(a), bad = s.lv !== '0', hot = bad && s.lv !== 'na';
+      const lr = RO + (bad ? 21 : 15), lx = CX + lr * c, ly = lr * sn;
+      const anchor = c > 0.2 ? 'start' : c < -0.2 ? 'end' : 'middle', word = s.lv === 'na' ? '采集失败' : bad ? lname(+s.lv) : '';
+      const ty = anchor !== 'middle' ? ly + (word ? -4 : 6) : sn < 0 ? ly - (word ? 21 : 5) : ly + 16;
+      return { s, c, sn, hot, x: CX + RO * c, y: RO * sn, lx, ty, anchor, word, top: ty - 16, bottom: ty + (word ? 23 : 5) };
+    });
+    const top = Math.min(-RO - 16, ...pts.map((p) => p.top)), CY = 6 - top, H = Math.ceil(CY + Math.max(RO + 16, ...pts.map((p) => p.bottom)) + 6);
+    const nodes = pts.map(({ s, c, sn, hot, x, y, lx, ty, anchor, word }, i) => `<g class="node${s.lv !== '0' ? ' bad' : ''}" data-lv="${s.lv}" style="--i:${i}"${s.attr}${tipAttr(s.tip)}>
+        ${hot ? `<line class="spoke" x1="${f1(CX + RI * c)}" y1="${f1(CY + RI * sn)}" x2="${f1(x - 17 * c)}" y2="${f1(CY + y - 17 * sn)}"/><circle class="halo" cx="${f1(x)}" cy="${f1(CY + y)}" r="17"/>` : ''}
+        <circle class="hit" cx="${f1(x)}" cy="${f1(CY + y)}" r="24"/>${gl(s.lv, x, CY + y, hot ? 22 : s.lv === 'na' ? 17 : 15)}
+        <text class="nm" x="${f1(lx)}" y="${f1(CY + ty)}" text-anchor="${anchor}">${esc(s.name)}</text>${word ? `<text class="wd" x="${f1(lx)}" y="${f1(CY + ty + 18)}" text-anchor="${anchor}">${esc(word)}</text>` : ''}</g>`).join('');
+    return `<svg class="dial" data-lv="${lk(lvl)}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`总体${lname(lvl)}，${sub}`)}">
+      <defs><radialGradient id="dial-core"><stop offset="0" style="stop-color:var(--hc);stop-opacity:.30"/><stop offset="1" style="stop-color:var(--hc);stop-opacity:0"/></radialGradient></defs>
+      <circle cx="${CX}" cy="${f1(CY)}" r="${RO - 8}" fill="url(#dial-core)"/>
+      <circle class="orbit" cx="${CX}" cy="${f1(CY)}" r="${RO}"/><circle class="inner" cx="${CX}" cy="${f1(CY)}" r="${RI}"/>${nodes}
+      <text class="lvl${lname(lvl).length > 2 ? ' long' : ''}" x="${CX}" y="${f1(CY + 7)}" text-anchor="middle">${esc(lname(lvl))}</text>
+      <text class="sub" x="${CX}" y="${f1(CY + 31)}" text-anchor="middle">${esc(sub)}</text></svg>`;
   };
 
   /** 巡检节奏:上面是发现条数的平滑面积线,下面一排圆角格是每次的级别,两者按同一横坐标对齐。 */

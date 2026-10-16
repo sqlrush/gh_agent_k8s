@@ -354,3 +354,26 @@ def test_bodyless_responses_carry_no_body_so_the_connection_stays_usable(stack):
             nxt += data
         s.close()
         assert nxt.startswith(b"HTTP/1.1 200"), "%s %s 的响应后面多出了字节:%r" % (method, code, nxt[:16])
+
+
+def test_stream_ends_cleanly_when_the_environment_is_deleted_midway(stack, monkeypatch):
+    """**2026-10-14 抓到。** 事件流开着时 Deployment 被删:touch 拿到 404。
+    以前异常冒到 _route 的兜底,在**已经发出 200 与分块头之后**再写一个 500 —— 分块流被污染,
+    客户端读到的是坏响应。现在要:日志记一笔,分块正常收尾,不夹带任何 500 文本。"""
+    import http.client
+    base, _k, app = stack
+    logs = []
+    app.log = logs.append
+
+    def gone(_uid, now=None):
+        raise pods.EnvironmentGone("runtime-u1234 已不存在")
+    monkeypatch.setattr(app.mgr, "touch", gone)
+    port = int(base.rsplit(":", 1)[1])
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request("GET", "/sse", headers={idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    r = c.getresponse()
+    body = r.read()                 # 分块没正常收尾的话这里会抛 IncompleteRead
+    c.close()
+    assert r.status == 200
+    assert "网关内部错误" not in body.decode("utf-8", "replace") and b"500" not in body
+    assert any("已被回收" in x and "u1234" in x for x in logs), logs

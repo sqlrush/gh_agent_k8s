@@ -1,7 +1,7 @@
 """k8s API 的薄封装 —— 只用标准库,网关镜像里不装 kubectl。
 
 用 Pod 自己挂载的 ServiceAccount 凭据(/var/run/secrets/kubernetes.io/serviceaccount)。
-需要的权限很小,见 k8s/base/gateway-rbac.yaml:本命名空间内 deployments / services /
+需要的权限很小,见 k8s/base/gateway.yaml 里的 Role:本命名空间内 deployments / services /
 secrets 的增删查改 + configmaps 只读。
 
 **这里只做传输,不做策略**。要建什么、什么时候回收,都在 pods.py 与 reaper.py 里,

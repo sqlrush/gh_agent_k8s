@@ -147,6 +147,36 @@ def test_throttle_is_per_user():
     assert len(k.patched) == 2, "一个人的活动不能把另一个人的记录压掉"
 
 
+class _PatchFails(FakeKube):
+    def __init__(self, exc):
+        super().__init__()
+        self.exc = exc
+
+    def patch(self, api, kind, name, patch):
+        self.patched.append((kind, name, patch))
+        raise self.exc
+
+
+def test_touch_on_a_deleted_deployment_says_the_environment_is_gone():
+    """**2026-10-14 抓到。** 用户的 Deployment 被删(注销工号 / 卸载重装)时事件流还开着,
+    touch 的 PATCH 拿到 404 没人接,异常一路冒到 _route 的兜底 —— 那时响应头早发出去了,
+    兜底再写一个 500 进分块流,连接就坏了。404 要变成一个明确的「环境已被回收」。"""
+    from gateway.kube import KubeError
+    m = _mgr(_PatchFails(KubeError("k8s PATCH ... → 404:not found", 404)))
+    with pytest.raises(pods.EnvironmentGone):
+        m.touch("u1234", now=1000.0)
+
+
+def test_touch_failing_for_other_reasons_is_logged_not_raised():
+    """k8s 一时连不上 / 超时不该打断用户正在看的流:记一行日志,下个节流窗口再试。"""
+    from gateway.kube import KubeError
+    logs = []
+    for exc in (KubeError("连不上 k8s API", 0), KubeError("k8s PATCH → 500", 500), TimeoutError("read timed out")):
+        m = _mgr(_PatchFails(exc), log=logs.append)
+        assert m.touch("u1234", now=1000.0) is False
+    assert len(logs) == 3 and all("u1234" in x for x in logs)
+
+
 # --- 前置条件:按人签发的 GRMP 令牌 --------------------------------------------
 
 def test_missing_grmp_token_secret_is_named_explicitly():

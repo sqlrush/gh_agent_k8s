@@ -115,6 +115,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _route(self) -> None:
         path = self.path.split("?")[0]
+        self._streaming = False          # 响应头发出去之后就不能再回一个完整的错误响应
         try:
             if path == "/healthz":
                 return self._json(200, {"ok": True, "version": self.server_version})
@@ -128,6 +129,10 @@ class _Handler(BaseHTTPRequestHandler):
             # 客户端看到的是「空响应」—— 比一个 500 难查得多(2026-09-21 真部署时就这样:
             # k8s API 连不上,/admin/pods 返回完全空白,要翻 Pod 日志才看见原因)。
             self.app.log("处理 %s %s 时未捕获的异常:%r" % (self.command, path, exc))
+            if self._streaming:
+                # 200 与分块头已经发出:再写一个 500 会被当成分块长度,整条流就坏了。只能断开。
+                self.close_connection = True
+                return
             try:
                 self._json(500, {"error": "网关内部错误,请看网关日志(不回传细节)"})
             except OSError:
@@ -249,13 +254,21 @@ class _Handler(BaseHTTPRequestHandler):
         # 我们按块转发,长度不可知 → 分块编码。SSE 也走这条路。
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+        self._streaming = True
         # 建连时先记一次,免得长连接期间被判闲置;静态页除外
         touch = (lambda: self.app.mgr.touch(who.user_id)) if route != ROUTE_DASH else (lambda: None)
-        touch()
         try:
+            touch()
             proxy.pump(resp, self._write_chunk, self.wfile.flush, on_bytes=lambda _n: touch())
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
+        except pods.EnvironmentGone as exc:
+            # 用户的 Deployment 在流还开着时被删了(注销 / 卸载重装):背后的 Pod 正在退出,
+            # 继续转发只会断在半路 —— 把分块正常收尾,让客户端干净地结束这条连接。
+            self.app.log("%s 的环境已被回收,结束这条连接(%s)" % (who.user_id, exc))
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            self.close_connection = True
         except (BrokenPipeError, ConnectionResetError):
             pass                                     # 用户关了页面,正常
         finally:

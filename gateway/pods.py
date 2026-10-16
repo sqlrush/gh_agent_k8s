@@ -24,7 +24,9 @@ import string
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
+
+from .kube import KubeError
 
 APPS = "/apis/apps/v1"
 CORE = "/api/v1"
@@ -44,6 +46,14 @@ class PrerequisiteMissing(Exception):
     """
 
 
+class EnvironmentGone(Exception):
+    """用户的 Deployment 已经不在了(被注销 / 卸载重装 / 有人手工删了)。
+
+    记活动时间时 PATCH 拿到 404 才会走到这里。调用方据此**干净地结束**这条连接 ——
+    它背后的 Pod 正在退出,继续转发也只会断在半路。
+    """
+
+
 @dataclass(frozen=True)
 class PodState:
     user_id: str
@@ -55,7 +65,8 @@ class PodState:
 
 class Manager:
     def __init__(self, kube, namespace: str, image_tag: str, pull_policy: str,
-                 templates: pathlib.Path, activity_interval_s: int = 60, image_registry: str = ""):
+                 templates: pathlib.Path, activity_interval_s: int = 60, image_registry: str = "",
+                 log: Callable[[str], None] = print):
         self.kube = kube
         self.namespace = namespace
         self.image_tag = image_tag
@@ -63,6 +74,7 @@ class Manager:
         self.pull_policy = pull_policy
         self.templates = pathlib.Path(templates)
         self.activity_interval_s = activity_interval_s
+        self.log = log
         self._last_touch: Dict[str, float] = {}
         self._lock = threading.Lock()
 
@@ -172,15 +184,29 @@ class Manager:
     # -- 活动时间 -----------------------------------------------------------
 
     def touch(self, user_id: str, now: Optional[float] = None) -> bool:
-        """记一次活动。节流:窗口内重复调用直接返回 False,不写 k8s。"""
+        """记一次活动。节流:窗口内重复调用直接返回 False,不写 k8s。
+
+        Deployment 已被删(404)→ 抛 EnvironmentGone;k8s 一时写不进(连不上 / 5xx / 超时)
+        → 记一行日志、返回 False,**不打断用户正在看的流**,下一个节流窗口再写。
+        """
         now = time.time() if now is None else now
         with self._lock:
             last = self._last_touch.get(user_id, 0.0)
             if now - last < self.activity_interval_s:
                 return False
             self._last_touch[user_id] = now
-        self.kube.patch(APPS, "deployments", "%s-%s" % (KIND_RUNTIME, user_id), {
-            "metadata": {"annotations": {ANNOTATION_ACTIVITY: "%d" % int(now)}}})
+        name = "%s-%s" % (KIND_RUNTIME, user_id)
+        try:
+            self.kube.patch(APPS, "deployments", name, {
+                "metadata": {"annotations": {ANNOTATION_ACTIVITY: "%d" % int(now)}}})
+        except KubeError as exc:
+            if exc.status == 404:
+                raise EnvironmentGone("%s 已不存在" % name) from exc
+            self.log("记 %s 的活动时间失败(稍后重试):%s" % (user_id, exc))
+            return False
+        except OSError as exc:          # kube.request 读响应超时会冒出裸的 TimeoutError
+            self.log("记 %s 的活动时间失败(稍后重试):%s" % (user_id, exc))
+            return False
         return True
 
 

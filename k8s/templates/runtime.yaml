@@ -48,7 +48,8 @@ spec:
                 exit 1
               fi
               if ! err=$$(touch "$$d/.prepare-home-probe" 2>&1); then
-                echo "个人目录 ${SUBPATH_ROOT}/${USER_ID} 不可写($$(who "$$d"),本容器以 uid 1000 运行)。多半是之前某次登录时被 kubelet 以 root 建出来的。$$fix" >&2
+                why=""; [ "$$(ls -ldn "$$d" | awk '{print $$3}')" = 0 ] && why="多半是之前某次登录时被 kubelet 以 root 建出来的。"
+                echo "个人目录 ${SUBPATH_ROOT}/${USER_ID} 不可写($$(who "$$d"),本容器以 uid 1000 运行)。$$why$$fix" >&2
                 exit 1
               fi
               rm -f "$$d/.prepare-home-probe"

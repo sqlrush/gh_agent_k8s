@@ -340,3 +340,29 @@ def test_login_failures_that_are_about_the_container_show_its_status():
     snippet = 'U=u0001; D=runtime-u0001; ADV=""; ADV_N=0; runtime_status() { echo RS-CALLED; }; login_verdict "$@"'
     for args in (("503", "0", "1", "0", "0", "您的环境启动失败(拉不到镜像)"), ("504", "0", "1", "0", "0", "")):
         assert "RS-CALLED" in _bash(snippet, args=args)[1]
+
+
+
+@pytest.mark.parametrize("line,want", [
+    ("DIR users/u0001 1000 no 555", "权限是 555"),        # 属主没错、是权限不让写:别说成「属主不对」
+    ("DIR users/u0001 0 no 755", "属主是 uid 0(权限 755)"),
+    ("DIR users/u0001 1000 yes 775", "可写"),
+])
+def test_nas_check_says_whether_it_is_the_owner_or_the_mode(line, want):
+    snippet = textwrap.dedent('''
+        U=u0001; IMG=x; dirs=users/u0001; p_nas=doctor-nas-t; ADV=""; ADV_N=0; NEED_DIR=0; CMD="bash runtime-doctor.sh"
+        wait_pod() { printf '%s\\n' "$LINE"; }
+        check_nas
+    ''')
+    out = _bash(snippet, env={"LINE": line})[1]
+    assert want in out, out
+
+
+def test_fix_is_verified_as_uid_1000_not_by_the_owner_root_sees():
+    """**2026-10-16 测试环境抓到。** 有的存储按访问者映射属主:root 的修复 Pod 看到的属主永远是 0。
+    以前按属主判成「改不了属主」,修好了也不重启用户容器,它停在旧的失败上。"""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    fix = text[text.index('if [ "$NEED_DIR" = 1 ] && [ -n "$IMG" ]; then'):]
+    fix = fix[:fix.index("\n  fi\n")]
+    assert 'start_pod "$pv" 1000' in fix and "$NAS_SH" in fix, "修完要以 uid 1000 再查一遍"
+    assert "$3 != 1000" not in fix

@@ -64,7 +64,7 @@ class NotReady(Exception):
 
     @property
     def detail(self) -> str:
-        base = "%d 秒内未就绪" % self.waited_s
+        base = ("等了 %d 秒,判定等下去不会好" if self.permanent else "%d 秒内未就绪") % self.waited_s
         return "%s:%s" % (base, self.diagnosis.detail) if self.diagnosis else base
 
 

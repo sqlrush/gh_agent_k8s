@@ -432,6 +432,7 @@ def test_permanent_failure_answers_early_with_the_category_only(stack, monkeypat
     assert code == 503 and "拉不到镜像" in body and "联系管理员" in body
     assert "registry.corp" not in body
     assert any("registry.corp" in x and "u1234" in x for x in logs), logs
+    assert any("判定等下去不会好" in x for x in logs), "提前返回不是「N 秒内未就绪」"
 
 
 def test_timeout_now_says_which_kind_of_wait_it_was(stack, monkeypatch):

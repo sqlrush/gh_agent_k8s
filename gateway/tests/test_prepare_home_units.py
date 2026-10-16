@@ -113,3 +113,5 @@ def test_existing_root_owned_user_dir_fails_and_points_at_the_fix(tmp_path):
         d.chmod(0o755)
     assert r.returncode != 0
     assert "不可写" in r.stderr and "runtime-doctor.sh u1234 --fix" in r.stderr, r.stderr
+    # 属主不是 root(这里是跑测试的账号)时不能瞎猜「被 kubelet 以 root 建的」—— 2026-10-16 测试环境上就猜错过
+    assert "kubelet" not in r.stderr

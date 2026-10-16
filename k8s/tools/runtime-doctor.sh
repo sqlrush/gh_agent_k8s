@@ -325,12 +325,12 @@ echo "VIA ${HTTPS_PROXY:-${https_proxy:-}}"'
 NAS_SH='for d in $DIRS; do
   if [ -d "/nas/$d" ]; then
     if [ -w "/nas/$d" ]; then w=yes; else w=no; fi
-    echo "DIR $d $(stat -c %u "/nas/$d") $w"
+    echo "DIR $d $(stat -c %u "/nas/$d") $w $(stat -c %a "/nas/$d")"
   elif [ -w "/nas/${d%/*}" ]; then echo "DIR $d missing yes"
   else echo "DIR $d missing no"; fi
 done'
 FIX_SH='set -e
-for d in $DIRS; do mkdir -p "/nas/$d"; chown 1000:1000 "/nas/$d"; chmod 775 "/nas/$d"; echo "DIR $d $(stat -c %u "/nas/$d")"; done'
+for d in $DIRS; do mkdir -p "/nas/$d"; chown 1000:1000 "/nas/$d"; chmod 775 "/nas/$d"; echo "FIXED $d"; done'
 
 user_dirs() { if [ -n "$(G deploy "kb-import-$U" -o name)" ]; then echo "users/$U admins/$U"; else echo "users/$U"; fi; }
 
@@ -393,9 +393,10 @@ check_nas() {
       "${KN} describe pvc nas | tail -15" "kubectl get pv -o wide"
     return
   fi
+  local mode
   for d in $dirs; do
-    line=$(printf '%s\n' "$nasout" | awk -v d="$d" '$1 == "DIR" && $2 == d { print $3, $4 }')
-    owner=${line%% *}; w=${line##* }
+    line=$(printf '%s\n' "$nasout" | awk -v d="$d" '$1 == "DIR" && $2 == d { print $3, $4, $5 }')
+    set -- $line; owner=${1:-}; w=${2:-}; mode=${3:-?}
     if [ "$owner" = missing ] && [ "$w" = yes ]; then
       # v1.2.0 起用户容器的初始化步骤(prepare-home)以 uid 1000 自己建,前提是上一层目录 uid 1000 可写
       ok "$d 还没建:上一层 ${d%/*}/ uid 1000 可写,首次登录时用户容器会自己建好"
@@ -405,8 +406,12 @@ check_nas() {
     elif [ "$w" = yes ]; then
       if [ "$owner" = 1000 ]; then ok "$d 存在,属主 1000,可写"
       else ok "$d 存在,uid 1000 可写(属主显示 uid ${owner},这个存储映射了属主)"; fi
+    elif [ "$owner" = 1000 ]; then
+      # 属主没错、是权限不让写(或这个存储按访问者映射属主,看到的属主不可信)—— 把权限说出来,别说成「属主不对」
+      NEED_DIR=1; bad "$d 属主显示 1000,但权限是 ${mode},uid 1000 写不进(容器会一启动就退出)"
+      advise "$d 写不进(权限 ${mode})" "--fix 把它改成属主 1000、权限 775 并重启用户容器。NAS 若开了 root_squash,root 也改不了,要在 NAS 侧给 uid 1000 授权" "${CMD} ${U} --fix"
     elif [ -n "$owner" ]; then
-      NEED_DIR=1; bad "$d 属主是 uid ${owner},容器的 uid 1000 写不进(容器会一启动就退出)"
+      NEED_DIR=1; bad "$d 属主是 uid ${owner}(权限 ${mode}),容器的 uid 1000 写不进(容器会一启动就退出)"
       advise "$d 写不进(属主 uid ${owner})" "容器以 uid 1000 运行;--fix 把属主改成 1000 并重启用户容器。NAS 若开了 root_squash,root 也改不了,要在 NAS 侧给 uid 1000 授权" "${CMD} ${U} --fix"
     else
       NEED_DIR=1; bad "$d 查不到状态:$(printf '%s' "$nasout" | tail -1)"
@@ -781,14 +786,18 @@ if [ "$FIX" = 1 ]; then
     else echo "  [未改] 中间件地址 $GH 不是 IP,出网策略不能按域名放行:用 --fix --grmp <IP:端口> 重跑"; fi
   fi
   if [ "$NEED_DIR" = 1 ] && [ -n "$IMG" ]; then
-    pf=doctor-fix-$RUN
+    pf=doctor-fix-$RUN; pv=doctor-verify-$RUN
     start_pod "$pf" 0 "app: gaussdb-agent-doctor" rw "[{name: DIRS, value: \"$dirs\"}]" "$FIX_SH"
     out=$(wait_pod "$pf")
-    if printf '%s' "$out" | grep -q '^DIR' && ! printf '%s\n' "$out" | awk '$1 == "DIR" && $3 != 1000 { b = 1 } END { exit !b }'; then
-      echo "  [已改] 个人目录 $dirs 已建好,属主 1000"; RESTART=1; CHANGED=1
+    # 修完**以 uid 1000 再看一遍能不能写**,不看 root 眼里的属主:有的存储按访问者映射属主,root 看到的永远是 0 ——
+    # 以前按属主判,修好了也报「改不了属主」,于是不重启,用户容器停在旧的失败上(2026-10-16 测试环境抓到)
+    start_pod "$pv" 1000 "app: gaussdb-agent-doctor" rw "[{name: DIRS, value: \"$dirs\"}]" "$NAS_SH"
+    vout=$(wait_pod "$pv")
+    if printf '%s\n' "$vout" | awk '$1 == "DIR" { n++; if ($4 != "yes") b = 1 } END { exit !(n && !b) }'; then
+      echo "  [已改] 个人目录 $dirs 已建好,uid 1000 可写"; RESTART=1; CHANGED=1
     else
-      echo "  [失败] 改不了目录属主(NAS 若开了 root_squash,root 也改不了,要在 NAS 侧给 uid 1000 授权):"
-      printf '%s\n' "$out" | tail -3 | sed 's/^/         /'
+      echo "  [失败] 改过之后 uid 1000 仍写不进(NAS 若开了 root_squash,root 也改不了,要在 NAS 侧给 uid 1000 授权):"
+      printf '%s\n' "$out" "$vout" | grep -v '^$' | tail -4 | sed 's/^/         /'
     fi
   fi
   if [ "$RESTART" = 1 ] && [ "${RT_REP:-0}" != 0 ]; then

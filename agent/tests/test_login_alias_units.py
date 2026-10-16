@@ -95,3 +95,5 @@ def test_alias_errors_from_the_deployment_are_shown_on_list(home, capsys):
     login.main(["--list"])
     out = capsys.readouterr().out
     assert "broken line" in out and "运维" in out
+    # 这份脚本两条线共用:要同时指明容器版与非容器版各自改哪里,不能只说容器版的环境变量
+    assert "GRMP_INSTANCE_ALIASES" in out and "config.yaml 的 instance_aliases" in out

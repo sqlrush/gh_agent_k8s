@@ -265,7 +265,7 @@ class InstanceAlias:
 
 
 def instance_aliases() -> list:
-    """config.yaml 的 instance_aliases(容器里由 podctl 按 GRMP_INSTANCE_ALIASES 生成)。没配 = 空。
+    """config.yaml 的 instance_aliases(容器里由 podctl 按 GRMP_INSTANCE_ALIASES 生成,非容器版直接写在 config.yaml)。没配 = 空。
 
     缺字段的项跳过并记进 instance_alias_errors() —— 别名只是登录时的便利,一项写错不该让登录整个失败。
     """

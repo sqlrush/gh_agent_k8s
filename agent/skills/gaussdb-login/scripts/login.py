@@ -121,8 +121,9 @@ def _render_aliases(aliases, errors) -> str:
         out = ("api 模式没有预置的连接清单（部署时也没有登记实例别名）—— 目标由你指定。\n"
                "用 `--ip <实例IP> --database <库名>` 登录。")
     if errors:
-        out += ("\n\n> ⚠ 部署时登记的别名里有 %d 项写法不对，没有生效（请运维修正 agent-config 的 "
-                "GRMP_INSTANCE_ALIASES）：\n" % len(errors)) + "".join("> - %s\n" % e for e in errors)
+        out += ("\n\n> ⚠ 部署时登记的别名里有 %d 项写法不对，没有生效（请运维修正：容器版在 agent-config 的 "
+                "GRMP_INSTANCE_ALIASES，非容器版在 config.yaml 的 instance_aliases）：\n" % len(errors)) \
+            + "".join("> - %s\n" % e for e in errors)
     return out
 
 

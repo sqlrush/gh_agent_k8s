@@ -34,6 +34,11 @@ CORE = "/api/v1"
 ANNOTATION_ACTIVITY = "gaussdb-agent/last-activity"
 SECRET_KEY_PASSWORD = "OPENCODE_SERVER_PASSWORD"
 
+# 知识库管理员名单(SSO 不传角色时用):ConfigMap agent-roles 的 kb-admins,每行一个工号。
+ROLES_CONFIGMAP = "agent-roles"
+ROLES_KEY = "kb-admins"
+ROLES_CACHE_S = 30          # 每个请求都要判一次;30 秒内复用,运维改了名单半分钟内生效
+
 # 「本人 Pod」的两种形态。顺序有意义:runtime 先建,它是浏览器落地的那个。
 KIND_RUNTIME = "runtime"
 KIND_KB_IMPORT = "kb-import"
@@ -76,6 +81,8 @@ class Manager:
         self.activity_interval_s = activity_interval_s
         self.log = log
         self._last_touch: Dict[str, float] = {}
+        self._roles: frozenset = frozenset()
+        self._roles_at = float("-inf")
         self._lock = threading.Lock()
 
     # -- 口令 ---------------------------------------------------------------
@@ -97,6 +104,28 @@ class Manager:
             "metadata": {"name": name, "namespace": self.namespace},
             "type": "Opaque", "stringData": {SECRET_KEY_PASSWORD: pw}})
         return pw
+
+    # -- 知识库管理员名单 ---------------------------------------------------
+
+    def kb_admins(self, now: Optional[float] = None) -> frozenset:
+        """ConfigMap agent-roles 里登记的知识库管理员工号(小写)。没有这张表 = 空名单。
+
+        读失败(k8s 一时不可达 / 没给权限)时**沿用上一次读到的名单**并记日志:
+        管理员不该因为一次读失败就被当成普通用户(他会突然没有导入容器)。
+        """
+        now = time.time() if now is None else now
+        with self._lock:
+            if now - self._roles_at < ROLES_CACHE_S:
+                return self._roles
+        try:
+            cm = self.kube.get(CORE, "configmaps", ROLES_CONFIGMAP)
+            ids = parse_kb_admins(((cm or {}).get("data") or {}).get(ROLES_KEY) or "")
+        except (KubeError, OSError) as exc:
+            self.log("读 ConfigMap %s 失败,沿用上一次的管理员名单:%s" % (ROLES_CONFIGMAP, exc))
+            ids = self._roles
+        with self._lock:
+            self._roles, self._roles_at = ids, now
+        return ids
 
     # -- 建 -----------------------------------------------------------------
 
@@ -208,6 +237,16 @@ class Manager:
             self.log("记 %s 的活动时间失败(稍后重试):%s" % (user_id, exc))
             return False
         return True
+
+
+def parse_kb_admins(text: str) -> frozenset:
+    """每行一个工号;空行与 `#` 之后的注释忽略;转小写(和 identity.normalize_user_id 一致)。"""
+    out = set()
+    for line in text.splitlines():
+        uid = line.split("#", 1)[0].strip().lower()
+        if uid:
+            out.add(uid)
+    return frozenset(out)
 
 
 def _plural(kind: str) -> str:

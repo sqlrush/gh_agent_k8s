@@ -24,7 +24,9 @@ NS = "gaussdb-agent"
 
 
 def is_kb_admin(roles_text: str, user_id: str) -> bool:
-    return user_id in {ln.strip() for ln in roles_text.splitlines() if ln.strip()}
+    """与网关 gateway/pods.py:parse_kb_admins 同一口径:每行一个工号,`#` 后是注释,大小写不敏感。"""
+    ids = {ln.split("#", 1)[0].strip().lower() for ln in roles_text.splitlines()}
+    return user_id.strip().lower() in ids - {""}
 
 
 def plan(user_id: str, roles_text: str, auto_role: bool, kb_admin_flag: bool) -> List[str]:

@@ -210,7 +210,7 @@ class _Handler(BaseHTTPRequestHandler):
             headers = proxy.forward_headers(self.headers.items(), None, who.user_id)
             path = self.path
         else:
-            kb_admin = any(r in self.app.cfg.kb_admin_roles for r in who.roles)
+            kb_admin = self.app.is_kb_admin(who)
             try:
                 password = self.app.ensure_ready(who.user_id, kb_admin)
             except pods.PrerequisiteMissing as exc:
@@ -287,6 +287,12 @@ class App:
         self.log = log
         self._waiters: dict = {}
         self._lock = threading.Lock()
+
+    def is_kb_admin(self, who: idt.Identity) -> bool:
+        """角色头里带 KB_ADMIN_ROLES 之一,**或**工号登记在 ConfigMap agent-roles 里(SSO 不传角色时用)。"""
+        if any(r in self.cfg.kb_admin_roles for r in who.roles):
+            return True
+        return who.user_id in self.mgr.kb_admins()
 
     def ensure_ready(self, user_id: str, kb_admin: bool) -> str:
         """保证这个人的 Pod 存在且就绪,返回它的 Basic 口令。

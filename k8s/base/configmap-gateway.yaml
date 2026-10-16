@@ -21,7 +21,8 @@ data:
 
   # 上游 SSO / WAF 把工号放在哪个请求头里。按客户实际填。
   USER_HEADER: "X-Agent-User"
-  # 角色/组,逗号分隔。为空时网关退回读 ConfigMap agent-roles 判定谁是知识库管理员。
+  # 角色/组,逗号分隔。另外工号登记在 ConfigMap agent-roles(kb-admins)里的人也算知识库管理员,
+  # SSO 不传角色时就用那张表;两者满足一个即可。
   ROLES_HEADER: "X-Agent-Roles"
   # 哪些角色值算「知识库管理员」(会多建一个 kb-import Pod)。逗号分隔,大小写不敏感。
   KB_ADMIN_ROLES: "kb-admin"

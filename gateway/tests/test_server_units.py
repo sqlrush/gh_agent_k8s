@@ -377,3 +377,25 @@ def test_stream_ends_cleanly_when_the_environment_is_deleted_midway(stack, monke
     assert r.status == 200
     assert "网关内部错误" not in body.decode("utf-8", "replace") and b"500" not in body
     assert any("已被回收" in x and "u1234" in x for x in logs), logs
+
+
+def _seen_kb_admin(stack, monkeypatch, headers):
+    base, kube, app = stack
+    seen = []
+    monkeypatch.setattr(app, "ensure_ready", lambda uid, kb_admin: (seen.append((uid, kb_admin)), "pw")[1])
+    _req(base, "/whoami", {idt.HEADER_TRUST: SECRET, **headers})
+    return seen
+
+
+def test_user_listed_in_agent_roles_is_a_kb_admin_without_any_role_header(stack, monkeypatch):
+    """手册写的「或写进 ConfigMap agent-roles」—— 以前网关不读这张表,写进去的人一律当普通用户。"""
+    _b, kube, _a = stack
+    kube.objects[("configmaps", "agent-roles")] = {"data": {"kb-admins": "u2001\n"}}
+    assert _seen_kb_admin(stack, monkeypatch, {"X-Agent-User": "u2001"}) == [("u2001", True)]
+
+
+def test_role_header_still_makes_a_kb_admin_and_others_are_not(stack, monkeypatch):
+    _b, kube, _a = stack
+    kube.objects[("configmaps", "agent-roles")] = {"data": {"kb-admins": "u2001\n"}}
+    assert _seen_kb_admin(stack, monkeypatch, {"X-Agent-User": "u3001", "X-Agent-Roles": "dba,KB-Admin"}) == [("u3001", True)]
+    assert _seen_kb_admin(stack, monkeypatch, {"X-Agent-User": "u3002"}) == [("u3002", False)]

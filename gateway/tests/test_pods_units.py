@@ -245,3 +245,55 @@ def test_user_pod_image_carries_the_registry_prefix():
     mgr = _mgr(FakeKube(), image_registry="registry.example/gaussdb-agent/")
     assert _images(mgr, "runtime") == ["registry.example/gaussdb-agent/gaussdb-agent-runtime:t1"]
     assert _images(mgr, "kb-import") == ["registry.example/gaussdb-agent/gaussdb-agent-kb-import:t1"]
+
+
+# --- 知识库管理员名单:ConfigMap agent-roles ------------------------------------
+# 部署手册 §9.1 / k8s-deploy.md:SSO 不传角色时,把管理员工号写进 agent-roles 的 kb-admins。
+# 2026-10-14 才发现网关**从来不读**这张表 —— 照手册写进去的管理员拿不到导入容器,也没有任何报错。
+
+def _roles_cm(text):
+    return {("configmaps", "agent-roles"): {"data": {"kb-admins": text}}}
+
+
+def test_kb_admins_are_read_one_per_line_case_insensitive_ignoring_comments():
+    m = _mgr(FakeKube(_roles_cm("U2001\n  u2002  \n\n# u2003 已调岗\nu2004 # 临时\n")))
+    assert m.kb_admins(now=1000.0) == frozenset({"u2001", "u2002", "u2004"})
+
+
+def test_kb_admins_without_the_configmap_is_an_empty_list():
+    assert _mgr(FakeKube()).kb_admins(now=1000.0) == frozenset()
+
+
+def test_kb_admins_are_cached_so_every_request_is_not_a_k8s_read():
+    class Counting(FakeKube):
+        gets = 0
+
+        def get(self, api, kind, name):
+            Counting.gets += 1
+            return super().get(api, kind, name)
+    k = Counting(_roles_cm("u2001\n"))
+    m = _mgr(k)
+    for t in (1000.0, 1005.0, 1029.0):
+        m.kb_admins(now=t)
+    assert Counting.gets == 1
+    k.objects[("configmaps", "agent-roles")] = {"data": {"kb-admins": "u2001\nu2009\n"}}
+    assert m.kb_admins(now=1031.0) == frozenset({"u2001", "u2009"}), "过了缓存期要看到运维新加的人"
+
+
+def test_kb_admins_read_failure_keeps_the_last_good_list_and_logs():
+    """k8s 一时读不到不该让管理员突然变成普通用户(他会被当成没有导入容器)。"""
+    from gateway.kube import KubeError
+
+    class Flaky(FakeKube):
+        fail = False
+
+        def get(self, api, kind, name):
+            if Flaky.fail:
+                raise KubeError("k8s GET → 503", 503)
+            return super().get(api, kind, name)
+    logs = []
+    m = _mgr(Flaky(_roles_cm("u2001\n")), log=logs.append)
+    assert m.kb_admins(now=1000.0) == frozenset({"u2001"})
+    Flaky.fail = True
+    assert m.kb_admins(now=1100.0) == frozenset({"u2001"})
+    assert logs and "agent-roles" in logs[0]

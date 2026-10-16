@@ -15,6 +15,10 @@ def test_is_kb_admin_reads_the_mock_group():
     assert provision.is_kb_admin("u2001\nu2002\n", "u2002") is True
     assert provision.is_kb_admin("u2001\nu2002\n", "u1001") is False
     assert provision.is_kb_admin("", "u2001") is False
+    # 与网关同口径:注释、空白、大小写(base 的样例名单就是带注释的)
+    assert provision.is_kb_admin("# u2001\nu2002  # 张三\n", "u2002") is True
+    assert provision.is_kb_admin("# u2001\n", "u2001") is False
+    assert provision.is_kb_admin("U2003\n", "u2003") is True
 
 
 def test_plan_gives_everyone_runtime_and_admins_kb_import():

@@ -399,3 +399,62 @@ def test_role_header_still_makes_a_kb_admin_and_others_are_not(stack, monkeypatc
     kube.objects[("configmaps", "agent-roles")] = {"data": {"kb-admins": "u2001\n"}}
     assert _seen_kb_admin(stack, monkeypatch, {"X-Agent-User": "u3001", "X-Agent-Roles": "dba,KB-Admin"}) == [("u3001", True)]
     assert _seen_kb_admin(stack, monkeypatch, {"X-Agent-User": "u3002"}) == [("u3002", False)]
+
+
+
+# --- 起不来时说清原因(v1.1.6 待修第 2 项) -----------------------------------------
+
+def _cold(stack, monkeypatch, diag, timeout_s=120):
+    """让这个人的 Pod 永远不就绪、诊断结果固定,轮询间隔压到 10ms。"""
+    from gateway import diagnose as dg
+    base, kube, app = stack
+    logs = []
+    app.log = logs.append
+    app.cfg = dataclasses.replace(app.cfg, ready_timeout_s=timeout_s)
+    monkeypatch.setattr(server, "POLL_S", 0.01)
+    monkeypatch.setattr(pods.Manager, "state",
+                        lambda self, uid, kind=pods.KIND_RUNTIME: pods.PodState(uid, kind, exists=False, ready=False))
+    monkeypatch.setattr(pods.Manager, "require_prerequisites", lambda self, uid, kb: None)
+    monkeypatch.setattr(pods.Manager, "diagnose", lambda self, uid, kind=pods.KIND_RUNTIME: diag)
+    return base, logs, dg
+
+
+def test_permanent_failure_answers_early_with_the_category_only(stack, monkeypatch):
+    """拉不到镜像等下去也不会好:不等满 120 秒,当场告诉用户是哪一类、找管理员;
+    镜像仓库地址这类内部信息只进网关日志。"""
+    from gateway import diagnose as dg
+    d = dg.Diagnosis(dg.IMAGE, 'Pod runtime-u1234-x:ImagePullBackOff:pulling "registry.corp/gaussdb-agent-runtime:t"', True)
+    base, logs, _ = _cold(stack, monkeypatch, d)
+    t0 = time.time()
+    code, body = _req(base, "/session", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    assert time.time() - t0 < 10, "等下去不会好的失败不该等满超时"
+    assert code == 503 and "拉不到镜像" in body and "联系管理员" in body
+    assert "registry.corp" not in body
+    assert any("registry.corp" in x and "u1234" in x for x in logs), logs
+
+
+def test_timeout_now_says_which_kind_of_wait_it_was(stack, monkeypatch):
+    from gateway import diagnose as dg
+    d = dg.Diagnosis(dg.MOUNT, "Pod runtime-u1234-x:存储卷挂不上;FailedMount mount failed: exit status 32", False)
+    base, logs, _ = _cold(stack, monkeypatch, d, timeout_s=1)
+    code, body = _req(base, "/session", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    assert code == 504 and "存储(NAS)挂不上" in body and "exit status 32" not in body
+    assert any("exit status 32" in x for x in logs), "以前 504 在网关日志里一个字都没有"
+
+
+def test_timeout_without_a_diagnosis_keeps_the_old_message(stack, monkeypatch):
+    """网关没被授予读 Pod 的权限(升级时漏了重新 apply Role)→ 退回原来的说法,不报错。"""
+    base, logs, _ = _cold(stack, monkeypatch, None, timeout_s=1)
+    code, body = _req(base, "/session", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
+    assert code == 504 and "正在启动" in body
+    assert logs, "超时本身也要进日志"
+
+
+def test_admin_api_gets_the_full_reason(stack, monkeypatch):
+    from gateway import diagnose as dg
+    d = dg.Diagnosis(dg.CONFIG, 'CreateContainerConfigError:secret "model-api" not found', True)
+    base, _logs, _ = _cold(stack, monkeypatch, d)
+    code, body = _req(base, "/admin/pods/u1234", {"X-Admin-Token": ADMIN}, method="POST", data=b"{}")
+    assert code == 503
+    j = json.loads(body)
+    assert j["category"] == dg.CONFIG and "model-api" in j["error"] and j["permanent"] is True

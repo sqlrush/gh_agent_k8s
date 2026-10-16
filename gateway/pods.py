@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from . import diagnose as dg
 from .kube import KubeError
 
 APPS = "/apis/apps/v1"
@@ -83,6 +84,7 @@ class Manager:
         self._last_touch: Dict[str, float] = {}
         self._roles: frozenset = frozenset()
         self._roles_at = float("-inf")
+        self._diag_denied_logged = False
         self._lock = threading.Lock()
 
     # -- 口令 ---------------------------------------------------------------
@@ -195,6 +197,27 @@ class Manager:
         except ValueError:
             last = 0.0
         return PodState(user_id, kind, exists=True, ready=ready, last_activity=last)
+
+    def diagnose(self, user_id: str, kind: str = KIND_RUNTIME) -> Optional[dg.Diagnosis]:
+        """它为什么还没就绪(读 Pod 状态与事件)。读不到 → None,调用方退回只报超时。
+
+        没给读 Pod 的权限(升级时漏了重新 apply 网关的 Role)只记**一次**日志 —— 等待期间每几秒
+        就会调一次,不能刷屏。
+        """
+        try:
+            return dg.read(self.kube, user_id, kind)
+        except KubeError as exc:
+            if exc.status == 403:
+                if not self._diag_denied_logged:
+                    self._diag_denied_logged = True
+                    self.log("网关没有读 Pod / 事件的权限,用户环境起不来时只能报超时、说不出原因。"
+                             "重新 apply k8s/base/gateway.yaml(Role 里要有 pods get/list 与 events list):%s" % exc)
+            else:
+                self.log("读 %s-%s 的 Pod 状态失败:%s" % (kind, user_id, exc))
+            return None
+        except OSError as exc:
+            self.log("读 %s-%s 的 Pod 状态失败:%s" % (kind, user_id, exc))
+            return None
 
     # -- 删 -----------------------------------------------------------------
 

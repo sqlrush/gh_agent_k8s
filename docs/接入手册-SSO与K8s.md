@@ -222,13 +222,17 @@ apiGroups: ["apps"]  resources: ["deployments"]  verbs: [get,list,create,patch,u
 apiGroups: [""]      resources: ["services"]     verbs: [get,create,patch,update,delete]
 apiGroups: [""]      resources: ["secrets"]      verbs: [get,create,patch,update,delete]   # 注意没有 list
 apiGroups: [""]      resources: ["configmaps"]   verbs: [get]
+apiGroups: [""]      resources: ["pods"]         verbs: [get,list]   # 只读:用户容器起不来时读原因
+apiGroups: [""]      resources: ["events"]       verbs: [list]       # 同上
 ```
 
 **两条刻意的缺口**，请贵方安全审查时确认：
 
 - **secrets 没有 `list`**：给了 list 就等于一次请求拿到全体用户的口令。
   `get` 是为了「已有口令就沿用，不轮换正在用的口令」。
-- **没有 `pods/exec`、`pods/attach`、`pods/portforward`**：网关没有进用户容器的理由。
+- **没有 `pods/exec`、`pods/attach`、`pods/portforward`、`pods/log`**：网关没有进用户容器、读用户输出的理由。
+  它对 Pod 只有只读的 `get/list`（加上事件的 `list`），用来在用户容器起不来时说清是哪一类原因
+  （拉不到镜像、配置缺失、个人目录初始化失败、NAS 挂不上、调度不上），而不是让用户等满超时只看到「正在启动」。
 
 全部是 **Role**（命名空间内），没有任何 ClusterRole。
 
@@ -550,7 +554,7 @@ opencode 的 Web 界面里，**在空输入框上按回车 = 中断当前回合*
 | 现象 | 先看哪里 |
 |---|---|
 | 用户进不去，503 | 网关日志 —— 多半是缺 `grmp-token-<工号>` |
-| 用户进不去，504 | `kubectl describe deploy runtime-<工号>` —— 镜像拉取或资源不足 |
+| 用户进不去，503「启动失败（某一类原因）」或 504 | 先看网关日志：`kubectl -n gaussdb-agent logs -l app=agent-gateway --prefix \| grep <工号>`，网关已把 Pod 状态与告警事件写在那一行里；再细看 `kubectl describe pod -l user=<工号>` |
 | 页面一直转圈 | 贵方代理的缓冲设置（§8.1） |
 | 页面「已中断」 | §8.3；网关日志搜 `cancel` |
 | Pod 被意外回收 | 闲置口径（§7.3）；`kubectl get deploy runtime-<工号> -o jsonpath='{.metadata.annotations}'` |

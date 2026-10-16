@@ -32,7 +32,16 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get"]
-  # **刻意不给**:pods(不需要直接看 Pod)、pods/exec、pods/log —— 网关没有进用户容器的理由
+  # 用户 Pod 起不来时读原因(拉不到镜像 / 配置缺失 / 个人目录初始化失败 / NAS 挂不上 / 调度不上):
+  # 只读 Pod 状态与事件。以前没有这两项,用户等满超时只拿到「正在启动」,网关日志里也没有原因。
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  # **刻意不给**:pods/exec、pods/attach、pods/log —— 网关没有进用户容器、读用户输出的理由
+  #(初始化容器的失败原因经 terminationMessagePolicy 写进 Pod 状态,读状态就够)
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

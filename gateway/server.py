@@ -22,8 +22,11 @@ from typing import Optional, Tuple
 
 from . import identity as idt
 from . import pods, proxy
+from .diagnose import NotReady
 
 _MAX_BODY = 64 * 1024 * 1024        # 上传走网关的话,单请求上限;超过直接 413
+POLL_S = 1.5                        # 等用户 Pod 就绪时的轮询间隔
+DIAG_EVERY = 4                      # 每轮询这么多次读一次 Pod 状态:等下去不会好的就提前返回
 
 
 ROUTE_DASH, ROUTE_REPORTS, ROUTE_OPENCODE = "dash", "reports", "opencode"
@@ -174,8 +177,9 @@ class _Handler(BaseHTTPRequestHandler):
                     # 控制 API 的调用方是运维系统,**要看到完整原因**(缺哪个 Secret),
                     # 不像代理入口那边面对的是最终用户。
                     return self._json(503, {"error": str(exc)})
-                except TimeoutError as exc:
-                    return self._json(504, {"error": str(exc)})
+                except NotReady as exc:
+                    return self._json(503 if exc.permanent else 504,
+                                      {"error": exc.detail, "category": exc.category, "permanent": exc.permanent})
                 st = self.app.mgr.state(uid)
                 return self._json(200, {"user_id": uid, "ready": st.ready,
                                         "note": "口令由网关持有并在代理时注入;控制 API 不返回它"})
@@ -218,8 +222,13 @@ class _Handler(BaseHTTPRequestHandler):
                 # 报成「正在启动,请稍后重试」会让用户一直刷,而运维永远看不到原因。
                 self.app.log("为 %s 准备环境失败(前置条件):%s" % (who.user_id, exc))
                 return self._text(503, "您的环境尚未开通,请联系管理员为您开通后再登录。")
-            except TimeoutError as exc:
-                return self._text(504, "您的环境正在启动,请稍后重试。(%s)" % exc)
+            except NotReady as exc:
+                # 日志里写完整原因(以前 504 在网关日志里一个字都没有);给用户只说是哪一类、找谁
+                self.app.log("为 %s 准备环境未就绪:%s" % (who.user_id, exc.detail))
+                if exc.permanent:
+                    return self._text(503, "您的环境启动失败(%s),等待不会好转,请联系管理员处理。" % exc.category)
+                why = (":%s" % exc.category) if exc.category else ""
+                return self._text(504, "您的环境正在启动,请稍后重试。(%d 秒内未就绪%s)" % (exc.waited_s, why))
             except Exception as exc:                    # noqa: BLE001
                 self.app.log("为 %s 准备环境失败:%s" % (who.user_id, exc))
                 return self._text(502, "环境准备失败,请联系管理员。")
@@ -313,12 +322,20 @@ class App:
                 return self.mgr.ensure_password(user_id)
             self.mgr.require_prerequisites(user_id, kb_admin)
             password = self.mgr.ensure(user_id, kb_admin)
-            deadline = time.time() + self.cfg.ready_timeout_s
+            start = time.time()
+            deadline = start + self.cfg.ready_timeout_s
+            polls = 0
             while time.time() < deadline:
                 if self.mgr.state(user_id).ready:
                     return password
-                time.sleep(1.5)
-            raise TimeoutError("%d 秒内未就绪" % self.cfg.ready_timeout_s)
+                polls += 1
+                if polls % DIAG_EVERY == 0:
+                    # 拉不到镜像 / 配置缺失 / 个人目录初始化失败:等满超时也不会好,不让用户白等
+                    d = self.mgr.diagnose(user_id)
+                    if d is not None and d.permanent:
+                        raise NotReady(d, int(time.time() - start))
+                time.sleep(POLL_S)
+            raise NotReady(self.mgr.diagnose(user_id), self.cfg.ready_timeout_s)
 
     def list_pods(self) -> list:
         from . import reaper

@@ -33,7 +33,7 @@ class FakeKube:
     def get(self, api, kind, name):
         return self.objects.get((kind, name))
 
-    def list(self, api, kind, label_selector=""):
+    def list(self, api, kind, label_selector="", field_selector=""):
         return {"items": [v for (k, _n), v in self.objects.items() if k == kind]}
 
     def apply(self, api, kind, name, manifest):
@@ -297,3 +297,19 @@ def test_kb_admins_read_failure_keeps_the_last_good_list_and_logs():
     Flaky.fail = True
     assert m.kb_admins(now=1100.0) == frozenset({"u2001"})
     assert logs and "agent-roles" in logs[0]
+
+
+
+# --- 起不来时读原因 ------------------------------------------------------------
+
+def test_diagnose_without_permission_logs_once_and_returns_none():
+    """升级时漏了重新 apply 网关的 Role:读 Pod 403。不能每 6 秒刷一次日志,也不能让请求失败。"""
+    from gateway.kube import KubeError
+
+    class NoPods(FakeKube):
+        def list(self, api, kind, label_selector="", field_selector=""):
+            raise KubeError("pods is forbidden", 403)
+    logs = []
+    m = _mgr(NoPods(), log=logs.append)
+    assert m.diagnose("u1234") is None and m.diagnose("u1234") is None
+    assert len(logs) == 1 and "gateway.yaml" in logs[0]

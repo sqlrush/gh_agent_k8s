@@ -2,7 +2,7 @@
 
 用 Pod 自己挂载的 ServiceAccount 凭据(/var/run/secrets/kubernetes.io/serviceaccount)。
 需要的权限很小,见 k8s/base/gateway.yaml 里的 Role:本命名空间内 deployments / services /
-secrets 的增删查改 + configmaps 只读。
+secrets 的增删查改 + configmaps 只读 + pods / events 只读(用户 Pod 起不来时读原因)。
 
 **这里只做传输,不做策略**。要建什么、什么时候回收,都在 pods.py 与 reaper.py 里,
 那两层才好写测试。
@@ -85,10 +85,11 @@ class Kube:
                 return None
             raise
 
-    def list(self, api: str, kind: str, label_selector: str = "") -> Dict[str, Any]:
+    def list(self, api: str, kind: str, label_selector: str = "", field_selector: str = "") -> Dict[str, Any]:
         path = self._ns(api, kind)
-        if label_selector:
-            path += "?labelSelector=" + urllib.parse.quote(label_selector)
+        q = [(k, v) for k, v in (("labelSelector", label_selector), ("fieldSelector", field_selector)) if v]
+        if q:
+            path += "?" + urllib.parse.urlencode(q)
         return self.request("GET", path)
 
     def apply(self, api: str, kind: str, name: str, manifest: Dict[str, Any]) -> Dict[str, Any]:

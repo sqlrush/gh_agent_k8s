@@ -6,6 +6,7 @@
 #   bash runtime-doctor.sh <工号> --fix                        诊断后修复能自动修的项,再复查一遍
 #   bash runtime-doctor.sh <工号> --fix --grmp 10.1.2.3:8080    顺带把中间件地址改成实际值
 #   bash runtime-doctor.sh <工号> --fix --proxy 10.1.2.9:8080   用户容器经公司代理访问模型服务
+#   bash runtime-doctor.sh <工号> --login                      再经网关真登录一次,看容器会不会被反复收掉(约 3 分钟)
 #
 # 查六样:
 #   ① 配置与开通:模型地址/模型名/key;中间件地址是不是 localhost 或样例值;这个工号开通了没有
@@ -16,6 +17,8 @@
 #      两个都没连上 = 集群本身出不去;TCP 连上了但 TLS 失败 = 多半要经公司代理或缺公司根证书
 #   ⑤ 出网策略里模型、中间件两条规则现在放行的地址段
 #   ⑥ 运行本脚本的这台电脑的代理设置(Windows 系统代理 / 环境变量),用来给出代理相关的修复命令
+#   ⑦(--login)用这个工号经网关登录一次、再等一轮回收扫描:A 网关没刷新活动时间 / B 刷新了仍被回收 /
+#      C 没被回收但容器没就绪(自动打印它的状态、日志与事件)/ D 正常。会拉起他的容器,不改任何配置
 # 最后的「诊断意见」:每个问题一条,写原因判断与可以尝试的命令(有的话)。
 # --fix 做的事(每一条都打印改了什么):
 #   · 出网策略挡了模型 → runtime-policy / kb-import-policy 的模型规则放宽到 --model-cidr(默认 0.0.0.0/0)
@@ -33,12 +36,12 @@ export MSYS_NO_PATHCONV=1      # Git Bash:别把补丁里的 /spec/... 和 reg �
 NS=${NS:-gaussdb-agent}
 POD_WAIT=90                    # 临时 Pod 最多等多久(秒)
 READY_WAIT=180                 # 修复后等用户容器就绪最多多久(秒)
-U=""; FIX=0; GRMP=""; PROXY=""; MODEL_CIDR="0.0.0.0/0"; NPOS=0; POSLIST=""
+U=""; FIX=0; LOGIN=0; GRMP=""; PROXY=""; MODEL_CIDR="0.0.0.0/0"; NPOS=0; POSLIST=""
 CMD="bash $0"                  # 诊断意见里给出的命令,沿用这次的调用方式
 IPV4='([0-9]{1,3}\.){3}[0-9]{1,3}'
 
 usage() {
-  echo "用法:bash runtime-doctor.sh <工号> [--fix] [--grmp IP:端口] [--proxy IP:端口] [--model-cidr 地址段]"
+  echo "用法:bash runtime-doctor.sh <工号> [--fix] [--grmp IP:端口] [--proxy IP:端口] [--model-cidr 地址段] [--login]"
   echo "  例如:bash runtime-doctor.sh u0001        (前面的 bash 是运行脚本的命令,工号只写一个)"
   echo "  不带 --fix 只诊断;--grmp / --proxy 要和 --fix 一起用"
 }
@@ -46,6 +49,7 @@ parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --fix) FIX=1 ;;
+      --login) LOGIN=1 ;;
       --grmp) GRMP=${2:-}; shift ;;
       --proxy) PROXY=${2:-}; shift ;;
       --model-cidr) MODEL_CIDR=${2:-}; shift ;;
@@ -60,16 +64,37 @@ parse_args() {
     echo "只能给一个工号,这次收到了 ${POSLIST}。" >&2; usage >&2; exit 2
   fi
   if ! printf '%s' "$U" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,52}[a-z0-9])?$'; then usage >&2; exit 2; fi
-  local pair opt val
+  local pair opt val why
   for pair in "--grmp:$GRMP" "--proxy:$PROXY"; do
     opt=${pair%%:*}; val=${pair#*:}
     [ -n "$val" ] || continue
     [ "$FIX" = 1 ] || { echo "$opt 要和 --fix 一起用" >&2; exit 2; }
     printf '%s' "$val" | grep -Eq "^${IPV4}:[0-9]{1,5}\$" \
       || { echo "$opt 要写成 IP:端口,例如 10.1.2.3:8080(出网策略只能按 IP 放行,不能写域名)" >&2; exit 2; }
+    # 2026-10 现场有人跑了 --grmp 127.0.0.1:8080:写进去之后复查自己又报「地址是 localhost」,规则也成了 127.0.0.1/32
+    why=$(addr_problem "$val")
+    [ -z "$why" ] || { echo "$opt $val 不对:$why" >&2; exit 2; }
   done
-  printf '%s' "$MODEL_CIDR" | grep -Eq "^${IPV4}/[0-9]{1,2}\$" \
+  printf '%s' "$MODEL_CIDR" | grep -Eq "^${IPV4}/[0-9]{1,2}\$" && [ -z "$(octet_problem "${MODEL_CIDR%/*}")" ] \
+    && [ "${MODEL_CIDR#*/}" -le 32 ] \
     || { echo "--model-cidr 要写成地址段,例如 0.0.0.0/0 或 10.20.0.0/16" >&2; exit 2; }
+  if [ "$LOGIN" = 1 ] && [ "$FIX" = 1 ]; then
+    echo "--login 与 --fix 分开跑:先 --login 看清是哪一类,再按诊断意见修" >&2; exit 2
+  fi
+}
+octet_problem() {  # $1 IPv4 → 有一段大于 255 就说出来
+  local o
+  for o in $(printf '%s' "$1" | tr '.' ' '); do [ "$((10#$o))" -le 255 ] || { echo "IP 每一段不能大于 255"; return; }; done
+}
+addr_problem() {  # $1 IP:端口 → 不能用的原因(能用就不输出)
+  local ip=${1%:*} port=${1##*:} o
+  o=$(octet_problem "$ip"); [ -z "$o" ] || { echo "$o"; return; }
+  { [ "$((10#$port))" -ge 1 ] && [ "$((10#$port))" -le 65535 ]; } || { echo "端口要在 1–65535 之间"; return; }
+  case "$ip" in
+    127.*) echo "127.x 是本机回环地址 —— 容器里的 127.0.0.1 指容器自己,连不到中间件或代理;要填它们在网络上的实际 IP" ;;
+    0.*) echo "0.x 不是一个能连的地址" ;;
+    169.254.*) echo "169.254.x 是链路本地地址,集群里的容器连不到" ;;
+  esac
 }
 
 K() { kubectl ${CONTEXT:+--context "$CONTEXT"} -n "$NS" "$@"; }
@@ -191,7 +216,8 @@ patch_rule() {  # $1 策略 $2 下标 $3 新的 to(JSON) [$4 新的 ports(JSON)]
 # 不受约束的 Pod TLS 握手失败,第一版把两边都算「连不上」,结论成了「集群本身不通、不是策略的问题」——
 # 其实是两层叠加:策略挡了 TCP,放开之后 TLS 也还过不去。
 tc_ok() { printf '%s' "$1" | grep -q '[1-9]'; }
-classify() {  # $1 退出码 $2 num_connects → OK DNS PROXY_DNS REFUSED TCP_TIMEOUT SLOW TLS CERT CUT LINKED OTHER
+classify() {  # $1 退出码 $2 num_connects [$3 没连上的原因 refused|noroute|unreachable|timeout|-]
+              # → OK DNS PROXY_DNS REFUSED UNREACHABLE NOCONNECT TCP_TIMEOUT SLOW TLS CERT CUT LINKED OTHER
   case "$1" in 0) echo OK; return ;; 5) echo PROXY_DNS; return ;; 6) echo DNS; return ;; esac
   if tc_ok "$2"; then
     case "$1" in
@@ -203,7 +229,15 @@ classify() {  # $1 退出码 $2 num_connects → OK DNS PROXY_DNS REFUSED TCP_TI
       *) echo LINKED ;;
     esac
   else
-    case "$1" in 7) echo REFUSED ;; 28) echo TCP_TIMEOUT ;; *) echo OTHER ;; esac
+    # 退出码 7 以前一律报「连接被拒绝」:现场 5 秒后才失败、其实是没有路由(请求根本没出去),
+    # 「拒绝」会让人去查代理服务开没开。按 -v 里的原因分开;拿不到原因就只说 TCP 没连上
+    case "$1:${3:--}" in
+      7:refused) echo REFUSED ;;
+      7:noroute|7:unreachable) echo UNREACHABLE ;;
+      7:timeout|28:*) echo TCP_TIMEOUT ;;
+      7:*) echo NOCONNECT ;;
+      *) echo OTHER ;;
+    esac
   fi
 }
 tcp_ok() { case "$1" in OK|CERT|TLS|SLOW|CUT|LINKED) return 0 ;; *) return 1 ;; esac; }
@@ -212,7 +246,9 @@ describe() {  # $1 类别 $2 HTTP 码 $3 退出码
     OK) echo "通(HTTP $2)" ;;
     DNS) echo "域名解析失败" ;;
     PROXY_DNS) echo "代理地址解析失败" ;;
-    REFUSED) echo "连接被拒绝" ;;
+    REFUSED) echo "连接被拒绝(对方这个端口没有服务在听,或被防火墙直接拒绝)" ;;
+    UNREACHABLE) echo "网络不可达(没有到对方的路由,请求根本没发出去)" ;;
+    NOCONNECT) echo "TCP 没连上" ;;
     TCP_TIMEOUT) echo "连接超时(TCP 没连上)" ;;
     SLOW) echo "TCP 连上了,之后超时" ;;
     TLS) echo "TCP 连上了,TLS 握手失败" ;;
@@ -221,11 +257,12 @@ describe() {  # $1 类别 $2 HTTP 码 $3 退出码
     *) echo "失败(curl 退出码 $3)" ;;
   esac
 }
-# 把一行探测结果拆成 P_RC P_HTTP P_TC P_ERR P_CLS
+# 把一行探测结果拆成 P_RC P_HTTP P_TC P_ERR P_CLS;$2 是同一目标的 <标记>_WHY 那一行的值(可以没有)
 parse_probe() {
+  local why=${2:-}
   set -f; set -- $1; set +f      # 报错原文里可能有 * ?,别让它展开成文件名
   P_RC=${1:-}; P_HTTP=${2:-000}; P_TC=${3:-0}; shift 3 2>/dev/null; P_ERR="$*"
-  P_CLS=$(classify "$P_RC" "$P_TC")
+  P_CLS=$(classify "$P_RC" "$P_TC" "$why")
 }
 
 # ---- 运行本脚本的这台电脑的代理 ------------------------------------------------------
@@ -273,8 +310,13 @@ proxy_hint() {
 # 抢在生效前测,受约束的 Pod 也会「连得上」—— 第一版就因此把被挡的模型误报成通的。
 PROBE_SH='sleep 8
 probe() {
-  o=$(curl -sS -m "$3" -o /dev/null -w "%{http_code} %{num_connects}" "$2" 2>/tmp/e); rc=$?
-  echo "$1 $rc ${o:-000 0} $(tr "\n" " " </tmp/e | cut -c1-180)"
+  o=$(curl -sS -v -m "$3" -o /dev/null -w "%{http_code} %{num_connects}" "$2" 2>/tmp/v); rc=$?
+  echo "$1 $rc ${o:-000 0} $(grep "^curl: (" /tmp/v | tail -1 | cut -c1-180)"
+  # 退出码 7 只说明 TCP 没连上;为什么没连上(拒绝 / 无路由 / 不可达)只在 -v 的输出里。只摘这一个词,
+  # 不打印 -v 原文:经带账号的代理时里面有认证头
+  w=$(grep -io "failed: [a-z ]*\|after [0-9]* ms: [a-z ]*" /tmp/v | tail -1 | tr "A-Z" "a-z")
+  case "$w" in *refused*) w=refused ;; *"no route"*) w=noroute ;; *unreachable*) w=unreachable ;; *"timed out"*) w=timeout ;; *) w=- ;; esac
+  echo "${1}_WHY $w"
 }
 probe MODEL "$MODEL_URL" 10
 if [ -n "$GRMP_URL" ]; then probe GRMP "$GRMP_URL" 6; fi
@@ -385,6 +427,7 @@ runtime_status() {
   pod=${1:-}; restarts=${2:-0}; last=${3:-:}; waiting=${4:-}
   [ "$last" = ":" ] && last="无"
   if [ "${ready:-0}" -ge 1 ]; then ok "${D} 就绪(历史重启 ${restarts} 次)"; return; fi
+  init_status && return
   [ "$waiting" = CrashLoopBackOff ] && waiting="CrashLoopBackOff(反复退出,等着下次重启)"
   bad "${D} 没就绪:重启 ${restarts} 次,上次退出 ${last},当前 ${waiting:-运行中}"
   [ -n "$pod" ] || { advise "${D} 没就绪" "先修本输出里的其他问题;都正常了还起不来,把下面两条命令的输出发给我方" \
@@ -407,6 +450,25 @@ runtime_status() {
     "${KN} logs ${pod} --previous --tail=50" "${KN} describe pod ${pod} | tail -25"
 }
 
+# v1.2.0 起用户 Pod 先跑初始化容器 prepare-home 建个人目录。它失败时主容器根本没启动,
+# 只看 containerStatuses 会显示成「当前运行中、重启 0 次」—— 要先看它。失败原因原文在它的终止消息里。
+init_status() {  # 初始化失败 → 报问题并返回 0;没失败 → 返回 1
+  local line name code waiting last msg
+  line=$(G pod -l "role=runtime,user=$U" -o jsonpath='{range .items[*]}{.status.initContainerStatuses[0].name}|{.status.initContainerStatuses[0].state.terminated.exitCode}|{.status.initContainerStatuses[0].state.waiting.reason}|{.status.initContainerStatuses[0].lastState.terminated.exitCode}|{.status.initContainerStatuses[0].state.terminated.message}{.status.initContainerStatuses[0].lastState.terminated.message}{"\n"}{end}' | head -1)
+  IFS='|' read -r name code waiting last msg <<INIT
+$line
+INIT
+  [ "$name" = prepare-home ] || return 1
+  if [ -n "$code" ] && [ "$code" != 0 ]; then :
+  elif [ "$waiting" = CrashLoopBackOff ] && [ -n "$last" ] && [ "$last" != 0 ]; then :
+  else return 1; fi
+  NEED_DIR=1
+  bad "${D} 卡在初始化:prepare-home(建个人目录)失败 —— ${msg:-没有留下原因}"
+  advise "${D} 卡在初始化(个人目录建不了或写不进)" "${msg:-初始化容器没留下原因}。--fix 用临时 root Pod 建好目录、属主改成 1000,再重启它;同一 NAS 上的新工号都会撞上的话,根治要把 users/ 本身改成属主 1000:1000、权限 775" \
+    "${CMD} ${U} --fix"
+  return 0
+}
+
 # TCP 连上了但应用层不通:证书 / TLS / 被断开 —— 不是出网策略的问题
 tls_advice() {  # $1 名称 $2 目标 $3 类别 $4 curl 原始报错 $5 前缀说明
   local via=${VIA:-}
@@ -425,8 +487,9 @@ tls_advice() {  # $1 名称 $2 目标 $3 类别 $4 curl 原始报错 $5 前缀�
 
 # $1 名称 $2 标记 $3 受约束 Pod 的输出 $4 不受约束 Pod 的输出 $5 目标
 probe_verdict() {
-  local a b ca cb ea eb ha hb rca rcb
+  local a b ca cb ea eb ha hb rca rcb wa wb
   a=$(field "$2" "$3"); b=$(field "$2" "$4")
+  wa=$(field "${2}_WHY" "$3"); wb=$(field "${2}_WHY" "$4")
   VIA=$(field VIA "$3")
   # 只设了 HTTPS 代理:只有 https 的模型地址经它;中间件是 http,又在 NO_PROXY 里,是直连
   case "$2 $5" in "MODEL https://"*) ;; *) VIA="" ;; esac
@@ -435,7 +498,7 @@ probe_verdict() {
     advise "$1:出网实测没跑成" "临时 Pod 没跑出结果(集群若禁止建 root / 普通 Pod,会在上面看到报错);把本输出发给我方"
     return
   fi
-  parse_probe "$a"; ca=$P_CLS; ea=$P_ERR; ha=$P_HTTP; rca=$P_RC
+  parse_probe "$a" "$wa"; ca=$P_CLS; ea=$P_ERR; ha=$P_HTTP; rca=$P_RC
   if [ "$ca" = OK ]; then
     ok "$1 $5:用户容器能连上,$(describe OK "$ha")${VIA:+(经代理 $VIA)}"
     [ "$2" = MODEL ] && [ "$ha" = 401 ] && note "401 是因为探测没带 key,网络是通的"
@@ -451,10 +514,16 @@ probe_verdict() {
     advise "$1 连不上(原因未定)" "对照用的临时 Pod 没跑出结果;把本输出发给我方"
     return
   fi
-  parse_probe "$b"; cb=$P_CLS; eb=$P_ERR; hb=$P_HTTP; rcb=$P_RC
+  parse_probe "$b" "$wb"; cb=$P_CLS; eb=$P_ERR; hb=$P_HTTP; rcb=$P_RC
   if tcp_ok "$cb"; then
     bad "$1 $5:用户容器 $(describe "$ca" "$ha" "$rca"),不受出网策略约束的 Pod TCP 能连上($(describe "$cb" "$hb" "$rcb"))→ 被出网策略挡了"
-    if [ "$2" = MODEL ]; then
+    if [ "$2" = MODEL ] && [ -n "$VIA" ]; then
+      # 已经配了代理:挡的是「到代理」这一段,规则要放行代理的 IP 与端口。只给 --fix 会去找 443 的规则,
+      # 而那条早被改成了代理端口 —— 找不到,打印「失败」(以前就这样绕圈子)
+      MODEL_BLOCKED=1
+      advise "出网策略不放行代理 $(proxy_addr)" "用户容器经代理 $(proxy_addr) 访问模型服务,但 runtime-policy 里放行代理的那条规则不对(地址或端口)。重新按这个代理改一次规则" \
+        "${CMD} ${U} --fix --proxy $(proxy_addr)"
+    elif [ "$2" = MODEL ]; then
       MODEL_BLOCKED=1; proxy_hint
       advise "模型服务被出网策略挡了(runtime-policy 的模型规则不放行 $5)" "放宽模型服务的出网规则。--fix 放宽到 ${MODEL_CIDR} 的 443/80(用户容器能访问任意 HTTPS 地址);公司出网要经代理时,用 --proxy 只放行代理更窄" \
         "${CMD} ${U} --fix" "$PH_CMD"
@@ -463,6 +532,11 @@ probe_verdict() {
       advise "中间件被出网策略挡了(runtime-policy 的中间件规则不放行 $5)" "把中间件那条出网规则改成中间件的实际 IP 与端口" "${CMD} ${U} --fix --grmp ${GH}:${GP}"
     fi
     [ "$cb" = OK ] || tls_advice "$1" "$5" "$cb" "$eb" "放开出网策略之后还会遇到 —— "
+    return
+  fi
+  if [ "$2" = MODEL ] && [ -n "$VIA" ]; then
+    bad "$1 $5:两个 Pod 都连不上代理 $(proxy_addr)($(describe "$cb" "$hb" "$rcb"))→ 集群连不上代理本身,请求根本没到代理"
+    proxy_unreachable_advice "$cb"
     return
   fi
   bad "$1 $5:用户容器 $(describe "$ca" "$ha" "$rca"),不受约束的 Pod 也 $(describe "$cb" "$hb" "$rcb") → 集群本身连不上,不是出网策略的问题"
@@ -474,6 +548,34 @@ probe_verdict() {
     advise "模型服务 $5:集群里连不上(${eb:-无报错})" "集群节点到这个地址不通。这台电脑上能连的话,多半电脑走了公司代理而集群没有。${PH_TEXT}" "$PH_CMD"
   else
     advise "中间件 $5:集群里连不上(${eb:-无报错})" "检查中间件 IP 与端口是否填对、中间件是否允许集群节点访问(防火墙 / 白名单)"
+  fi
+}
+
+no_proxy_for() {  # $1 中间件主机 → NO_PROXY:本机、集群内部,再加上中间件(是 IP、不是回环、还没列过时)
+  local np="localhost,127.0.0.1,.svc,.cluster.local"
+  if printf '%s' "$1" | grep -Eq "^${IPV4}\$" && [ "${1#127.}" = "$1" ]; then
+    case ",${np}," in *",$1,"*) ;; *) np="${np},$1" ;; esac
+  fi
+  printf '%s' "$np"
+}
+proxy_addr() { local v=${VIA#*://}; v=${v%%/*}; printf '%s' "${v##*@}"; }   # 去掉协议、账号与路径
+
+# 已经配了代理、两边都连不上代理:**不再让人执行 --proxy**(以前会绕回去重配同一个代理)。
+# 2026-10 现场就是这种:集群连不上公司代理,而代理的 IP 正落在 Docker / kind 网络常用的 172.17–172.31 里。
+proxy_unreachable_advice() {  # $1 不受约束那个 Pod 的类别
+  local pv ph extra="" cmds
+  pv=$(proxy_addr); ph=${pv%:*}
+  case "$ph" in
+    172.1[6-9].*|172.2[0-9].*|172.3[01].*)
+      extra="③ 代理 IP 在 172.16.0.0/12 里:先确认它不和集群或容器网络的网段重叠 —— kind / Docker 默认用 172.17–172.31,重叠时去代理的请求被当成本地网段,出不去(在跑集群的那台机器上执行下面第二条命令看网段)。" ;;
+  esac
+  cmds="${KN} get configmap agent-config -o jsonpath='{.data.HTTPS_PROXY}'"
+  advise "集群连不上代理 ${pv}($(describe "$1"))" "请求没到代理,不是代理转不出去。依次查:① 代理 IP 与端口是否填对;② 集群节点能否访问这个代理 —— 代理可能只对办公网段开放,或这台电脑要经 VPN / 安全客户端才连得到它。${extra}这台电脑能上外网而集群不能时,问网络管理员集群节点该用哪个代理" \
+    "$cmds" "${extra:+docker network ls -q | xargs docker network inspect -f '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}'}"
+  if [ -n "$LP" ] && [ "$LP" != "$pv" ]; then
+    proxy_hint
+    note "这台电脑用的代理是 ${LP_SRC} ${LP},和集群里配置的 ${pv} 不同"
+    advise "这台电脑的代理 ${LP} 与集群配置的 ${pv} 不同" "${PH_TEXT}" "$PH_CMD"
   fi
 }
 
@@ -524,6 +626,74 @@ check_all() {
   else note "没发现代理设置"; fi
 }
 
+# ---- --login:经网关真登录一次,看容器还会不会被反复收掉(原 diagnose-user.sh)-------------------
+# 在集群里起一个临时 Pod 去登录:本机仍只要 bash 与 kubectl;共享密钥从 Secret 直接引用进 Pod,脚本不读也不打印它。
+LOGIN_SH='t0=$(date +%s)
+code=$(curl -s -m 150 -o /tmp/b -w "%{http_code}" -H "X-Agent-Trust: $TRUST" -H "$UHDR: $U" "$GW"); rc=$?
+echo "LOGIN ${code:-000} $rc $(( $(date +%s) - t0 )) $(head -c 200 /tmp/b 2>/dev/null | tr "\n" " ")"'
+
+# $1 HTTP 码 $2 登录后活动时间 $3 登录开始时刻 $4 观察后的副本数 $5 就绪数 $6 回包正文 → 结论(并记一条诊断意见)
+login_verdict() {
+  local stale=${STALE:-90}
+  case "$1" in
+    403) bad "经网关登录被拒(403)"
+         advise "经网关登录被拒(403)" "共享密钥不对(Secret gateway-auth 改过之后要重启网关才生效),或网关只按网段信任上游、集群里的探测 Pod 不在可信网段 —— 后一种只能从 SSO 入口登录来验" \
+           "${KN} rollout restart deploy/gateway"; return ;;
+    503) if printf '%s' "$6" | grep -q '尚未开通'; then bad "经网关登录:503 这个工号没开通(见 ①)"; return; fi
+         bad "经网关登录:503 用户容器启动失败 —— ${6}"
+         runtime_status; return ;;
+    504|000) bad "经网关登录:${1} 等不到用户容器就绪${6:+ —— $6}"
+         runtime_status; return ;;
+  esac
+  if [ "${2:-0}" -lt $(( $3 - stale )) ]; then
+    bad "A:登录成功(HTTP $1),但网关没有刷新活动时间"
+    advise "网关没有刷新 ${D} 的活动时间(结论 A)" "网关的问题,请把本输出整段发给我方"
+  elif [ "${4:-0}" != 1 ]; then
+    bad "B:活动时间已刷新,观察期间仍被回收(副本 ${4:-无})"
+    advise "${D} 刚登录过仍被回收(结论 B)" "网关的问题,请把本输出整段发给我方"
+  elif [ "${5:-0}" != 1 ]; then
+    bad "C:没有再被回收,但容器没就绪 —— 下面是它的状态、日志与事件"
+    runtime_status
+  else
+    ok "D:登录成功,观察期间没有被回收,容器就绪"
+    note "之前被收掉,大概率是有人绕过网关拉起过容器(手工 kubectl scale / rollout restart):那样不刷新活动时间,下一轮扫描就会收掉。以后请直接登录,由网关拉起"
+  fi
+}
+
+login_check() {
+  echo "== ⑦ 经网关登录一次(--login)=="
+  if [ -z "$IMG" ]; then bad "找不到 runtime 镜像名,没法起探测 Pod,跳过"; return; fi
+  local uhdr sweep ai act t line code secs body rep ready wait_s pod_wait=$POD_WAIT
+  uhdr=$(G configmap gateway-config -o jsonpath='{.data.USER_HEADER}'); uhdr=${uhdr:-X-Agent-User}
+  sweep=$(G configmap gateway-config -o jsonpath='{.data.SWEEP_SECONDS}' | tr -cd 0-9); sweep=${sweep:-60}
+  ai=$(G configmap gateway-config -o jsonpath='{.data.ACTIVITY_INTERVAL_SECONDS}' | tr -cd 0-9)
+  STALE=$(( ${ai:-60} + 30 ))         # 网关写活动时间有节流,比节流窗口再旧才算没写进去
+  [ "$(G secret gateway-auth -o jsonpath='{.data.TRUST_SECRET}' | wc -c | tr -d ' ')" -gt 1 ] \
+    || note "Secret gateway-auth 里没有 TRUST_SECRET:网关若只按网段信任上游,集群里的探测会被当成不可信(403)"
+  note "以 ${U} 经网关登录(会拉起他的容器、刷新活动时间;不改任何配置),最多等 150 秒……"
+  t=$(date -u +%s)
+  start_pod "doctor-login-$RUN" 1000 "app: gaussdb-agent-doctor" none \
+    "[{name: TRUST, valueFrom: {secretKeyRef: {name: gateway-auth, key: TRUST_SECRET, optional: true}}}, {name: UHDR, value: \"${uhdr}\"}, {name: U, value: \"${U}\"}, {name: GW, value: \"http://gateway.${NS}.svc/global/health\"}]" \
+    "$LOGIN_SH"
+  POD_WAIT=200; line=$(field LOGIN "$(wait_pod "doctor-login-$RUN")"); POD_WAIT=$pod_wait
+  if [ -z "$line" ]; then bad "登录用的临时 Pod 没跑出结果(见上面的报错)"; return; fi
+  set -f; set -- $line; set +f
+  code=${1:-000}; secs=${3:-?}; shift 3 2>/dev/null; body="$*"
+  note "登录返回 HTTP ${code},用时 ${secs} 秒${body:+:$(printf '%s' "$body" | cut -c1-120)}"
+  if [ "$code" = 200 ]; then
+    act=$(G deploy "$D" -o jsonpath='{.metadata.annotations.gaussdb-agent/last-activity}' | tr -cd 0-9)
+    wait_s=$((sweep + 30))
+    note "观察 ${wait_s} 秒(比网关一轮回收扫描多 30 秒),看会不会又被收掉……"
+    sleep "$wait_s"
+    rep=$(G deploy "$D" -o jsonpath='{.spec.replicas}'); ready=$(G deploy "$D" -o jsonpath='{.status.readyReplicas}')
+    note "副本数 ${rep:-无(已删除)},就绪 ${ready:-0}"
+  fi
+  local logs
+  logs=$(K logs -l app=agent-gateway --prefix --since=15m 2>/dev/null | tr -d '\r' | grep -F -- "$U" | tail -5)
+  [ -n "$logs" ] && { note "网关日志里与 ${U} 有关的最近几行:"; printf '%s\n' "$logs" | sed 's/^/           | /'; }
+  login_verdict "$code" "${act:-0}" "$t" "${rep:-0}" "${ready:-0}" "$body"
+}
+
 # 单元测试只加载上面的函数:DOCTOR_LIB=1 . runtime-doctor.sh
 [ "${DOCTOR_LIB:-0}" = 1 ] && { return 0 2>/dev/null || exit 0; }
 
@@ -555,6 +725,7 @@ detect_local_proxy
 
 echo "诊断工号 ${U}(命名空间 ${NS})…… 约 30 秒到 1 分钟"
 check_all
+[ "$LOGIN" = 1 ] && login_check
 
 if [ "$FIX" = 1 ]; then
   echo
@@ -562,9 +733,8 @@ if [ "$FIX" = 1 ]; then
   RESTART=0; CHANGED=0
   if [ -n "$PROXY" ]; then
     ph=${PROXY%:*}; pp=${PROXY##*:}
-    np="localhost,127.0.0.1,.svc,.cluster.local"
     gh_new=${GRMP%:*}; [ -n "$gh_new" ] || gh_new=$GH
-    printf '%s' "$gh_new" | grep -Eq "^${IPV4}\$" && np="${np},${gh_new}"
+    np=$(no_proxy_for "$gh_new")
     # 只设 HTTPS 代理:发给中间件的是 http 请求,不受影响;NO_PROXY 再兜一层
     if [ "$CUR_PROXY" = "http://${PROXY}" ] && [ "$(G configmap agent-config -o jsonpath='{.data.NO_PROXY}')" = "$np" ]; then
       echo "  [不用改] agent-config 已经是 HTTPS_PROXY=http://${PROXY},NO_PROXY=${np}"
@@ -579,6 +749,8 @@ if [ "$FIX" = 1 ]; then
         echo "  [不用改] ${pol} 第 $i 条已经只放行代理 ${ph}/32 的 ${pp}"
       else echo "  [失败] ${pol}:没找到模型服务规则(放行 443 的那条),或它刚被别人改过 —— 请人工检查"; fi
     done
+  elif [ "$MODEL_BLOCKED" = 1 ] && [ -n "$CUR_PROXY" ]; then
+    echo "  [未改] 已配代理 ${CUR_PROXY}:要改的是放行代理的那条规则,用 --fix --proxy <代理IP:端口> 重跑"
   elif [ "$MODEL_BLOCKED" = 1 ]; then
     for pol in runtime-policy kb-import-policy; do
       [ -n "$(G networkpolicy "$pol" -o name)" ] || continue

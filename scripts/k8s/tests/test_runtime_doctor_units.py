@@ -53,6 +53,13 @@ def test_egress_probe_waits_before_testing():
     assert int(m.group(1)) >= 5
 
 
+def test_never_reads_the_trust_secret_value():
+    """--login 只需要知道共享密钥配没配:数长度;真正登录时由 Pod 从 Secret 直接引用,脚本不经手。"""
+    lines = [l for l in _code_lines() if "secret gateway-auth" in l]
+    assert lines and all("wc -c" in l for l in lines), lines
+    assert "secretKeyRef: {name: gateway-auth, key: TRUST_SECRET" in _SCRIPT.read_text(encoding="utf-8")
+
+
 def test_never_prints_the_model_key():
     """读 Secret model-api 只为判断 key 填没填:只许数长度,不许解码或打印。"""
     lines = [l for l in _code_lines() if "secret model-api" in l]
@@ -100,7 +107,7 @@ def _run(args, path_dir=None):
     ("52", "1", "OK"),            # 连上了、对方没回内容:网络是通的
     ("28", "0", "TCP_TIMEOUT"),
     ("28", "1", "SLOW"),
-    ("7", "0", "REFUSED"),        # OrbStack 的策略是拒绝而不是丢包:被挡也可能是这个
+    ("7", "0", "NOCONNECT"),      # 没拿到原因时只说 TCP 没连上,不再一律说「拒绝」
     ("6", "0", "DNS"),
     ("5", "0", "PROXY_DNS"),
     ("35", "1", "TLS"),
@@ -226,3 +233,110 @@ def test_unknown_user_hints_at_a_typo(tmp_path):
     _fake_bin(tmp_path, "kubectl", 'case "$*" in *"configmap agent-config"*) exit 0 ;; *) exit 1 ;; esac\n')
     code, out = _run(["bash"], path_dir=tmp_path)
     assert code == 2 and "参数写错了" in out and "grmp-token-bash" in out
+
+
+
+# ---- v1.2.0:地址校验、退出码 7 的原因、配了代理时不绕圈子、NO_PROXY、初始化容器、--login --------------
+
+@pytest.mark.parametrize("args,want", [
+    (["u0001", "--fix", "--grmp", "127.0.0.1:8080"], "回环"),       # 2026-10 现场真这么填过
+    (["u0001", "--fix", "--proxy", "127.0.0.1:7890"], "回环"),
+    (["u0001", "--fix", "--proxy", "0.0.0.0:8080"], "不是一个能连的地址"),
+    (["u0001", "--fix", "--proxy", "10.1.2.300:8080"], "255"),
+    (["u0001", "--fix", "--grmp", "10.1.2.3:0"], "1–65535"),
+    (["u0001", "--fix", "--grmp", "10.1.2.3:70000"], "1–65535"),
+    (["u0001", "--model-cidr", "10.0.0.0/40"], "地址段"),
+    (["u0001", "--login", "--fix"], "分开跑"),
+])
+def test_unusable_addresses_are_refused_up_front(args, want):
+    code, out = _run(args)
+    assert code == 2 and want in out, out
+
+
+@pytest.mark.parametrize("why,want", [("refused", "REFUSED"), ("noroute", "UNREACHABLE"),
+                                      ("unreachable", "UNREACHABLE"), ("timeout", "TCP_TIMEOUT"), ("-", "NOCONNECT")])
+def test_exit_7_is_told_apart_by_the_reason_curl_gave(why, want):
+    """**2026-10 现场:** 「Failed to connect to 172.20.10.5 port 8080 after 5384 ms」被报成「连接被拒绝」,
+    让人去查代理服务开没开;其实请求根本没出去。原因只在 curl -v 里,探测把它摘成一个词。"""
+    code, out = _bash('classify 7 0 "%s"' % why)
+    assert out.strip() == want
+
+
+def test_probe_reports_the_reason_but_never_the_verbose_dump():
+    body = re.search(r"^PROBE_SH='(.*?)'$", _SCRIPT.read_text(encoding="utf-8"), re.MULTILINE | re.DOTALL).group(1)
+    assert " -v " in body and "_WHY" in body
+    assert "cat /tmp/v" not in body and "</tmp/v" not in body, "-v 原文里有代理认证头,不能整段打印"
+
+
+_PROXY = "VIA http://172.20.10.5:8080"
+_NOROUTE = ("MODEL 7 000 0 curl: (7) Failed to connect to 172.20.10.5 port 8080 after 5384 ms: Couldn't connect to server\n"
+            "MODEL_WHY noroute\n" + _PROXY)
+
+
+def test_both_pods_unable_to_reach_a_configured_proxy_is_not_sent_round_in_circles():
+    """**2026-10 现场的形态(地址已换成样例)。** 已经 --fix --proxy 配了代理,两个 Pod 都连不上代理。
+    以前的意见又让执行一次 --fix --proxy(配的正是这个代理),绕回原地。现在要说「集群连不上代理本身」,
+    并指出代理 IP 落在 Docker / kind 常用的网段里。"""
+    out = _verdict(_NOROUTE, _NOROUTE)
+    assert "集群连不上代理 172.20.10.5:8080" in out and "网络不可达" in out
+    assert "172.16.0.0/12" in out and "docker network inspect" in out
+    assert "--fix --proxy" not in out, "不能再让人配一遍同一个代理"
+
+
+def test_a_different_local_proxy_is_offered_when_there_is_one():
+    out = _verdict(_NOROUTE, _NOROUTE, env={"LP": "10.9.9.9:3128", "LP_SRC": "Windows 系统代理"})
+    assert "u0001 --fix --proxy 10.9.9.9:3128" in out and "不同" in out
+
+
+def test_policy_blocking_the_proxy_points_at_the_proxy_rule_not_plain_fix():
+    rt = "MODEL 7 000 0 curl: (7) Failed to connect\nMODEL_WHY refused\n" + _PROXY
+    free = "MODEL 0 401 1 \nMODEL_WHY -\n" + _PROXY
+    out = _verdict(rt, free)
+    assert "BLOCKED=1" in out and "出网策略不放行代理 172.20.10.5:8080" in out
+    assert "u0001 --fix --proxy 172.20.10.5:8080" in out
+
+
+@pytest.mark.parametrize("host,want", [
+    ("10.1.2.3", "localhost,127.0.0.1,.svc,.cluster.local,10.1.2.3"),
+    ("127.0.0.1", "localhost,127.0.0.1,.svc,.cluster.local"),        # 以前会出现两个 127.0.0.1
+    ("grmp.corp.example", "localhost,127.0.0.1,.svc,.cluster.local"),
+])
+def test_no_proxy_has_no_duplicates_and_no_loopback_middleware(host, want):
+    assert _bash('no_proxy_for "%s"' % host)[1].strip() == want
+
+
+def test_failed_prepare_home_is_reported_with_its_own_message():
+    """初始化容器失败时主容器没启动:只看 containerStatuses 会显示成「运行中、重启 0 次」。"""
+    snippet = textwrap.dedent('''
+        U=u0001; D=runtime-u0001; ADV=""; ADV_N=0; NEED_DIR=0
+        G() { echo "prepare-home|1||||个人目录 users/u0001 不可写(属主 0:0)"; }
+        init_status; echo "RC=$? NEED_DIR=$NEED_DIR"; printf '%s' "$ADV"
+        G() { echo "prepare-home|0||||"; }
+        init_status; echo "RC2=$?"
+    ''')
+    out = _bash(snippet)[1]
+    assert "卡在初始化" in out and "users/u0001 不可写" in out and "RC=0 NEED_DIR=1" in out
+    assert "u0001 --fix" in out and "RC2=1" in out
+
+
+@pytest.mark.parametrize("args,want", [
+    (("200", "1000", "1000", "1", "1", ""), "D:"),
+    (("200", "800", "1000", "1", "1", ""), "A:"),               # 活动时间比登录还早 90 秒以上
+    (("200", "1000", "1000", "0", "0", ""), "B:"),
+    (("200", "1000", "1000", "1", "0", ""), "C:"),
+    (("403", "0", "1000", "0", "0", ""), "403"),
+    (("503", "0", "1000", "0", "0", "您的环境尚未开通"), "没开通"),
+])
+def test_login_verdicts(args, want):
+    snippet = ('U=u0001; D=runtime-u0001; ADV=""; ADV_N=0; runtime_status() { echo RS-CALLED; }; '
+               'login_verdict "$@"; printf "%s" "$ADV"')
+    out = _bash(snippet, args=args)[1]
+    assert want in out, out
+    if want == "C:":
+        assert "RS-CALLED" in out, "结论 C 要自动打印容器状态、日志与事件"
+
+
+def test_login_failures_that_are_about_the_container_show_its_status():
+    snippet = 'U=u0001; D=runtime-u0001; ADV=""; ADV_N=0; runtime_status() { echo RS-CALLED; }; login_verdict "$@"'
+    for args in (("503", "0", "1", "0", "0", "您的环境启动失败(拉不到镜像)"), ("504", "0", "1", "0", "0", "")):
+        assert "RS-CALLED" in _bash(snippet, args=args)[1]

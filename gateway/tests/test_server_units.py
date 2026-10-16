@@ -35,6 +35,12 @@ class _Upstream(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self):
+        if self.path.endswith("/cached") or self.path.endswith("/nocontent"):
+            # 浏览器带 If-None-Match 再验证静态文件时 nginx 回的 304;204 同理 —— 都没有消息体
+            self.send_response(304 if self.path.endswith("/cached") else 204)
+            self.send_header("ETag", '"v1"')
+            self.end_headers()
+            return
         if self.path.startswith("/slow"):
             # 同步慢响应:头都要等一会儿才发。模拟 POST /session/{id}/message 这类要跑完模型才回的请求
             time.sleep(3)
@@ -68,6 +74,12 @@ class _Upstream(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", "1234")
+        self.end_headers()
 
     def log_message(self, *a):
         pass
@@ -313,3 +325,32 @@ def test_slow_synchronous_response_is_not_cut_by_connect_timeout(stack):
     code, body = _req(base, "/slow", {idt.HEADER_TRUST: SECRET, "X-Agent-User": "u1234"})
     assert code == 200, body
     assert json.loads(body)["slow"] is True
+
+
+def test_bodyless_responses_carry_no_body_so_the_connection_stays_usable(stack):
+    """**2026-10-15 抓到。** 网关给所有响应都加分块编码并写结束块 `0\\r\\n\\r\\n` —— 而 304 / 204 / HEAD 按协议没有消息体,
+    那 5 个字节被浏览器当成同一连接上下一个响应的开头(ERR_INVALID_HTTP_RESPONSE)。大盘第二次打开时静态文件全是 304,
+    其中一个模块坏掉 → 整个模块图加载失败 → 整页空白。用裸 socket 在一条连接上连发两个请求,第二个响应必须完好。"""
+    import socket
+    base, _k, _a = stack
+    port = int(base.rsplit(":", 1)[1])
+    auth = "%s: %s\r\nX-Agent-User: u1234\r\n" % (idt.HEADER_TRUST, SECRET)
+    for method, path, code in (("GET", "/dash/cached", 304), ("GET", "/dash/nocontent", 204), ("HEAD", "/dash/page", 200)):
+        s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        s.sendall(("%s %s HTTP/1.1\r\nHost: x\r\n%s\r\n" % (method, path, auth)).encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            buf += s.recv(4096)
+        head, rest = buf.split(b"\r\n\r\n", 1)
+        assert head.startswith(b"HTTP/1.1 %d" % code), head[:40]
+        assert b"transfer-encoding" not in head.lower(), "%s %s 不该带分块编码" % (method, code)
+        # 第二个请求带 Connection: close,读到对端关闭为止,不留未读数据(否则 close 发 RST,服务端日志一片报错)
+        s.sendall(("GET /dash/echo HTTP/1.1\r\nHost: x\r\nConnection: close\r\n%s\r\n" % auth).encode())
+        nxt = rest
+        while True:
+            data = s.recv(4096)
+            if not data:
+                break
+            nxt += data
+        s.close()
+        assert nxt.startswith(b"HTTP/1.1 200"), "%s %s 的响应后面多出了字节:%r" % (method, code, nxt[:16])

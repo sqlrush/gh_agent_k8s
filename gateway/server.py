@@ -239,6 +239,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(resp.status)
         for k, v in proxy.response_headers(resp.getheaders()):
             self.send_header(k, v)
+        # 1xx / 204 / 304 与 HEAD 的响应按协议没有消息体:不能加分块编码,更不能写结束块。
+        # 写了的话那 5 个字节会被浏览器当成同一连接上下一个响应的开头(ERR_INVALID_HTTP_RESPONSE)——
+        # 大盘第二次打开时静态文件全是 304,一个模块坏掉整页就空白(2026-10-15 抓到)。
+        if self.command == "HEAD" or resp.status in (204, 304) or 100 <= resp.status < 200:
+            self.end_headers()
+            resp.close()
+            return
         # 我们按块转发,长度不可知 → 分块编码。SSE 也走这条路。
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()

@@ -149,7 +149,8 @@
     "counts",
     "dims?",
     "window.begin_ts?",
-    "window.end_ts?"
+    "window.end_ts?",
+    "index[].db_time_s?"
   ],
   "targets": [
     "key",

@@ -16,6 +16,30 @@ export function hb(dim, valCol, unit, hero) {
   return `<div class="hb">${dim.rows.slice(0, 8).map((r) => `<div class="r"${tipAttr(`<b>${esc(r[0])}</b>${h.map((x, i) => (i ? `<div class="d">${esc(x)}：${esc(F[i](r[i]))}</div>` : '')).join('')}`)}><div class="l">${esc(r[0])}${other.length && !hero ? `<small>${other.map((i) => `${esc(h[i])} ${esc(F[i](r[i]))}`).join('，')}</small>` : ''}</div><div class="b"><i class="grow" style="width:${((num(r[valCol]) || 0) / mx) * 100}%"></i></div><div class="v">${esc(F[valCol](r[valCol]))}${unit ? `<small>${esc(unit)}</small>` : ''}</div></div>`).join('')}</div>`;
 }
 
+/** 窗口间 DB time 趋势。只读 index.json 里的 db_time_s —— 画趋势不该把几十份报告全下载下来。
+ *
+ * 为什么不用已有的「窗口历史」格子图代替:那张图画的是**发现条数**,而用户要问的是
+ * 「是不是越来越卡」—— 阈值没变的话发现条数可以一直是 3,回答不了那个问题。
+ * 老报告的索引里没有这个字段(是后加的),所以不足两点时整块不画,不画一条假的平线。
+ */
+function dbTrend(idx, curFile) {
+  const pts = (idx || []).slice(-20).filter((e) => typeof e.db_time_s === 'number');
+  if (pts.length < 2) return `<p class="t3">窗口数不足,或这些报告是加入该指标之前存档的。</p>`;
+  const W = 520, H = 120, L = 34, T = 10, B = 20, pw = W - L - 8, ph = H - T - B;
+  const mx = Math.max(1, ...pts.map((e) => e.db_time_s));
+  const X = (i) => L + (pts.length === 1 ? pw / 2 : (i * pw) / (pts.length - 1));
+  const Y = (v) => T + ph - (v / mx) * ph;
+  const line = pts.map((e, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(e.db_time_s).toFixed(1)}`).join(' ');
+  const dots = pts.map((e, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(e.db_time_s).toFixed(1)}" r="${e.file === curFile ? 4 : 2.5}" fill="${e.file === curFile ? 'var(--acc,#c33)' : 'currentColor'}"><title>${esc(String(e.at || '').slice(0, 16))}：DB time ${fmtInt(Math.round(e.db_time_s))} 秒</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;color:var(--t3,#888)">
+    <line x1="${L}" x2="${L + pw}" y1="${Y(0)}" y2="${Y(0)}" stroke="currentColor" stroke-width="0.5" opacity="0.4"/>
+    <text x="${L - 6}" y="${(Y(mx) + 4).toFixed(1)}" text-anchor="end" font-size="9" fill="currentColor">${esc(fmtInt(Math.round(mx)))}</text>
+    <text x="${L - 6}" y="${(Y(0) + 4).toFixed(1)}" text-anchor="end" font-size="9" fill="currentColor">0</text>
+    <path d="${line}" fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.85"/>${dots}
+    <text x="${L}" y="${H - 4}" font-size="9" fill="currentColor">${esc(String(pts[0].at || '').slice(5, 16))}</text>
+    <text x="${L + pw}" y="${H - 4}" font-size="9" text-anchor="end" fill="currentColor">${esc(String(pts[pts.length - 1].at || '').slice(5, 16))}</text></svg>`;
+}
+
 function hero(m) {
   const { d, p, w } = m, dbt = kpiVal(KPIS[0], d), pdb = kpiVal(KPIS[0], p), cpu = cpuShare(d), waits = dimOf(d, 'waits');
   const ch = dbt !== null && pdb !== null ? change(KPIS[0], dbt, pdb) : null;
@@ -56,6 +80,8 @@ export function render(root, m, ctx) {
       ${tile({ span: 'b4', title: `结论<span class="cnt">${fs.length}</span>`, desc: '脚本按阈值判定', body: verdicts })}
       ${tile({ span: 'b4', title: '检查点与 Redo', body: ckBody })}
       ${tile({ span: 'b4', title: '窗口历史', desc: `最近 ${Math.min(20, m.idx.length)} 个窗口，点格子切换`, body: rhythm('wdr', m.idx, m.entry && m.entry.file) })}
+      ${tile({ span: 'b6', title: 'DB time 趋势', desc: '最近若干窗口的 DB time（秒）。回答「是不是越来越卡」', body: dbTrend(m.idx, m.entry && m.entry.file) })}
+      ${tile({ span: 'b6', title: '等待类占比', desc: '按窗口内总等待时长。只看 pg_locks 看不到轻量锁,这里能看到', body: hb(dimOf(d, 'waits'), 3, '%') })}
       ${tile({ span: 'b6', title: '物理读最多的对象', body: hb(dimOf(d, 'cache'), 1, '块') })}
       ${tile({ span: 'b6', title: '文件 IO', desc: '按物理读', body: hb(dimOf(d, 'fileio'), 1, '') })}</div>`;
 }

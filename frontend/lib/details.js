@@ -57,13 +57,23 @@ export async function openSql(id, key) {
   const r = m && m.ok && !m.missing ? m.rows.find((x) => x.sql_id === id) : null;
   let t = r ? m.tune[id] : null;
   if (!r && key) { const x = await fetchSqltune(key, id); t = x.ok ? x.data : null; }
+  // Top SQL 榜里没有这条时,再看 WDR 报告留下的全文(WDR 采集时按 sql_id 存了 sql_texts)。
+  // 从 WDR 页点进来的 sql_id 常常不在 Top SQL 榜里 —— 以前这里只能显示「不在榜单里」,
+  // 全文无处可查,正是要补的那一块。
+  const wm = getModel('wdr');
+  const wText = !r && wm && wm.sqlTexts ? wm.sqlTexts[id] : '';
   const kv = (k, v) => `<div><div class="kv"><div class="k">${k}</div><div class="v num">${v}</div></div></div>`;
   const body = r ? `<div class="sec">语句</div><div class="sql">${hl(T.fullQuery(r.query))}</div>
       <div class="sec">执行统计</div><div class="kvs" style="--cols:4">${kv('调用次数', fmtInt(r.calls))}${kv('总耗时', fmtSec(r.total_sec))}${kv('平均耗时', fmtMs(r.avg_ms))}${kv('返回行', fmtInt(r.rows))}</div>`
+    : wText ? `<div class="sec">语句（来自 WDR 窗口采集）</div><div class="sql">${hl(wText)}</div>`
     : `<div class="sec">语句</div><p class="t2" style="margin:0">这条语句不在当前的 Top SQL 榜单里${t && t.original_sql ? '，下面是调优记录里的原文' : ''}。</p>${t && t.original_sql ? `<div class="sql">${hl(t.original_sql)}</div>` : ''}`;
   const mark = T.isSkipped(t) ? '<span class="tag gray">系统 SQL</span>' : t ? '<span class="tag blue">已调优</span>' : '';
   drawer(`SQL 明细 ${esc(id)}`, mark, `${body}<div class="sec">调优结论</div>${tuneHtml(t)}`,
-    (T.isSkipped(t) ? '' : askBtn(r ? T.tunePrompt(r) : `请调优 sql_id 为 ${id} 的语句。`, t ? '在会话里继续调优' : '在会话里调优')) + `<button class="btn" data-copy="${esc(id)}">复制 sql_id</button>`);
+    (T.isSkipped(t) ? '' : askBtn(r ? T.tunePrompt(r) : `请调优 sql_id 为 ${id} 的语句。`, t ? '在会话里继续调优' : '在会话里调优'))
+    // 执行计划要**实时连库**才能出,而大盘是纯静态站、egress 为空,不碰数据库 ——
+    // 所以计划不在大盘里生成,点一下开一个会话去取。这是当初定的隔离,不要为了省一次点击破掉。
+    + askBtn(`请取 sql_id 为 ${id} 的执行计划并解读（必要时对比改写前后的计划）。`, '在会话里看执行计划')
+    + `<button class="btn" data-copy="${esc(id)}">复制 sql_id</button>`);
 }
 
 export function openWdim(name) {

@@ -94,6 +94,7 @@ export async function load(key, file, range) {
   // 只有原生报告在本实例的报告目录里才给下载链接:显式 --save-html 到 /tmp 的老报告,给链接就是 404
   const nativeName = native.saved_path && String(native.saved_path).includes(`/wdr/${key}/`) ? String(native.saved_path).split('/').pop() : '';
   return { ok: true, key, d, idx, pos, entry: idx[pos] || null, w: d.window || {}, p: prevRep && prevRep.ok ? prevRep.data : null, sameSkipped,
+    sqlTexts: d.sql_texts || {},   // sql_id → 完整 SQL,给 SQL 抽屉用(采集时留的全文)
     findings: [...(d.findings || [])].sort((a, b) => (b.severity | 0) - (a.severity | 0)), native, nativeName,
     nativeUrl: nativeName ? `/reports/wdr/${encodeURIComponent(key)}/${encodeURIComponent(nativeName)}` : '' };
 }

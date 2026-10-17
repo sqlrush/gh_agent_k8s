@@ -138,6 +138,17 @@ def wdr_samples():
             M.DimResult(dimension=M.DIM_FILEIO, headline="物理读 Top 文件:db14725/spc1663/f39021", headers=["文件", "物理读", "物理写"],
                         rows=[["db14725/spc1663/f39021", "2040000", "31000"], ["db14725/spc1663/f39022", "410000", "900"]]),
         ]
+        # sql_id → 完整 SQL。表格里的 query 列是**截断过的**显示值,全文在这里 ——
+        # 大盘的 SQL 抽屉(lib/details.js:openSql)从 WDR 页点进来时就靠它,
+        # 因为那条 sql_id 常常不在 Top SQL 的存档里。
+        ev.sql_texts = {
+            "1a9f": ("SELECT r.region, s.store, sum(f.amount) FROM fact_sales f "
+                     "JOIN customers c ON c.id = f.cust_id JOIN regions r ON r.id = c.region_id "
+                     "JOIN stores s ON s.id = f.store_id WHERE f.sale_date >= $1 GROUP BY 1, 2 "
+                     "ORDER BY 3 DESC"),
+            "4c77": "SELECT sale_date, sum(amount) FROM fact_sales GROUP BY sale_date ORDER BY 1",
+            "e2b9": "UPDATE accounts SET balance = balance - $1 WHERE id = $2",
+        }
         ev.findings = [Finding(M.DIM_WAITS, "WDR_WAIT_CLASS_SKEW", Severity.WARN, "等待类倾斜 IO_EVENT", "81%", ">60%", "snap_global_wait_events 等待类聚合"),
                        Finding(M.DIM_TOPSQL, "WDR_SQL_DBTIME_SHARE", Severity.CRITICAL, "单条 SQL 占 DB time", "41.53%", ">30%",
                                "snap_summary_statement:sqlid 1a9f elapsed 2410s ×3")][:sev]

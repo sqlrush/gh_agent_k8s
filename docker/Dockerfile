@@ -54,14 +54,14 @@ USER root
 # 知识库的导入与入库前标准化只属于管理员镜像:runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
 RUN rm -rf /opt/agent/config/opencode/skills/gaussdb-kb-import \
            /opt/agent/config/opencode/skills/gaussdb-kb-init \
-    && test "$(ls -d /opt/agent/config/opencode/skills/gaussdb-* | wc -l)" = "17"
+    && test "$(ls -d /opt/agent/config/opencode/skills/gaussdb-* | wc -l)" = "18"
 USER agent
 # image.source 不只是元数据:GHCR 靠它把镜像**关联到仓库**,关联之后镜像继承仓库的访问权限。
 # 没有它,镜像是游离的用户级 package,只能靠单独发令牌来授权 —— 而那种令牌要么权限过宽,
 # 要么要额外管一套轮换。关联之后,把人加成仓库只读协作者即可,按人授权、可审计、可单独回收。
 LABEL org.opencontainers.image.title="gaussdb-agent-runtime" \
       org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \
-      org.opencontainers.image.description="opencode + 16 diagnostic skills + gaussdb-kb (query); kb/ mounted read-only"
+      org.opencontainers.image.description="opencode + 17 diagnostic skills + gaussdb-kb (query); kb/ mounted read-only"
 
 # ---------------------------------------------------------------- kb-import:知识库查询 + 导入
 FROM base AS kb-import

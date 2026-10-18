@@ -11,7 +11,7 @@ import { loadInRange } from '../lib/range.js';
 export const TITLES = {
   'Overview': '总览', 'Slow SQL': '慢 SQL', 'Long & Idle Transactions': '长事务与空闲事务',
   'Connections': '连接', 'Checkpoint / WAL / Archiving': '检查点 / WAL / 归档', 'Replication / Standby': '主备复制',
-  'Schema / Objects': '对象与索引', 'Transactions / Concurrency': '事务并发', 'Wait Events': '等待事件',
+  'Schema / Objects': '对象与索引', 'Storage Usage': '占用量', 'Transactions / Concurrency': '事务并发', 'Wait Events': '等待事件',
   'Dead Tuples & Bloat': '死元组与膨胀', 'Lightweight Locks (LWLock)': '轻量锁', 'Transaction Locks & Blocking Chains': '锁与阻塞链',
 };
 export const title = (dim) => TITLES[dim] || dim;
@@ -37,6 +37,9 @@ const KEYFIG = {
   'Checkpoint / WAL / Archiving': (d) => { const row = (d.rows || []).find((x) => /timed\/req/.test(x[0])), arc = (d.rows || []).find((x) => /archive/.test(x[0])); if (!row) return null; const [t, q] = String(row[1]).split('/').map(num); return { v: (t + q ? (q / (t + q)) * 100 : 0).toFixed(1), u: '% 请求型', cap: `checkpoint ${fmtInt(t + q)} 次，归档 ${arc ? arc[1] : '—'}` }; },
   'Replication / Standby': (d) => { const r = d.rows || []; if (!r.length) return { v: '0', u: '个备机', cap: '没有备机' }; const [v, u] = split(String(cell(d, 0, 'replay_lag') || '—')); return { v, u: u + ' 回放延迟', cap: `${r.length} 个备机，${cell(d, 0, 'state') || ''} ${cell(d, 0, 'sync') || ''}` }; },
   'Schema / Objects': (d) => { const it = (d.rows || []).filter((x) => x[0] !== '观测窗口'); return { v: String(it.length), u: '项问题对象', cap: [...new Set(it.map((x) => x[0]))].join('、') || '没有问题对象' }; },
+  // 占用量:取最大的那一行。**不显示「剩余」** —— 文件系统剩余空间在这个内核上
+  // 取不到(pg_stat_file 要 initial account),卡片上写「剩余 x%」等于编一个没有的数。
+  'Storage Usage': (d) => { const r = d.rows || []; if (!r.length) return null; const [v, u] = split(String(r[0][2] || '—')); return { v, u: u + ' 最大', cap: `${r[0][0]} ${r[0][1]}（共 ${r.length} 项，剩余空间不可知）` }; },
   'Transactions / Concurrency': (d) => { const dl = (d.rows || []).find((x) => /deadlock/.test(x[0])), cr = (d.rows || []).find((x) => /commit/.test(x[0])); const rb = cr ? (/([\d.]+)%/.exec(cr[1]) || [])[1] : null; return { v: dl ? String(dl[1]) : '—', u: '次死锁', cap: `回滚率 ${rb ?? '—'}%` }; },
 };
 /** 维度的关键读数 {v, u, cap};没采到或没有读数规则时 null。 */

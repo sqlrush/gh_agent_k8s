@@ -61,6 +61,13 @@ export const fPrompt = (f) => (f.sql_id
   ? `请解释并优化 sql_id 为 ${f.sql_id} 的语句:健康检查发现 ${f.code},${f.metric}=${f.value}(阈值 ${f.threshold})。`
   : `请针对健康检查发现 ${f.code}(${f.metric}=${f.value},阈值 ${f.threshold})做深入分析:${f.evidence}`);
 
+export const LOOKBACK = '回看不了';
+/** 没采到的维度在图例里怎么称呼:全是回看不了 / 全是采集失败 / 两种都有。 */
+export const naLegend = (dims) => {
+  const na = dims.filter((x) => x.level === null), look = na.filter((x) => x.na).length;
+  return !look ? '采集失败' : look === na.length ? LOOKBACK : `${LOOKBACK} / 采集失败`;
+};
+
 /** 索引条目的称呼:时段体检写评估窗口(「时段 10-17 10:46 – 11:06」),此刻巡检写存档时间。 */
 export const entryLabel = (e) => (e && e.mode === 'span' && e.window ? `时段 ${windowLabel(e.window)}` : stamp(e && e.at));
 
@@ -92,14 +99,17 @@ export function model(key, d, all, file) {
   const findings = [...(d.findings || [])].sort((a, b) => (b.severity | 0) - (a.severity | 0));
   const worst = {};
   for (const f of findings) worst[f.dimension] = Math.max(worst[f.dimension] || 0, f.severity | 0);
-  const dims = (d.dims || []).map((x, i) => ({ ...x, i, level: x.available === false ? null : (worst[x.dimension] || 0) }));
+  // na:时段体检里「回看不了」的瞬时维度(脚本的 headline 就是这四个字)。它们不是采集失败,页面上要说对 ——
+  // 真失败的(如时段 Top SQL 没取到)headline 是「不可用」,仍按采集失败画。
+  const dims = (d.dims || []).map((x, i) => ({ ...x, i, level: x.available === false ? null : (worst[x.dimension] || 0),
+    na: x.available === false && x.headline === LOOKBACK ? LOOKBACK : '' }));
   // 全部维度都没采到:overall 是 0 只因为没有发现,不能画成「正常」
   const allNa = dims.length > 0 && dims.every((x) => x.level === null);
   const pos = file ? idx.findIndex((e) => e.file === file) : idx.length - 1;
   const names = new Set(dims.map((x) => x.dimension));
   const extra = [...new Set(findings.filter((f) => !names.has(f.dimension)).map((f) => f.dimension))];
   const checks = [
-    ...dims.map((x) => ({ name: title(x.dimension), lv: lk(x.level), attr: ` data-dim="${x.i}"`, tip: `<b>${esc(title(x.dimension))}</b><div class="d">${esc(cn(x.headline || ''))}</div>` })),
+    ...dims.map((x) => ({ name: title(x.dimension), lv: lk(x.level), naWord: x.na, attr: ` data-dim="${x.i}"`, tip: `<b>${esc(title(x.dimension))}</b><div class="d">${esc(cn(x.headline || ''))}</div>` })),
     ...extra.map((x) => ({ name: title(x), lv: lk(worst[x]), attr: ` data-xdim="${esc(x)}"`, tip: `<b>${esc(title(x))}</b><div class="d">子技能报出的发现,不属于巡检维度</div>` })),
   ];
   return { ok: true, key, d, idx, all, pos, entry: idx[pos] || null, prev: pos > 0 ? idx[pos - 1] : null,

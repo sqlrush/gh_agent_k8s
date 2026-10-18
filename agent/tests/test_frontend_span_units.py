@@ -70,13 +70,17 @@ const r2 = {
 
 // ③ 健康检查:同口径对比;latest 404 退回索引最新一份
 serve({ '/health/k/index.json': [SPAN_H0, NOW_H, SPAN_H],
-        [SPAN_H.file]: { conn: 'lab/og5', mode: 'span', window: WIN, overall: 2, findings: [], dims: [{ dimension: 'Window Load', available: true, headers: ['指标', '值'], rows: [['DB time', '23510.33 秒'], ['CPU time', '3501.10 秒'], ['CPU 占 DB time', '14.9%'], ['平均活跃会话', '19.176']] }] } });
+        [SPAN_H.file]: { conn: 'lab/og5', mode: 'span', window: WIN, overall: 2, findings: [], dims: [{ dimension: 'Window Load', available: true, headers: ['指标', '值'], rows: [['DB time', '23510.33 秒'], ['CPU time', '3501.10 秒'], ['CPU 占 DB time', '14.9%'], ['平均活跃会话', '19.176']] },
+          { dimension: 'Connections', available: false, headline: '回看不了', note: '这段时间当时没有采集,回看不了' },
+          { dimension: 'Window Top SQL', available: false, headline: '不可用', note: 'gaussdb-topsql 没取到' }] } });
 const hm = await H.load('k', '', null);
 const r3 = {
   ok: hm.ok, file: hm.entry && hm.entry.file, span: hm.span, win: hm.win,
   prev_same_mode: hm.prev && hm.prev.file, idx_len: hm.idx.length, all_len: hm.all.length,
   entry_label_span: H.entryLabel(SPAN_H), entry_label_now: H.entryLabel(NOW_H),
   title: H.title('Window Load'), fig: H.keyFig(hm.dims[0]),
+  na: hm.dims.map((x) => x.na), naWord: hm.checks.map((c) => c.naWord || ''), legend: H.naLegend(hm.dims),
+  legendOnlyLookback: H.naLegend(hm.dims.slice(0, 2)), legendNone: H.naLegend([]),
 };
 console.log(JSON.stringify({ r1, r2, r3 }));
 """
@@ -113,3 +117,7 @@ def test_span_reports_on_the_dashboard():
     assert r3["entry_label_now"] == "10-18 20:30"
     assert r3["title"] == "时段负载"
     assert r3["fig"]["v"] == "19.18" and "14.9%" in r3["fig"]["cap"]
+    # 回看不了 ≠ 采集失败:时段体检里瞬时维度回看不了是设计如此,真失败(headline「不可用」)仍按采集失败画
+    assert r3["na"] == ["", "回看不了", ""] and r3["naWord"] == ["", "回看不了", ""]
+    assert r3["legend"] == "回看不了 / 采集失败" and r3["legendOnlyLookback"] == "回看不了"
+    assert r3["legendNone"] == "采集失败"

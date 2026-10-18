@@ -6,13 +6,13 @@ import { rise } from '../../lib/motion.js';
 import { setModel } from '../../lib/store.js';
 import { dial, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
-import { title, metricName, keyFig, fPrompt, countsOf } from '../../pages/health.js';
+import { title, metricName, keyFig, fPrompt, countsOf, naLegend } from '../../pages/health.js';
 import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker, rangeHero } from './common.js';
 
 function hero(m) {
   const cnt = {};
   m.checks.forEach((s) => { cnt[s.lv] = (cnt[s.lv] || 0) + 1; });
-  const legend = [['3', '严重'], ['2', '告警'], ['1', '关注'], ['0', '正常'], ['na', '采集失败']].filter(([k]) => cnt[k])
+  const legend = [['3', '严重'], ['2', '告警'], ['1', '关注'], ['0', '正常'], ['na', naLegend(m.dims)]].filter(([k]) => cnt[k])
     .map(([k, n]) => `<span>${glyph(k === 'na' ? null : +k)}${n}<b>${cnt[k]}</b></span>`).join('');
   const fs = m.findings, subs = m.subs, okN = subs.filter((s) => s.ok).length, hi = fs.filter((f) => (f.severity | 0) >= 2), lo = fs.filter((f) => (f.severity | 0) === 1);
   const dTot = m.prev ? fs.length - countsOf(m.prev) : null;
@@ -59,7 +59,7 @@ export function render(root, m, ctx) {
   // 时段体检里没采的维度大多是「回看不了」(瞬时状态,当时没有采),写它自己的说法,不笼统写「未采集」
   const naCap = (d) => (m.span && d.headline ? cn(d.headline) : '未采集');
   const tiles = `<div class="dims">${m.dims.map((d) => { const k = keyFig(d), s = k || { v: '—', u: '', cap: d.available === false ? naCap(d) : cn(d.headline || '') };
-    return `<button class="dim" data-lv="${lk(d.level)}" data-dim="${d.i}"${tipAttr(`<b>${esc(title(d.dimension))}</b><div class="d">${esc(cn(d.headline || ''))}</div>`)}><div class="h"><b>${esc(title(d.dimension))}</b>${status(d.level)}</div><div class="v num">${esc(s.v)}<small>${esc(s.u)}</small></div><div class="c">${esc(s.cap)}</div></button>`; }).join('')}</div>`;
+    return `<button class="dim" data-lv="${lk(d.level)}" data-dim="${d.i}"${tipAttr(`<b>${esc(title(d.dimension))}</b><div class="d">${esc(cn(d.headline || ''))}</div>`)}><div class="h"><b>${esc(title(d.dimension))}</b>${status(d.level, d.na || undefined)}</div><div class="v num">${esc(s.v)}<small>${esc(s.u)}</small></div><div class="c">${esc(s.cap)}</div></button>`; }).join('')}</div>`;
   const kb = r.kb_refs && r.kb_refs.status;
   const subs = `<div class="list">${m.subs.length ? m.subs.map((s) => `<div class="it">${glyph(s.ok ? 0 : null)}<div class="m"><b>${esc(s.skill.replace('gaussdb-', ''))}</b>${s.ok ? '' : `<small>${esc(cn(s.error || '失败'))}</small>`}</div><span class="r">${s.ok ? '已纳入' : '失败'}</span></div>`).join('') : '<p class="t3">本次未运行子技能</p>'}</div>
     ${(r.uncovered_capabilities || []).length || kb ? `<div class="note">${(r.uncovered_capabilities || []).length ? `不在巡检里的能力：${esc(r.uncovered_capabilities.map((x) => x.replace('gaussdb-', '')).join('、'))}，需要时在会话里单独运行。` : ''}${kb ? `${(r.uncovered_capabilities || []).length ? '<br>' : ''}知识库参照：${kb.attached ? `已接入，命中 ${(r.kb_refs.items || []).length} 条` : '未接入'}。` : ''}</div>` : ''}`;

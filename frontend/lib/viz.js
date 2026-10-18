@@ -17,7 +17,7 @@ export function dial(checks, lvl, sub) {
   const pts = checks.map((s, i) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / n, c = Math.cos(a), sn = Math.sin(a), bad = s.lv !== '0', hot = bad && s.lv !== 'na';
     const lr = RO + (bad ? 21 : 15), lx = CX + lr * c, ly = lr * sn;
-    const anchor = c > 0.2 ? 'start' : c < -0.2 ? 'end' : 'middle', word = s.lv === 'na' ? '采集失败' : bad ? lname(+s.lv) : '';
+    const anchor = c > 0.2 ? 'start' : c < -0.2 ? 'end' : 'middle', word = s.lv === 'na' ? (s.naWord || '采集失败') : bad ? lname(+s.lv) : '';
     const ty = anchor !== 'middle' ? ly + (word ? -4 : 6) : sn < 0 ? ly - (word ? 21 : 5) : ly + 16;
     return { s, c, sn, hot, x: CX + RO * c, y: RO * sn, lx, ty, anchor, word, top: ty - 16, bottom: ty + (word ? 23 : 5) };
   });

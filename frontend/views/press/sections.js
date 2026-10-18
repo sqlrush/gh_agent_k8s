@@ -28,11 +28,11 @@ function secHealth(hm) {
   const note = `<p>本期巡检采集 ${hm.dims.length} 个维度，采到 ${hm.dims.filter((d) => d.level !== null).length} 个。${hm.subs.length ? `${okS.length ? `子技能 ${esc(okS.join('、'))} 执行成功，已纳入汇总` : '子技能都没有执行成功'}${bad.length ? `；${esc(bad.map((s) => `${s.skill.replace('gaussdb-', '')}（${cn(s.error || '失败')}）`).join('、'))}未纳入` : ''}。` : '本期未运行子技能。'}级别由巡检脚本按阈值判定，智能体只负责整理与解释。</p>
     ${unc.length ? `<p>不在巡检里的能力：${esc(unc.map((x) => x.replace('gaussdb-', '')).join('、'))}，需要时在会话里单独运行。</p>` : ''}`;
   const past = `<ol class="past">${[...hm.idx].reverse().slice(0, 20).map((e) => { const on = hm.entry && e.file === hm.entry.file;
-    return `<li class="${on ? 'on' : ''}" data-run="health|${esc(e.file)}"><span class="d num">${esc(stamp(e.at))}</span>${status(H.entryLevel(e))}<span class="n num">${H.countsOf(e)} 条</span></li>`; }).join('')}</ol>`;
-  return sheet('sec-health', 'A2', '要闻 · 健康检查', `${esc(hm.name)} · ${esc(stamp(hm.entry && hm.entry.at))} 巡检全文`,
+    return `<li class="${on ? 'on' : ''}" data-run="health|${esc(e.file)}"><span class="d num">${esc(H.entryLabel(e))}</span>${status(H.entryLevel(e))}<span class="n num">${H.countsOf(e)} 条</span></li>`; }).join('')}</ol>`;
+  return sheet('sec-health', 'A2', '要闻 · 健康检查', hm.span ? `${esc(hm.name)} · ${esc(hm.win)} 时段体检全文（窗口两端相减）` : `${esc(hm.name)} · ${esc(stamp(hm.entry && hm.entry.at))} 巡检全文`,
     `<div class="sheet-b"><div class="main"><h3 class="sh3">全部越线发现　<span>${hm.findings.length} 条，按级别从高到低；点一行看明细</span></h3>${table}
       <h3 class="sh3">${hm.dims.length} 个维度　<span>每格是该维度的关键读数</span></h3>${smalls}</div>
-      <aside class="rcol"><div class="box"><h4>编者按：本期过程</h4>${note}</div>${hm.idx.length ? `<div class="box"><h4>往期巡检</h4>${past}</div>` : ''}</aside></div>`);
+      <aside class="rcol"><div class="box"><h4>编者按：本期过程</h4>${note}</div>${hm.idx.length ? `<div class="box"><h4>${hm.span ? '往期时段体检' : '往期巡检'}</h4>${past}</div>` : ''}</aside></div>`);
 }
 
 /* ------------------------------------------------------------ B1 慢语句 · Top SQL */
@@ -45,7 +45,7 @@ function secTop(tm) {
   const table = `<table class="ptable"><thead><tr><th>#</th><th>sql_id</th><th>语句</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th>调优</th></tr></thead><tbody>${rows.slice(0, 20).map((r, i) => `<tr data-sql="${esc(r.sql_id)}"><td class="t3 num">${i + 1}</td><td><b>${esc(r.sql_id)}</b></td><td class="q mono" title="${esc(T.fullQuery(r.query))}">${esc(r.query)}</td><td class="r num">${fmtInt(r.calls)}</td><td class="r num">${fmtSec(r.total_sec)}</td><td class="r num">${fmtMs(r.avg_ms)}</td><td class="r num">${fmtInt(r.rows)}</td><td>${tg(r)}</td></tr>`).join('')}</tbody></table>`;
   const notes = `<ol class="notes">${rows.slice(0, 10).map((r) => { const x = tm.tune[r.sql_id], f = x && x.evidence && (x.evidence.findings || [])[0];
     return `<li data-sql="${esc(r.sql_id)}"><b>${esc(r.sql_id)}</b>　${T.isSkipped(x) ? `系统 SQL，只引用 ${esc((x.system_objects || []).join('、'))}，按策略不调优。` : f ? `${esc(cn(f.detail || ''))}。${f.advice ? `建议：${esc(cn(f.advice))}。` : ''}` : x ? '已调优。' : '还没有调优过。'}</li>`; }).join('')}</ol>`;
-  return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', `${esc(tm.name)} · ${esc(stamp(tm.entry.at))} 取数 · 累计统计视图，按${esc(label)}排序`,
+  return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', tm.span ? `${esc(tm.name)} · ${esc(tm.win || stamp(tm.entry.at))} 窗口内增量，按${esc(label)}排序` : `${esc(tm.name)} · ${esc(stamp(tm.entry.at))} 取数 · 累计统计视图，按${esc(label)}排序`,
     `<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <figure class="fig">${P.shares(rows, tm.tune, T.isSkipped, b && b.sql_id)}<figcaption>图　上榜语句占上榜总耗时的比例（报告只有 Top N，没有全量合计）。斜纹为系统 SQL；红色为业务语句里耗时最高的一条。${tm.by === 'reads' ? esc(T.READS_NOTE) + '。' : ''}</figcaption></figure></div>
       <aside class="rcol"><div class="box"><h4>调优札记</h4>${notes}</div></aside></div>

@@ -24,14 +24,16 @@ function lead(hm) {
   const deck = hm.level === null ? `${hm.name} 本期 ${hm.dims.length} 个维度全部采集失败${failed.length ? `，子技能 ${failed.join('、')} 也未执行成功` : ''}。`
     : `${hm.name} 本期 ${hm.findings.length} 条越线发现，${d === null ? '这是第一份报告' : d > 0 ? `比上期多 ${d} 条` : d < 0 ? `比上期少 ${-d} 条` : '与上期持平'}；${failed.length ? `子技能 ${failed.join('、')} 未能执行，相关检查未纳入。` : '子技能全部执行成功。'}`;
   const when = stamp(hm.entry && hm.entry.at);
-  const intro = hm.level === null
+  const intro = hm.span && hm.level !== null
+    ? `本期是一份时段体检：在 ${hm.name} 实例上回看 ${hm.win}，用窗口两端的累计值相减，共 ${hm.checks.length} 项，巡检脚本按阈值判定总体为「${lname(hm.level)}」。连接、锁、膨胀这类只有此刻的值，回看不了的项单独标出。以下各条由智能体依据本次报告整理，数字均取自报告原文。`
+    : hm.level === null
     ? `本期例行巡检于 ${when} 在 ${hm.name} 实例上进行，计划检查 ${hm.dims.length} 个维度，一个都没有采到，因此无法判级。以下各条由智能体依据本次报告整理。`
     : `本期例行巡检于 ${when} 在 ${hm.name} 实例上进行，共检查 ${hm.checks.length} 项，巡检脚本按阈值判定总体为「${lname(hm.level)}」。以下各条由智能体依据本次报告整理，数字均取自报告原文。`;
   // 走势至少要两份报告;这次什么都没采到时「0 条」没有意义,不画
   const showTrend = hm.idx.length >= 2 && hm.level !== null;
   return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">${ins.head}</h2><p class="deck">${esc(pangu(deck))}</p>
     <div class="byline">智能体 撰　·　${esc(stamp(hm.entry && hm.entry.at))}　·　级别由巡检脚本按阈值判定，模型不改</div>
-    ${showTrend ? `<figure class="fig">${P.trend('health', hm.idx, hm.entry && hm.entry.file, '条')}<figcaption>图　近 ${Math.min(30, hm.idx.length)} 次巡检的越线发现条数。点一次巡检可翻到那一期。</figcaption></figure>` : ''}
+    ${showTrend ? `<figure class="fig">${P.trend('health', hm.idx, hm.entry && hm.entry.file, '条')}<figcaption>图　近 ${Math.min(30, hm.idx.length)} 次${hm.span ? '时段体检' : '巡检'}的越线发现条数。点一次巡检可翻到那一期。</figcaption></figure>` : ''}
     <div class="body cols2"><p class="dropcap">${esc(pangu(intro))}</p>${paras(ins.lines)}<p class="more">${jump('sec-health', '全部发现与各维度见 A2 版')}</p></div></article>`;
 }
 
@@ -89,7 +91,7 @@ function masthead(hm, ctx) {
 }
 
 export async function render(root, ctx) {
-  const [h0, t0, w0, km] = await Promise.all([H.load(ctx.key, ctx.run.health, ctx.range), T.load(ctx.key, T.readBy(), ctx.range),
+  const [h0, t0, w0, km] = await Promise.all([H.load(ctx.key, ctx.run.health, ctx.range), T.load(ctx.key, T.readBy(), ctx.range, ctx.run.topsql),
     W.load(ctx.key, ctx.run.wdr, ctx.range), K.load()]);
   const hm = h0.ok ? { ...h0, name: instName(ctx, h0.d.conn) } : h0;
   const tm = t0.ok && !t0.missing ? { ...t0, name: instName(ctx, t0.rep.conn) } : t0;

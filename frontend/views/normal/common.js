@@ -5,8 +5,8 @@ import { I, glyph, lname, primary } from '../../lib/ui.js';
 import { rise } from '../../lib/motion.js';
 import { menu } from '../../lib/overlay.js';
 import { getModel } from '../../lib/store.js';
-import { entryLevel } from '../../pages/health.js';
-import { label as rangeLabel } from '../../lib/range.js';
+import { entryLevel, entryLabel } from '../../pages/health.js';
+import { label as rangeLabel, windowLabel } from '../../lib/range.js';
 
 export function pageHead(crumb, statusTag, actions, desc) {
   return `<div class="crumb">诊断大盘<span>/</span><b>${esc(crumb)}</b></div>
@@ -32,10 +32,11 @@ export const emptyHero = (title, text, prompt, label) => `<section class="hero r
 export const rangeHero = (r) => `<section class="hero rise"${rise()}><div class="empty-state">${glyph(null)}<h4>所选时间段（${esc(rangeLabel(r))}）内没有这类报告</h4><p>时间段只筛选已经跑过的报告，不会替你去取数。要看这段时间的情况，在会话里对它做一次分析；或者先看全部报告。</p><button class="btn" data-range-clear>${I.cal}看全部报告</button></div></section>`;
 export const errorHero = (error) => `<section class="hero"><div class="empty-state">${glyph(2)}<h4>报告读取失败</h4><p>${esc(error || '')}</p></div></section>`;
 
-/** 「巡检 09-22 14:03 ▾」:点开列出最近的报告,选一份即切过去(data-pick)。 */
-export const runPicker = (skill, entry, noun) => (entry ? `<button class="btn" data-run-menu="${skill}">${I.cal}${esc(noun)} ${esc(stamp(entry.at))}${I.chev}</button>` : '');
+/** 「巡检 09-22 14:03 ▾」/「时段体检 10-17 10:46 – 11:06 ▾」:点开列出最近的报告,选一份即切过去(data-pick)。 */
+export const runPicker = (skill, entry, noun) => (entry ? `<button class="btn" data-run-menu="${skill}">${I.cal}${esc(noun)} ${esc(entry.mode === 'span' && entry.window ? windowLabel(entry.window) : stamp(entry.at))}${I.chev}</button>` : '');
 export function openRunMenu(anchor, skill) {
   const m = getModel(skill); if (!m || !m.idx) return;
-  menu(anchor, `<div class="mh">${skill === 'wdr' ? '分析过的窗口' : '巡检报告'}，最近的在上</div>${[...m.idx].reverse().map((e) =>
-    `<div class="mi ${m.entry && m.entry.file === e.file ? 'on' : ''}" data-pick="${esc(skill)}|${esc(e.file)}">${glyph(entryLevel(e))}<span class="num">${esc(stamp(e.at))}</span><span class="r">${esc(lname(entryLevel(e)))}</span></div>`).join('')}`, true);
+  // 健康检查列全部(此刻巡检与时段体检都在,时段体检写评估窗口);走势只算同一种口径,见 pages/health.js:model
+  menu(anchor, `<div class="mh">${skill === 'wdr' ? '分析过的窗口' : '巡检报告'}，最近的在上</div>${[...(m.all || m.idx)].reverse().map((e) =>
+    `<div class="mi ${m.entry && m.entry.file === e.file ? 'on' : ''}" data-pick="${esc(skill)}|${esc(e.file)}">${glyph(entryLevel(e))}<span class="num">${esc(entryLabel(e))}</span><span class="r">${esc(lname(entryLevel(e)))}</span></div>`).join('')}`, true);
 }

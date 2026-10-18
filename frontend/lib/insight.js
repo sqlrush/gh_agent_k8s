@@ -27,10 +27,11 @@ function hLine(f, m) {
   return `${hChip(f, m)} ${esc(cn(name))} <b>${esc(f.value)}${esc(unit)}</b>，阈值 ${esc(f.threshold)}${x && x >= 1.05 ? `，是阈值的 <b>${x.toFixed(1)} 倍</b>` : ''}${ev}${f.sql_id ? `，涉及 ${sqlChip(f.sql_id)}` : ''}。`;
 }
 export function healthSince(m) {
-  if (!m.prev) return '这是该实例第一份健康检查报告。';
+  const noun = m.span ? '时段体检' : '巡检';
+  if (!m.prev) return m.span ? '这是该实例第一份时段体检报告。' : '这是该实例第一份健康检查报告。';
   const pc = m.prev.counts || {}, cc = (m.entry && m.entry.counts) || {};
   const bits = [[3, '严重'], [2, '告警'], [1, '关注']].map(([s, n]) => { const d = (+cc[s] || 0) - (+pc[s] || 0); return d > 0 ? `多 <b>${d}</b> 条${n}` : d < 0 ? `少 <b>${-d}</b> 条${n}` : ''; }).filter(Boolean);
-  return `与上次巡检（${esc(stamp(m.prev.at))}，${esc(lname(H.entryLevel(m.prev)))}）相比，${bits.length ? bits.join('，') : '发现没有变化'}。`;
+  return `与上次${noun}（${esc(H.entryLabel(m.prev))}，${esc(lname(H.entryLevel(m.prev)))}）相比，${bits.length ? bits.join('，') : '发现没有变化'}。`;
 }
 export function healthHead(m) {
   const fs = m.findings;
@@ -42,7 +43,8 @@ export function healthHead(m) {
 }
 export function health(m) {
   const fs = m.findings, failed = m.subs.filter((s) => !s.ok), fname = (s) => s.skill.replace('gaussdb-', '');
-  const src = `依据 ${stamp(m.entry && m.entry.at)} 巡检报告 · 级别由脚本判定`, ask = '问问这次巡检，比如：先处理哪一条？';
+  const src = m.span ? `依据 ${H.entryLabel(m.entry)} 时段体检 · 级别由脚本判定` : `依据 ${stamp(m.entry && m.entry.at)} 巡检报告 · 级别由脚本判定`,
+    ask = '问问这次巡检，比如：先处理哪一条？';
   if (m.level === null) {
     const why = [...new Set(m.dims.map((d) => cn(d.note || d.headline)))].join('；');
     return { src, ask, head: healthHead(m), lines: [`${m.dims.length} 个维度全部采集失败，原因：<b>${esc(why)}</b>。`, '常见是中间件不通、执行账号没有权限，或实例地址填错。',
@@ -73,13 +75,14 @@ export function topsql(m) {
     const f = tuned(slow) && (tuned(slow).findings || [])[0];
     lines.push(`单次最慢的是 ${sqlChip(slow.sql_id)}：平均 <b>${esc(fmtMs(slow.avg_ms))}</b>${f ? `，已调优：${esc(cn(f.detail))}` : `，调用 ${esc(fmtInt(slow.calls))} 次`}。`);
   }
-  lines.push('口径是累计统计视图，不是时间窗口；看某段时间的负载用 <a href="/dash/wdr">WDR 分析</a>。');
+  lines.push(m.span ? `口径是 <b>${esc(m.win || '这段时间')}</b> 窗口内的增量，不是累计值；新出现的语句整条计入。`
+    : '口径是累计统计视图，不是时间窗口；看某段时间的负载用 <a href="/dash/wdr">WDR 分析</a>。');
   const chips = [];
   if (b0) chips.push([`调优 ${b0.sql_id}`, T.tunePrompt(b0)]);
   if (sys(top)) chips.push(['系统 SQL 为什么占这么多', `Top SQL 里系统语句 ${top.sql_id} 占上榜耗时 ${pct(top)}%,请分析原因,是否需要调整监控采集频率。`]);
   if (slow && slow !== b0) chips.push([`${slow.sql_id} 怎么优化`, T.tunePrompt(slow)]);
   chips.push(['先调哪一条', '请基于最近一次 Top SQL 结果分析哪些语句最值得优化,给出优先级。']);
-  return { src: `依据 ${stamp(m.entry.at)} 取数 · 按${T.byLabel(m.by)}排序`, ask: '问问这份榜单，比如：先调哪一条？', chips: chips.slice(0, 4), lines,
+  return { src: m.span ? `依据 ${m.win || stamp(m.entry.at)} 时段增量 · 按${T.byLabel(m.by)}排序` : `依据 ${stamp(m.entry.at)} 取数 · 按${T.byLabel(m.by)}排序`, ask: '问问这份榜单，比如：先调哪一条？', chips: chips.slice(0, 4), lines,
     head: sys(top) && b0 ? `耗时第一的是系统 SQL，业务语句先看 ${esc(b0.sql_id)}` : `${esc(top.sql_id)} 占上榜耗时 ${pct(top)}%，最值得先看` };
 }
 

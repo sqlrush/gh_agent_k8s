@@ -155,8 +155,8 @@ def test_health_page_titles_are_keyed_by_the_skills_constants():
     used = set(re.findall(r"'([^']+)'\s*:", _js_block("health.js", "TITLES")))
     real = _dim_constants("gaussdb-health")
     assert used and used <= real, "health.js 的 TITLES 有技能里不存在的维度名:%s" % sorted(used - real)
-    # 健康检查实际会产出的 8 个维度都要有中文名,不然页面上中英混排
-    produced = set(re.findall(r"dimension=(DIM_\w+)", (_SKILLS / "gaussdb-health" / "scripts" / "collectors.py").read_text(encoding="utf-8")))
+    # 健康检查实际会产出的维度(此刻巡检 collectors.py + 时段体检 window.py)都要有中文名,不然页面上中英混排
+    produced = set(re.findall(r"dimension=(DIM_\w+)", _health_producers()))
     src = (_SKILLS / "gaussdb-health" / "scripts" / "model.py").read_text(encoding="utf-8")
     names = {k: v for k, v in re.findall(r'^(DIM_\w+)\s*=\s*"([^"]+)"', src, re.MULTILINE)}
     missing = {names[k] for k in produced if k in names} - used
@@ -172,15 +172,31 @@ def test_wdr_kpi_columns_exist_in_the_collectors_headers():
     assert cols and not missing, "WDR 页按列名取值,采集代码的表头里没有这些列:%s" % missing
 
 
+def _health_producers() -> str:
+    """产出健康检查维度的源码:此刻巡检(collectors.py)与时段体检(window.py)。"""
+    d = _SKILLS / "gaussdb-health" / "scripts"
+    return "\n".join((d / f).read_text(encoding="utf-8") for f in ("collectors.py", "window.py"))
+
+
 def test_health_key_figures_read_real_collector_columns():
     """健康检查各维度的关键读数按表头前缀取值(pages/health.js 里的 cell(d, 行, '列名')):列名要在采集代码的表头里,
     否则真数据上维度格只剩「—」。"""
     src = (_PAGES / "health.js").read_text(encoding="utf-8")
     cols = set(re.findall(r"cell\(d, \w+, '([^']+)'\)", src))
-    coll = (_SKILLS / "gaussdb-health" / "scripts" / "collectors.py").read_text(encoding="utf-8")
+    coll = _health_producers()
     headers = [h for block in re.findall(r"headers=\[([^\]]*)\]", coll) for h in re.findall(r'"([^"]+)"', block)]
     missing = [c for c in cols if not any(h.startswith(c) for h in headers)]
     assert cols and not missing, "健康检查页按列名取读数,采集代码的表头里没有这些列:%s" % missing
+
+
+def test_health_window_key_figures_read_real_item_names():
+    """时段体检的「项 / 值」表按项名取值(pages/health.js 里的 item(d, '项名')):项名要在 window.py 里原样出现,
+    否则时段体检的维度格只剩「—」。"""
+    src = (_PAGES / "health.js").read_text(encoding="utf-8")
+    names = set(re.findall(r"item\(d, '([^']+)'\)", src))
+    win = (_SKILLS / "gaussdb-health" / "scripts" / "window.py").read_text(encoding="utf-8")
+    missing = [n for n in names if '"%s"' % n not in win]
+    assert names and not missing, "健康检查页按项名取读数,window.py 里没有这些项:%s" % missing
 
 
 def test_kb_catalog_contract(samples):

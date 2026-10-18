@@ -58,7 +58,7 @@ async function loadTargets(page, style) {
 const rangeBtn = (r) => `<button class="inst range${r ? ' on' : ''}" id="range" title="只看这段时间内跑过的报告"><span class="t3">时间段</span>${esc(rangeLabel(r))}<span class="chev">${I.chev}</span></button>`;
 function rangeMenu(anchor) {
   const r = S.ctx.range || {};
-  menu(anchor, `<div class="mh">只看这段时间内跑过的报告（WDR 按快照窗口算，快照时间是数据库所在时区）</div>
+  menu(anchor, `<div class="mh">只看这段时间内跑过的报告（WDR 与时段报告按评估窗口算，窗口时间是数据库所在时区）</div>
     <div class="rg"><label>从<input type="datetime-local" id="rg-from" value="${esc(r.from || '')}"></label>
       <label>到<input type="datetime-local" id="rg-to" value="${esc(r.to || '')}"></label>
       <div class="rg-act"><button class="btn" data-range-clear>看全部</button><button class="btn primary" data-range-apply>应用</button></div></div>`);
@@ -185,7 +185,8 @@ function onClick(ev) {
   if (t.id === 'inst') return menu(t, `<div class="mh">切换实例（右侧是最近一份报告的时间）</div>${S.ctx.targets.map((x) => `<div class="mi ${x.key === S.ctx.key ? 'on' : ''}" data-inst="${esc(x.key)}">${esc(x.label || x.conn || x.key)}<span class="r">${esc(stamp(x.last_at))}</span></div>`).join('')}`);
   if (ds.runMenu) return import('../views/normal/common.js').then((c) => c.openRunMenu(t, ds.runMenu));
   if (ds.pick || ds.run) { const [sk, f] = (ds.pick || ds.run).split('|'); closeMenu(); return rerun(sk, f); }
-  if (ds.by) { writeBy(ds.by); return mount(); }
+  // 切排序页签 = 回到累计榜:直达链接打开的时段 / 增量榜(S.run.topsql)不再钉住
+  if (ds.by) { writeBy(ds.by); const { topsql: _pinned, ...rest } = S.run; S.run = rest; return mount(); }
   if (ds.dim !== undefined) return D.openDim(ds.dim);
   if (ds.xdim) return D.openXdim(ds.xdim);
   if (ds.sql) return D.openSql(ds.sql, S.ctx && S.ctx.key);

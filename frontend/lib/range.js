@@ -3,9 +3,10 @@
 // 记在本标签页(sessionStorage),切页面、切风格都保留;地址里的 ?from=&to= 首次进入时带进来
 // (智能体可以直接给一个带时间段的链接)。时间一律按浏览器本地时间理解。
 //
-// 口径:健康检查 / Top SQL 按存档时间;**WDR 按快照窗口**(与所选时间段有重叠就算)——WDR 的存档时间
-// 是「什么时候分析的」,不是「分析的哪一段」。窗口来自索引里的 window(common/reports.py 抄进去的),
-// 老存档没有它时退回存档时间。快照时间是数据库所在时区,浏览器与数据库不在同一时区时会有偏差。
+// 口径:此刻巡检 / 累计榜按存档时间;**带评估窗口的报告按窗口**(与所选时间段有重叠就算)—— WDR、
+// 时段体检、时段 Top SQL 的存档时间是「什么时候分析的」,不是「分析的哪一段」(今天存档,说的可能是
+// 昨天 10:46–11:06)。窗口来自索引里的 window(common/reports.py 抄进去的),没有它时退回存档时间。
+// 窗口时间是数据库所在时区,浏览器与数据库不在同一时区时会有偏差。
 
 import { fetchIndex, fetchReport } from './data.js';
 
@@ -56,7 +57,7 @@ export function saveRange(r) {
 }
 
 function span(skill, e) {
-  if (skill === 'wdr' && e.window) {
+  if (e.window) {                 // 不分技能:原先只认 WDR,时段报告按存档时间筛,带时间段的直达链接打开是空页
     const a = parseLocal(e.window.begin_ts), b = parseLocal(e.window.end_ts);
     if (a && b) return [a, b];
   }
@@ -76,6 +77,13 @@ export function inRange(skill, e, r) {
 export const filterIndex = (skill, idx, r) => (r ? idx.filter((e) => inRange(skill, e, r)) : idx);
 
 const short = (s) => String(s || '').replace('T', ' ').slice(5, 16);   // MM-DD HH:MM
+
+/** 报告的评估窗口 {begin_ts, end_ts}(数据库本地时间)→ 「10-17 10:46 – 11:06」;同一天省掉第二个日期。 */
+export function windowLabel(w) {
+  if (!w || !w.begin_ts || !w.end_ts) return '';
+  const a = short(w.begin_ts), b = short(w.end_ts);
+  return a.slice(0, 5) === b.slice(0, 5) ? `${a} – ${b.slice(6)}` : `${a} – ${b}`;
+}
 
 export function label(r) {
   if (!r) return '全部';

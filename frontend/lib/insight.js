@@ -52,7 +52,7 @@ export function health(m) {
       chips: [['排查采集为什么失败', `请排查这次健康检查为什么一个维度都没有采到:${why}`], ['检查中间件连通性', '请检查当前实例到中间件的连通性,并说明怎么修复。'], ['重新巡检', '请对当前库重新做一次完整健康检查。']] };
   }
   const chips = [];
-  if (fs[0] && fs[0].sql_id) chips.push([`解释 ${fs[0].sql_id} 为什么慢`, H.fPrompt(fs[0])]);
+  if (fs[0] && fs[0].sql_id) chips.push([`解释 ${fs[0].sql_id} 为什么慢`, H.fPrompt(fs[0], m)]);
   chips.push(['给出处置顺序', '请基于最近一次健康检查报告做一次深入分析,给出处理优先级。']);
   if (m.prev) chips.push(['和上次比变了什么', `请对比本次与上次(${stamp(m.prev.at)})的健康检查,说明新增和消失的发现。`]);
   if (failed[0]) chips.push([`${fname(failed[0])} 为什么失败`, `健康检查的子技能 ${failed[0].skill} 执行失败(${failed[0].error}),请分析原因。`]);

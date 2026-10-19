@@ -27,14 +27,14 @@ export function openDim(i) {
   const d = m.dims[+i]; if (!d) return;
   const fs = m.findings.filter((f) => f.dimension === d.dimension);
   drawer(esc(H.title(d.dimension)), tag(d.level), `<div class="sec">概况</div><p class="t2" style="margin:0">${esc(cn(d.headline || ''))}</p>${fs.length ? `<div class="sec">发现</div>${fs.map(sev).join('')}` : ''}<div class="sec">明细</div>${dimTable(d)}`,
-    (d.level === null ? '' : askBtn(`请深入分析健康检查的「${H.title(d.dimension)}」维度:${d.headline || ''}`)) + closeBtn);
+    (d.level === null ? '' : askBtn(H.dimPrompt(d, m))) + closeBtn);
 }
 
 export function openXdim(name) {
   const m = getModel('health'); if (!m) return;
   const fs = m.findings.filter((f) => f.dimension === name), l = fs.reduce((a, f) => Math.max(a, f.severity | 0), 0);
   drawer(esc(H.title(name)), tag(l), `<div class="sec">来源</div><p class="t2" style="margin:0">由子技能报出，不属于巡检维度。</p><div class="sec">发现</div>${fs.map(sev).join('')}`,
-    (fs[0] ? askBtn(H.fPrompt(fs[0])) : '') + closeBtn);
+    (fs[0] ? askBtn(H.fPrompt(fs[0], m)) : '') + closeBtn);
 }
 
 const SV = { info: 1, warn: 2, crit: 3 };
@@ -82,7 +82,7 @@ export function openWdim(name) {
   const fs = m.findings.filter((f) => f.dimension === name), l = fs.reduce((a, f) => Math.max(a, f.severity | 0), 0);
   drawer(esc(W.WT[name] || name), tag(l), `<div class="sec">概况</div><p class="t2" style="margin:0">${esc(cn(x.headline || ''))}</p>${fs.length ? `<div class="sec">发现</div>${fs.map((f) =>
     `<div class="alert" data-lv="${lk(f.severity)}">${glyph(f.severity)}<div><b>${esc(cn(f.metric))}：${esc(f.value)}，阈值 ${esc(f.threshold)}</b><p>${esc(cn(f.evidence))}</p></div></div>`).join('')}` : ''}<div class="sec">明细</div>${dimTable(x)}`,
-    askBtn(fs[0] ? W.wPrompt(fs[0]) : `请深入分析 WDR 窗口的「${W.WT[name] || name}」:${x.headline || ''}`) + closeBtn);
+    askBtn(fs[0] ? W.wPrompt(fs[0], m) : W.wDimPrompt(name, x, m)) + closeBtn);
 }
 
 export function openCase(id) {

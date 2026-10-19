@@ -44,7 +44,7 @@ function findingsTable(m) {
   return `<div class="scroll"><table class="tbl"><thead><tr><th>级别</th><th>维度</th><th>指标</th><th class="r">当前值</th><th>对比阈值</th><th class="r">操作</th></tr></thead><tbody>${fs.map((f) => {
     const d = m.dims.find((x) => x.dimension === f.dimension), open = d ? ` data-dim="${d.i}"` : ` data-xdim="${esc(f.dimension)}"`;
     return `<tr><td>${status(f.severity)}</td><td><a href="#"${open}>${esc(title(f.dimension))}</a></td><td class="title metric"${tipAttr(`<b>证据</b><div class="d">${esc(cn(f.evidence))}</div>`)}>${esc(cn(metricName(f)))}</td>
-      <td class="r"><b style="font-weight:500">${esc(f.value)}</b></td><td>${over(f)}</td><td class="ops"><a href="#"${dig(fPrompt(f))}>${f.sql_id ? '看执行计划' : '深挖'}</a>${f.sql_id ? `<a href="#" data-sql="${esc(f.sql_id)}">SQL</a>` : ''}</td></tr>`;
+      <td class="r"><b style="font-weight:500">${esc(f.value)}</b></td><td>${over(f)}</td><td class="ops"><a href="#"${dig(fPrompt(f, m))}>${f.sql_id ? '看执行计划' : '深挖'}</a>${f.sql_id ? `<a href="#" data-sql="${esc(f.sql_id)}">SQL</a>` : ''}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 

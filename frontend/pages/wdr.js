@@ -6,6 +6,7 @@ import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { fmtInt, num, split } from '../lib/fmt.js';
 import { instName } from '../lib/ui.js';
 import { loadInRange } from '../lib/range.js';
+import { DEADLOCK_CODES, deadlockPrompt } from '../lib/prompts.js';
 
 // 维度名 = gaussdb-wdr/scripts/model.py 的 DIM_* 常量。
 // **第一版对着自编的样例写,维度名和行列形状都与真技能不符,真数据上 KPI 全是「未采集」。**
@@ -61,7 +62,11 @@ export function change(k, cur, prev) {
   const text = !prev ? (cur ? '新出现' : '持平') : r && Math.abs(r) >= 1.5 ? '×' + r.toFixed(1) : k.u === '%' ? Math.abs(diff).toFixed(1) + ' pt' : diff === 0 ? '持平' : Math.abs((diff / prev) * 100).toFixed(0) + '%';
   return { cls, text, dir: Math.sign(diff), r, diff };
 }
-export const wPrompt = (f) => `请针对 WDR 发现 ${f.code}(${f.metric}=${f.value})做深入分析:${f.evidence}`;
+// 深挖首句带上分析的是哪个窗口(快照号与时间):不带的话模型要自己去猜是哪一段(见 lib/prompts.js)
+const wWhen = (m) => (m && m.w && m.w.begin_ts ? `WDR 窗口 ${m.w.begin_ts} – ${m.w.end_ts}(快照 ${m.w.begin_id} → ${m.w.end_id})` : 'WDR 窗口');
+export const wPrompt = (f, m) => (DEADLOCK_CODES.has(f.code) ? deadlockPrompt(`${wWhen(m)}里`, f)
+  : `请针对${wWhen(m)}的发现 ${f.code}(${f.metric}=${f.value})做深入分析:${f.evidence}`);
+export const wDimPrompt = (name, x, m) => `请深入分析${wWhen(m)}的「${WT[name] || name}」:${x.headline || ''}`;
 
 /** 取一份报告(file 为空取最新)与它的上一窗口并建模。 */
 export async function load(key, file, range) {

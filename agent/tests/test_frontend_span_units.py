@@ -82,7 +82,18 @@ const r3 = {
   na: hm.dims.map((x) => x.na), naWord: hm.checks.map((c) => c.naWord || ''), legend: H.naLegend(hm.dims),
   legendOnlyLookback: H.naLegend(hm.dims.slice(0, 2)), legendNone: H.naLegend([]),
 };
-console.log(JSON.stringify({ r1, r2, r3 }));
+// ④ 深挖首句:带评估窗口;死锁类不搬证据原文
+const W = await import(base + '/pages/wdr.js');
+const dl = { code: 'WIN_DEADLOCK', metric: '时段内死锁', value: '24 次', threshold: '>=1', evidence: '……把这段时间数据库日志里 `deadlock detected` 那几段贴给我……' };
+const sp = { code: 'WIN_TEMP_SPILL', metric: '时段临时文件溢出', value: '7.8G', threshold: '>512.0M', evidence: '库级合计', sql_id: '2858996927' };
+const wm = { w: { begin_id: 2980, end_id: 2987, begin_ts: '2026-10-17 10:45', end_ts: '2026-10-17 11:08' } };
+const r4 = {
+  dl: H.fPrompt(dl, hm), sp: H.fPrompt(sp, hm), plain: H.fPrompt(sp, null),
+  wdl: W.wPrompt({ ...dl, code: 'WDR_DEADLOCK', metric: '死锁数', value: '24' }, wm),
+  wsk: W.wPrompt({ code: 'WDR_WAIT_CLASS_SKEW', metric: '等待类倾斜', value: 'LOCK 86%', evidence: 'e' }, wm),
+  dim: H.dimPrompt(hm.dims[0], hm),
+};
+console.log(JSON.stringify({ r1, r2, r3, r4 }));
 """
 
 
@@ -92,7 +103,7 @@ def test_span_reports_on_the_dashboard():
                          capture_output=True, text=True, timeout=30, env=env)
     assert out.returncode == 0, out.stderr
     got = json.loads(out.stdout)
-    r1, r2, r3 = got["r1"], got["r2"], got["r3"]
+    r1, r2, r3, r4 = got["r1"], got["r2"], got["r3"], got["r4"]
 
     assert r1["span_in_by_window"] is True, "时段报告要按评估窗口筛"
     assert r1["span_not_by_archive_time"] is False, "时段报告不能按存档时间筛"
@@ -121,3 +132,11 @@ def test_span_reports_on_the_dashboard():
     assert r3["na"] == ["", "回看不了", ""] and r3["naWord"] == ["", "回看不了", ""]
     assert r3["legend"] == "回看不了 / 采集失败" and r3["legendOnlyLookback"] == "回看不了"
     assert r3["legendNone"] == "采集失败"
+
+    # 深挖首句(2026-10-19 测试):带评估窗口,模型不必再去猜是哪一段;死锁类不搬「贴给我」的证据原文
+    assert "10-17 10:46 – 11:06 这段时间里" in r4["dl"] and "贴给我" not in r4["dl"] and "怎么取" in r4["dl"]
+    assert "10-17 10:46 – 11:06 的时段体检" in r4["sp"] and "2858996927" in r4["sp"]
+    assert "时段体检" not in r4["plain"] and "健康检查" in r4["plain"]
+    assert "快照 2980 → 2987" in r4["wdl"] and "贴" not in r4["wdl"].split("我把日志段")[0]
+    assert "WDR 窗口 2026-10-17 10:45 – 2026-10-17 11:08(快照 2980 → 2987)的发现" in r4["wsk"]
+    assert "10-17 10:46 – 11:06 时段体检" in r4["dim"]

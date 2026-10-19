@@ -7,6 +7,11 @@
 > 用不带任何缓存的构建器从零构建，部署到一个全新的 kind 集群（单节点，Kubernetes 1.36，执行 NetworkPolicy），
 > 一直走到浏览器里出健康检查大盘。输出都是那次的原样；`<...>` 是需要你换成自己的值的地方。
 > x86_64（amd64）与 ARM（arm64）两种架构的镜像都构建并验证过。验证记录见附录 C。
+>
+> **当前发布版本 `agent-v1.3.0`（2026-10-19）。** 第 2 章 `git checkout agent-v1.3.0` 后按本手册构建，`TAG` 就是 `agent-v1.3.0-oc1.18.27`；
+> 第 3 章的镜像验证输出已按 v1.3.0 重跑更新。**不想自己构建**的，直接拉已发布的镜像（两种架构）：
+> `ghcr.io/sqlrush/gaussdb-agent-{runtime,kb-import,gateway,frontend}:agent-v1.3.0-oc1.18.27`，从第 5 章开始。
+> 部署前还要让**中间件团队导入诊断脚本白名单**（本版 118 条，见 1.3 与 6.0）。
 
 | 你要做的 | 章节 | 大约用时 |
 |---|---|---|
@@ -57,17 +62,17 @@ flowchart LR
 
 | # | 镜像 | 从哪来 | 里面是什么 | 大小（arm64 实测） | 在集群里的形态 |
 |---|---|---|---|---|---|
-| 1 | `gaussdb-agent-runtime` | `docker/Dockerfile` 的 `runtime` 阶段 | opencode 1.18.27 + 17 个诊断技能 + 知识库只读查询 | 672 MB | 每个工号一个，登录时由网关创建 |
-| 2 | `gaussdb-agent-kb-import` | `docker/Dockerfile` 的 `kb-import` 阶段 | opencode + 知识库查询 / 导入 / 入库前标准化 3 个技能 | 672 MB | 只给知识库管理员，每人一个 |
+| 1 | `gaussdb-agent-runtime` | `docker/Dockerfile` 的 `runtime` 阶段 | opencode 1.18.27 + 18 个诊断技能 + 知识库只读查询 | 674 MB | 每个工号一个，登录时由网关创建 |
+| 2 | `gaussdb-agent-kb-import` | `docker/Dockerfile` 的 `kb-import` 阶段 | opencode + 知识库查询 / 导入 / 入库前标准化 3 个技能 | 674 MB | 只给知识库管理员，每人一个 |
 | 3 | `gaussdb-agent-gateway` | `docker/Dockerfile.gateway` | 网关（Python 标准库 + PyYAML），带用户 Pod 模板 | 227 MB | 常驻 2 副本 |
-| 4 | `gaussdb-agent-frontend` | `docker/Dockerfile.frontend` | nginx（非 root）+ `frontend/` 静态文件 | 77.5 MB | 常驻 1 副本 |
+| 4 | `gaussdb-agent-frontend` | `docker/Dockerfile.frontend` | nginx（非 root）+ `frontend/` 静态文件 | 78.4 MB | 常驻 1 副本 |
 | 5 | `gaussdb-agent-vectordb` | `docker/vectordb/Dockerfile` | openGauss 7.0.0-RC1 **官方二进制包** + 官方启动脚本 | 550 MB | 常驻 1 个（StatefulSet） |
 
 ```mermaid
 flowchart TB
     subgraph DF["docker/Dockerfile (一个文件两个产物)"]
         BASE["base 阶段<br/>python:3.12-slim · apt 工具 · opencode 二进制<br/>models.json · Python 依赖 · 安装全部技能 · 启动脚本"]
-        BASE --> R["runtime 阶段<br/>删掉知识库导入/标准化技能，断言剩 17 个"]
+        BASE --> R["runtime 阶段<br/>删掉知识库导入/标准化技能，断言剩 18 个"]
         BASE --> K["kb-import 阶段<br/>只留知识库 3 个技能，断言剩 3 个"]
     end
     G["docker/Dockerfile.gateway<br/>python:3.12-slim + gateway/ + k8s/templates/"]
@@ -127,6 +132,7 @@ flowchart TB
 | 中间件（GRMP）的 IP 与端口 | 中间件团队 | 6.5、6.6 |
 | 中间件要求签名时：Appkey 与 SM2 私钥 | 中间件团队 | 6.4、6.5 |
 | 第一个要开通的工号，及该工号的中间件令牌 | 中间件团队 | 6.9 |
+| **诊断脚本白名单已导入**（本版 118 条；已导入过上一版 105 条的只导增量，新增 13、更新 9） | 中间件团队 | 6.0 |
 
 ---
 
@@ -144,6 +150,11 @@ git log --oneline -1
 > ```
 
 要构建某个发布版本，再执行 `git checkout <版本标签>`（`git tag` 列出全部标签）。不切就是最新的 `main`。
+交付给客户的版本请切到发布标签：
+
+```bash
+git checkout agent-v1.3.0
+```
 
 和构建、部署有关的目录：
 
@@ -165,7 +176,8 @@ TAG=$(git describe --tags --always)-oc1.18.27
 echo $TAG
 ```
 
-> 例如 `agent-v1.1.5-21-g292a4b0-oc1.18.27`：最近的发布标签 + 之后的提交数 + 提交号，`oc1.18.27` 是镜像里的 opencode 版本。
+> 切在发布标签上时就是 `agent-v1.3.0-oc1.18.27`；不在标签上时形如 `agent-v1.3.0-2-g1a2b3c4-oc1.18.27`
+> （最近的发布标签 + 之后的提交数 + 提交号）。`oc1.18.27` 是镜像里的 opencode 版本。
 > 也可以自己定，例如 `TAG=v20261015-oc1.18.27`，只要后面一直用同一个值。
 
 ---
@@ -181,7 +193,7 @@ bash scripts/build-images.sh "$TAG"
 最后一行：
 
 ```
-built: gaussdb-agent-{runtime,kb-import,gateway,frontend}:agent-v1.1.5-21-g292a4b0-oc1.18.27
+built: gaussdb-agent-{runtime,kb-import,gateway,frontend}:agent-v1.3.0-oc1.18.27
 ```
 
 验证时从零构建（不带缓存）用了 96 秒；网络慢时 5–10 分钟，主要花在下载上。
@@ -192,10 +204,10 @@ docker images | grep "gaussdb-agent.*$TAG"
 
 > 4 行：
 > ```
-> gaussdb-agent-gateway     agent-v1.1.5-21-g292a4b0-oc1.18.27   227MB
-> gaussdb-agent-frontend    agent-v1.1.5-21-g292a4b0-oc1.18.27   77.5MB
-> gaussdb-agent-kb-import   agent-v1.1.5-21-g292a4b0-oc1.18.27   672MB
-> gaussdb-agent-runtime     agent-v1.1.5-21-g292a4b0-oc1.18.27   672MB
+> gaussdb-agent-frontend    agent-v1.3.0-oc1.18.27   78.4MB
+> gaussdb-agent-gateway     agent-v1.3.0-oc1.18.27   227MB
+> gaussdb-agent-kb-import   agent-v1.3.0-oc1.18.27   674MB
+> gaussdb-agent-runtime     agent-v1.3.0-oc1.18.27   674MB
 > ```
 
 ### 3.2 这条命令做了什么
@@ -204,7 +216,7 @@ docker images | grep "gaussdb-agent.*$TAG"
 
 | 镜像 | 构建命令（脚本里） | 关键步骤 |
 |---|---|---|
-| runtime | `-f docker/Dockerfile --target runtime` | ① `python:3.12-slim-bookworm` 上装 curl、git、ripgrep，建 uid 1000 的用户 `agent` ② 下载 opencode 1.18.27 官方 release（按架构选 x64 / arm64）③ 预取模型清单 `models.json` ④ `pip install` psycopg2-binary、cryptography、PyYAML，装完删掉 pip ⑤ 用 `agent/install-opencode.sh` 把技能装进 `/opt/agent/config/opencode/skills` ⑥ 拷启动脚本与 `docker/*.py` ⑦ 删掉知识库导入与标准化两个技能，**断言剩 17 个**，少一个构建就失败 |
+| runtime | `-f docker/Dockerfile --target runtime` | ① `python:3.12-slim-bookworm` 上装 curl、git、ripgrep，建 uid 1000 的用户 `agent` ② 下载 opencode 1.18.27 官方 release（按架构选 x64 / arm64）③ 预取模型清单 `models.json` ④ `pip install` psycopg2-binary、cryptography、PyYAML，装完删掉 pip ⑤ 用 `agent/install-opencode.sh` 把技能装进 `/opt/agent/config/opencode/skills` ⑥ 拷启动脚本与 `docker/*.py` ⑦ 删掉知识库导入与标准化两个技能，**断言剩 18 个**，少一个构建就失败 |
 | kb-import | `-f docker/Dockerfile --target kb-import` | ①–⑥ 与 runtime 共用（Docker 会复用这些层）⑦ 只留知识库 3 个技能，断言剩 3 个 |
 | gateway | `-f docker/Dockerfile.gateway` | `python:3.12-slim` 上装 PyYAML，拷 `gateway/` 与 `k8s/templates/`，非 root（uid 1000）运行 |
 | frontend | `-f docker/Dockerfile.frontend` | `nginx-unprivileged` 上拷 `frontend/` 与 nginx 配置，没有编译步骤 |
@@ -219,7 +231,7 @@ docker run --rm --entrypoint sh gaussdb-agent-runtime:$TAG -c 'opencode --versio
 
 > ```
 > 1.18.27
-> 17
+> 18
 > uid=1000(agent) gid=1000(agent) groups=1000(agent)
 > ```
 
@@ -428,7 +440,8 @@ docker push $REG/gaussdb-agent-vectordb:7.0.0-RC1
 
 ```mermaid
 flowchart TD
-    S1["6.1 清单指向镜像仓库"] --> S2["6.2 接上存储 (NAS)"]
+    S0["6.0 中间件导入白名单<br/>(中间件团队)"] --> S1["6.1 清单指向镜像仓库"]
+    S1 --> S2["6.2 接上存储 (NAS)"]
     S2 --> S3["6.3 创建全部基础资源<br/>kubectl apply -k k8s/base"]
     S3 --> S4["6.4 四个 Secret"]
     S4 --> S5["6.5 填 agent-config"]
@@ -439,6 +452,19 @@ flowchart TD
     S9 --> S10["6.10 命令行验收"]
     S10 --> S11["6.11 浏览器里用起来"]
 ```
+
+### 6.0 中间件导入诊断脚本白名单（中间件团队做）
+
+用户容器里的技能只能按名字调用中间件里预先登记的脚本（白名单）。**白名单里没有的脚本，对应的功能用不了**
+（报「未注册脚本」或「脚本不存在」）。这一步由中间件团队在部署前做，我方提供 DML（全部是只读查询，只访问系统视图与系统表）：
+
+| 情况 | 用哪份 | 条数 |
+|---|---|---|
+| 第一次部署 | `scripts.sql`（全量） | 118 |
+| 已导入过上一版 105 条 | `scripts-delta-20261018.sql`（增量，带每条用途说明与导入后自检） | 新增 13、更新 9 |
+
+文件在技能仓库 `sqlrush/gh_skill` 的 `docs/delivery/`（`main` 分支或标签 `skills-v12.16`），逐条说明见同目录
+`whitelist.md`、`08-初始化白名单.md`、`15-交付手册-20261019.md`。导完用增量文件末尾的自检 SQL 核对：总数应为 118。
 
 ### 6.1 清单指向镜像仓库
 
@@ -457,10 +483,10 @@ grep -rn "image:\|USER_IMAGE_REGISTRY:\|USER_IMAGE_TAG:" k8s/base/ | grep -v ":\
 
 > 5 行，地址都以你的 `REG` 开头、版本都是你的 `TAG`：
 > ```
-> k8s/base/configmap-gateway.yaml:12:  USER_IMAGE_TAG: "agent-v1.1.5-21-g292a4b0-oc1.18.27"
+> k8s/base/configmap-gateway.yaml:12:  USER_IMAGE_TAG: "agent-v1.3.0-oc1.18.27"
 > k8s/base/configmap-gateway.yaml:16:  USER_IMAGE_REGISTRY: "<REG>"
-> k8s/base/frontend.yaml:25:          image: <REG>/gaussdb-agent-frontend:agent-v1.1.5-21-g292a4b0-oc1.18.27
-> k8s/base/gateway.yaml:91:          image: <REG>/gaussdb-agent-gateway:agent-v1.1.5-21-g292a4b0-oc1.18.27
+> k8s/base/frontend.yaml:25:          image: <REG>/gaussdb-agent-frontend:agent-v1.3.0-oc1.18.27
+> k8s/base/gateway.yaml:91:          image: <REG>/gaussdb-agent-gateway:agent-v1.3.0-oc1.18.27
 > k8s/base/vectordb.yaml:43:          image: <REG>/gaussdb-agent-vectordb:7.0.0-RC1
 > ```
 
@@ -719,7 +745,7 @@ kubectl -n gaussdb-agent logs -l app=agent-gateway --tail=2
 
 > 最后出现：
 > ```
-> 网关就绪:0.0.0.0:8080 · 命名空间 gaussdb-agent · 用户镜像标签 agent-v1.1.5-21-g292a4b0-oc1.18.27 · 回收 scale(闲置 1800 秒)· 信任来源 共享密钥 · 控制 API 已启用
+> 网关就绪:0.0.0.0:8080 · 命名空间 gaussdb-agent · 用户镜像标签 agent-v1.3.0-oc1.18.27 · 回收 scale(闲置 1800 秒)· 信任来源 共享密钥 · 控制 API 已启用
 > ```
 
 ```bash
@@ -802,7 +828,7 @@ kubectl -n gaussdb-agent get deploy runtime-$STAFF -o wide
 > 403
 > 200
 > NAME            READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES
-> runtime-u0002   1/1     1            1           8s    opencode     <REG>/gaussdb-agent-runtime:agent-v1.1.5-21-g292a4b0-oc1.18.27
+> runtime-u0002   1/1     1            1           8s    opencode     <REG>/gaussdb-agent-runtime:agent-v1.3.0-oc1.18.27
 > ```
 > - `403`：不带信任凭据的请求被拒，**必须是 403**；
 > - `200`：首次登录网关为这个工号新建容器，实测 8 秒；
@@ -850,7 +876,7 @@ python3 k8s/tools/sso-sim.py 18090 18089 <工号> ~/.agent-trust
 
 ## 7. 升级
 
-改了代码（或拉了新版本）之后：
+改了代码（或拉了新版本）之后。**先看《版本说明》「升级前先看」**：要导白名单增量的版本（如 v1.3.0），先让中间件团队导入（6.0），再换镜像。
 
 ```bash
 git pull
@@ -1003,4 +1029,5 @@ kubectl patch pv nas-nfs --type json -p '[{"op":"remove","path":"/spec/claimRef"
 | 镜像仓库 | `registry:3`，本机 `localhost:5001` |
 | 模型 / 中间件 | DeepSeek（`deepseek-flash`）/ 中间件模拟服务（开 SM2 签名） |
 | 结果 | 6.3–6.11 全部按本手册的输出通过：网关 2 副本就绪，首次登录 8 秒，`runtime-doctor` 全部正常，对话页完成一次健康检查，大盘显示报告 |
+| 2026-10-19 agent-v1.3.0 | 在发布标签上重跑第 3 章：4 个应用镜像本机构建 + amd64 交叉构建，3.3 的输出即本次结果；两种架构推 GHCR 并合成多架构清单；离线包载回后两种架构镜像冒烟各 16/16；在本机 OrbStack 集群上按第 7 章换镜像升级，浏览器里完成对话与四个大盘。**第 6 章（从空集群部署）未重跑**：v1.2.0 以来 K8s 清单除镜像标签外没有改动 |
 | 过程中发现并已修复 | 网关给用户建容器时不带镜像仓库前缀（新增 `USER_IMAGE_REGISTRY`）；三份旧手册里向量库镜像的 sed 写错；`init-vectordb.sh` 写死了 kubectl 上下文；向量库镜像缺 `find` 与 `en_US.utf8` |

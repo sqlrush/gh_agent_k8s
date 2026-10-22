@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>固定池化 + 粘性保留：设计方案（2026-10-22）</title>
+<style>
+:root{--ink:#1b2430;--ink2:#4a5566;--mute:#7a8596;--line:#d9dfe8;--bg:#f6f8fb;--card:#fff;
+  --blue:#2f6fdb;--blue-l:#e7effc;--amber:#c98a12;--amber-l:#fbf1dc;--gray-l:#eef1f5;--green:#1f8a5b;--green-l:#e3f4ec;--red:#c0392b;--red-l:#fbe7e5;--violet:#6b4fd8;--violet-l:#efebfd}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 28px 80px}
+header{background:linear-gradient(120deg,#123a73,#2f6fdb 60%,#5b8def);color:#fff;border-radius:14px;padding:30px 34px;margin-bottom:26px}
+header h1{margin:0 0 6px;font-size:28px;letter-spacing:.5px}
+header .sub{opacity:.92;font-size:15px}
+header .meta{margin-top:14px;font-size:13px;opacity:.85}
+nav{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 22px;margin-bottom:24px;font-size:14px}
+nav b{margin-right:10px}
+nav a{color:var(--blue);text-decoration:none;margin-right:14px;white-space:nowrap}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px 30px;margin-bottom:22px}
+h2{margin:0 0 14px;font-size:21px;border-left:5px solid var(--blue);padding-left:12px}
+h3{margin:22px 0 10px;font-size:17px;color:#123a73}
+p{margin:8px 0}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+th,td{border:1px solid var(--line);padding:7px 10px;vertical-align:top;text-align:left}
+th{background:#f0f4fa;font-weight:600}
+td.c,th.c{text-align:center}
+code{background:#f0f3f7;border-radius:4px;padding:1px 5px;font-size:13px;font-family:Menlo,Consolas,monospace}
+.callout{border-radius:10px;padding:12px 16px;margin:12px 0;font-size:14.5px}
+.callout.blue{background:var(--blue-l);border:1px solid #c9daf6}
+.callout.amber{background:var(--amber-l);border:1px solid #efd9a8}
+.callout.green{background:var(--green-l);border:1px solid #bfe3d1}
+.callout.red{background:var(--red-l);border:1px solid #f0c4be}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi .v{font-size:26px;font-weight:700;color:#123a73}
+.kpi .v small{font-size:14px;font-weight:600;margin-left:3px}
+.kpi .l{font-size:13px;color:var(--ink2)}
+figure{margin:14px 0 6px}
+figure svg{width:100%;height:auto;display:block;background:#fbfcfe;border:1px solid var(--line);border-radius:10px}
+figcaption{font-size:13px;color:var(--mute);margin-top:6px;text-align:center}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--ink2);margin:6px 0}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:5px;border:1px solid rgba(0,0,0,.15)}
+.grid-steps{display:grid;grid-template-columns:150px 1fr 1fr;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px}
+.grid-steps>div{padding:8px 10px;border-bottom:1px solid var(--line)}
+.grid-steps .h{background:#f0f4fa;font-weight:600}
+.pods{display:flex;gap:8px}
+.pod{border:1px solid #b9c4d4;border-radius:7px;padding:4px 5px 5px;background:#fff}
+.pod .n{font-size:11px;color:var(--mute);text-align:center;margin-bottom:2px}
+.slots{display:flex;gap:3px}
+.s{width:30px;height:24px;border-radius:4px;font-size:12px;line-height:24px;text-align:center;font-weight:600}
+.s.a{background:var(--blue);color:#fff}.s.r{background:var(--amber-l);color:var(--amber);border:1px solid #e8c77f}
+.s.f{background:var(--gray-l);color:#aab3c0;border:1px dashed #c3ccd8}.s.c{background:var(--violet-l);color:var(--violet);border:1px solid #c9bdf5}
+.s.new{outline:2px solid var(--green);outline-offset:1px}
+ol.rules{padding-left:22px}ol.rules li{margin:6px 0}
+.tag{display:inline-block;font-size:12px;padding:0 7px;border-radius:9px;margin-left:4px;vertical-align:1px}
+.tag.new{background:var(--green-l);color:var(--green)}.tag.keep{background:var(--gray-l);color:var(--ink2)}.tag.chg{background:var(--amber-l);color:var(--amber)}.tag.del{background:var(--red-l);color:var(--red)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.small{font-size:13px;color:var(--ink2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>固定池化 + 粘性保留：设计方案</h1>
+  <div class="sub">部署时启动全部 Pod，之后不建、不删、不补；16 人以内各自独占，超出的人多个工号共用一个 Pod；人走了槽位先不还，回来不用等</div>
+  <div class="meta">gaussdb-agent 容器版 · 设计稿 v1（2026-10-22，待评审）· 取代 v1.2.0「客户平台管池子」形态 · 沿用其安全推演与已实测的搬运代码</div>
+</header>
+
+<nav><b>目录</b>
+  <a href="#s0">0 一页看懂</a><a href="#s1">1 需求</a><a href="#s2">2 总体架构</a><a href="#s3">3 Pod 内部</a>
+  <a href="#s4">4 槽位状态</a><a href="#s5">5 分配规则</a><a href="#s6">6 关键时序</a><a href="#s7">7 数据一致性</a>
+  <a href="#s8">8 隔离与安全</a><a href="#s9">9 登录耗时</a><a href="#s10">10 资源与参数</a><a href="#s11">11 故障与运维</a>
+  <a href="#s12">12 改动与工作量</a><a href="#s13">13 方案对比</a><a href="#s14">14 待确认</a>
+</nav>
+
+<!-- ============================================================ 0 -->
+<section id="s0">
+<h2>0　一页看懂</h2>
+<div class="kpis">
+  <div class="kpi"><div class="v">16<small>个 Pod</small></div><div class="l">部署时全部启动，之后固定不动（参数 <code>POOL_SIZE</code>）</div></div>
+  <div class="kpi"><div class="v">4<small>槽位/Pod</small></div><div class="l">一个槽位一个人；同时最多 64 人（参数 <code>SLOTS_PER_POD</code>）</div></div>
+  <div class="kpi"><div class="v">0–1<small>秒</small></div><div class="l">老用户回来：回到自己保留的槽位，不用载入</div></div>
+  <div class="kpi"><div class="v">1–2<small>秒</small></div><div class="l">新用户 / 槽位已腾挪：从 NAS 载入（v1.2.0 实测约 2 秒）</div></div>
+</div>
+<div class="callout blue">
+<b>三句话：</b>
+① 池子由<b>我方网关</b>管，客户平台只做 SSO；Pod 用 StatefulSet 一次起齐，网关不再建删 Pod。
+② 每个 Pod 里有 4 个<b>槽位容器</b>，同一个 Pod 里的不同用户在不同容器里，文件和进程互相看不到；分配时<b>先给没人在用的 Pod</b>，16 人以内各自独占。
+③ <b>粘性保留</b>：人走了（闲置 30 分钟或点退出）先完整写回 NAS，但槽位和文件仍归他，回来直接接着用；只有槽位不够或超过保留期才腾挪给别人。
+</div>
+<div class="callout amber"><b>纠正 v1.2.0 的理解：</b>10-13 的方案把客户原话「回收到 16 个就不回收了，供后面的人循环调用」理解成「用完即删、不足补建、第 17 人现建」。
+客户本意是<b>一开始就启动 16 个，这 16 个不动；超过 16 人并发，多个工号共用一个 Pod</b>。本方案没有任何现建、删除、补建。</div>
+</section>
+
+<!-- ============================================================ 1 -->
+<section id="s1">
+<h2>1　需求</h2>
+<table>
+<tr><th style="width:52px">#</th><th style="width:38%">需求</th><th>方案里怎么落</th></tr>
+<tr><td class="c">R1</td><td>部署时全部启动，数量参数化，之后固定不动</td><td>StatefulSet <code>replicas = POOL_SIZE</code>，<code>podManagementPolicy: Parallel</code> 并行起齐；运行中不建、不删、不补</td></tr>
+<tr><td class="c">R2</td><td>16 人以内每人一个独立 Pod</td><td>分配规则：优先给「没有人在用」的 Pod（§5）</td></tr>
+<tr><td class="c">R3</td><td>超过 16 人并发，多个工号共用一个 Pod</td><td>每个 Pod 4 个槽位容器；没有空 Pod 时给「在用人数最少」的 Pod</td></tr>
+<tr><td class="c">R4</td><td>（客户补充）Pod 基本不动，个人文件不必每次清理，回来不用重新载入</td><td>粘性保留（§4、§5）：人走槽位先不还；NAS 照常定期同步；回来时比对版本号（§7）</td></tr>
+<tr><td class="c">R5</td><td>（沿用）跨登录保留历史，点退出不丢</td><td>管家载入 / 每 60 秒回写 / 转保留时完整写回；NAS 布局与网关模式一致，可互切</td></tr>
+<tr><td class="c">R6</td><td>（沿用）用户之间看不到对方的历史与进程</td><td>不同 Pod 天然隔离；同一 Pod 靠不同容器隔离（§8）</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="s2">
+<h2>2　总体架构</h2>
+<figure>
+<svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#5b6b82"/></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#2f6fdb"/></marker>
+  </defs>
+  <!-- top row -->
+  <rect x="40" y="24" width="150" height="54" rx="9" fill="#fff" stroke="#9aa8bc"/>
+  <text x="115" y="48" text-anchor="middle" font-size="15" font-weight="600">浏览器 / CLI</text>
+  <text x="115" y="67" text-anchor="middle" font-size="12" fill="#7a8596">DBA 用户</text>
+  <rect x="250" y="24" width="170" height="54" rx="9" fill="#fff" stroke="#9aa8bc"/>
+  <text x="335" y="48" text-anchor="middle" font-size="15" font-weight="600">贵方 SSO</text>
+  <text x="335" y="67" text-anchor="middle" font-size="12" fill="#7a8596">认人，加工号头</text>
+  <rect x="480" y="16" width="330" height="70" rx="10" fill="#e7effc" stroke="#2f6fdb" stroke-width="1.5"/>
+  <text x="645" y="42" text-anchor="middle" font-size="16" font-weight="700" fill="#123a73">我方网关（2 副本）</text>
+  <text x="645" y="64" text-anchor="middle" font-size="12.5" fill="#2f4a75">调度 · 转发对话与报告 · 活跃上报 · 腾挪核对</text>
+  <line x1="190" y1="51" x2="248" y2="51" stroke="#5b6b82" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="420" y1="51" x2="478" y2="51" stroke="#5b6b82" stroke-width="1.6" marker-end="url(#ar)"/>
+  <rect x="850" y="24" width="120" height="54" rx="9" fill="#fff" stroke="#9aa8bc"/>
+  <text x="910" y="48" text-anchor="middle" font-size="13.5" font-weight="600">k8s API</text>
+  <text x="910" y="66" text-anchor="middle" font-size="11.5" fill="#7a8596">只读 Pod 状态</text>
+  <line x1="810" y1="51" x2="848" y2="51" stroke="#5b6b82" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <!-- arrows down -->
+  <line x1="600" y1="86" x2="600" y2="128" stroke="#2f6fdb" stroke-width="1.6" marker-end="url(#arb)"/>
+  <text x="592" y="111" text-anchor="end" font-size="12" fill="#2f4a75">bind / unbind / status（控制密钥）</text>
+  <line x1="760" y1="86" x2="760" y2="128" stroke="#2f6fdb" stroke-width="1.6" marker-end="url(#arb)"/>
+  <text x="768" y="111" font-size="12" fill="#2f4a75">对话 / 报告（注入口令、令牌）</text>
+  <!-- statefulset frame -->
+  <rect x="20" y="132" width="960" height="270" rx="12" fill="#f7f9fd" stroke="#8fa3c2" stroke-dasharray="6 4"/>
+  <text x="36" y="154" font-size="13.5" font-weight="600" fill="#2f4a75">StatefulSet pool · 副本数 = POOL_SIZE（16）· 部署时全部启动 · 运行中不建、不删、不补</text>
+  <g id="podsArch"></g>
+  <!-- NAS -->
+  <rect x="140" y="452" width="330" height="70" rx="10" fill="#fff" stroke="#9aa8bc"/>
+  <text x="305" y="480" text-anchor="middle" font-size="15" font-weight="600">NAS users/&lt;工号&gt;/</text>
+  <text x="305" y="502" text-anchor="middle" font-size="12" fill="#7a8596">每人的对话、文件、报告；与网关模式同一布局</text>
+  <rect x="560" y="452" width="300" height="70" rx="10" fill="#fff" stroke="#9aa8bc"/>
+  <text x="710" y="480" text-anchor="middle" font-size="15" font-weight="600">NAS kb/（共享知识库）</text>
+  <text x="710" y="502" text-anchor="middle" font-size="12" fill="#7a8596">槽位只读挂载</text>
+  <line x1="305" y1="404" x2="305" y2="450" stroke="#5b6b82" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="314" y="432" font-size="12" fill="#4a5566">只有管家读写</text>
+  <line x1="710" y1="404" x2="710" y2="450" stroke="#5b6b82" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+  <text x="719" y="432" font-size="12" fill="#4a5566">槽位只读</text>
+</svg>
+<figcaption>图 1　总体架构：客户只做 SSO；网关调度到 16 个固定 Pod 的槽位；只有每个 Pod 的管家容器能接触 NAS 上的用户目录</figcaption>
+</figure>
+<div class="legend"><span><i style="background:#2f6fdb"></i>在用</span><span><i style="background:#fbf1dc;border-color:#e8c77f"></i>保留（人走了，文件还在）</span><span><i style="background:#eef1f5;border:1px dashed #c3ccd8"></i>空闲</span><span><i style="background:#3d4b60"></i>管家容器</span></div>
+<table>
+<tr><th style="width:150px">组件</th><th>职责</th><th style="width:30%">与现在相比</th></tr>
+<tr><td>贵方 SSO</td><td>认人，往请求里加工号头与信任凭据</td><td>只剩这一件（v1.2.0 要客户平台管池子、映射、倒计时、补建、口令、反向代理）</td></tr>
+<tr><td>我方网关</td><td>按 §5 分配槽位；转发对话与报告；把用户活跃情况上报给管家；腾挪时经 k8s API 核对容器重启次数</td><td>新增调度器；回收器改为「转保留 / 腾挪」；<b>不再需要建删 Pod 的权限</b></td></tr>
+<tr><td>Pod（16 个）</td><td>4 个槽位容器 + 1 个管家容器</td><td>由裸 Pod 改为 StatefulSet；一个 Pod 不再「一生只服务一个人」</td></tr>
+<tr><td>NAS</td><td><code>users/</code> 个人历史；<code>kb/</code> 知识库</td><td>不变</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="s3">
+<h2>3　Pod 内部结构</h2>
+<figure>
+<svg viewBox="0 0 1000 520" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+  <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#5b6b82"/></marker></defs>
+  <rect x="14" y="14" width="972" height="420" rx="14" fill="#f7f9fd" stroke="#8fa3c2" stroke-width="1.5"/>
+  <text x="32" y="40" font-size="15" font-weight="700" fill="#123a73">Pod pool-0（16 个 Pod 同构）</text>
+  <g id="podInner"></g>
+  <!-- shared band -->
+  <rect x="32" y="388" width="728" height="40" rx="8" fill="#fbf1dc" stroke="#e8c77f"/>
+  <text x="396" y="405" text-anchor="middle" font-size="12.5" fill="#7a5a10">同 Pod 共享：网络（同一个 IP / localhost）与 IPC</text>
+  <text x="396" y="421" text-anchor="middle" font-size="12" fill="#7a5a10">→ 对话端口每次随机口令、报告端口加令牌、每个槽位自己的 /dev/shm、各槽位 uid 不同</text>
+  <!-- NAS -->
+  <rect x="790" y="460" width="190" height="48" rx="9" fill="#fff" stroke="#9aa8bc"/>
+  <text x="885" y="489" text-anchor="middle" font-size="13.5" font-weight="600">NAS users/（全部用户）</text>
+  <line x1="930" y1="356" x2="930" y2="458" stroke="#5b6b82" stroke-width="1.5" marker-end="url(#ar2)"/>
+  <text x="938" y="446" font-size="11.5" fill="#4a5566">读写</text>
+  <rect x="160" y="460" width="170" height="48" rx="9" fill="#fff" stroke="#9aa8bc"/>
+  <text x="245" y="489" text-anchor="middle" font-size="13.5" font-weight="600">NAS kb/（只读）</text>
+</svg>
+<figcaption>图 2　Pod 内部：4 个槽位各自只挂自己的盘；管家挂全部槽位的盘和 NAS 用户目录，负责搬运；模型只在槽位里执行命令，碰不到管家</figcaption>
+</figure>
+<table>
+<tr><th style="width:120px"></th><th>槽位容器 slot-0 … slot-3</th><th>管家容器 steward</th></tr>
+<tr><td>跑什么</td><td>守护进程（沿用 <code>poolrun</code>）；绑定后起 opencode（模型 + 17 个诊断技能）与报告服务；保留状态下 opencode 停掉，只剩守护进程</td><td>控制接口 4098（沿用 <code>poolctl</code>，扩成多槽位）；载入、每 60 秒回写、转保留时完整写回、腾挪时清盘</td></tr>
+<tr><td>能看到的盘</td><td>只有自己的工作盘 <code>s&lt;i&gt;</code>、自己的 <code>/dev/shm</code>、自己的指令目录（只读）、<code>kb/</code>（只读）</td><td>NAS <code>users/</code>（读写）、4 个槽位的工作盘与指令目录</td></tr>
+<tr><td>身份</td><td>uid 2000+i，每个槽位不同；非 root、只读根文件系统、去掉全部特权</td><td>uid 1000；同样的安全设置</td></tr>
+<tr><td>端口</td><td>对话 <code>4100+10i</code>、报告 <code>4101+10i</code></td><td>控制 4098（控制密钥）</td></tr>
+<tr><td>秘密</td><td>本次随机口令、本人 GRMP 令牌（绑定时由网关下发）、模型 key</td><td>控制密钥（只在这里）</td></tr>
+</table>
+<div class="callout green"><b>为什么同一个 Pod 里的人互相看不到：</b>k8s 里同一个 Pod 的不同容器有各自的文件系统视图（只看得到挂给自己的盘）和各自的进程空间（不加 <code>shareProcessNamespace</code>）。
+张三的模型在 slot-0 里执行 <code>ls</code>、<code>ps</code>，只能看到 slot-0 自己的东西。全部用户的历史只挂在管家容器里，模型所在的槽位碰不到。</div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="s4">
+<h2>4　槽位的状态：粘性保留</h2>
+<figure>
+<svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+  <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#4a5566"/></marker></defs>
+  <g id="stateMachine"></g>
+</svg>
+<figcaption>图 3　槽位状态机：「保留」是本方案的关键——人走了槽位先不还，回来直接接着用</figcaption>
+</figure>
+<table>
+<tr><th style="width:90px">状态</th><th>里面有什么</th><th>怎么进入</th><th>怎么离开</th></tr>
+<tr><td><b style="color:#7a8596">空闲</b></td><td>只有守护进程，盘是空的</td><td>部署完成；腾挪核对通过</td><td>分给新人：管家从 NAS 载入，起 opencode（1–2 秒）</td></tr>
+<tr><td><b style="color:#2f6fdb">在用</b></td><td>这个人的 opencode 在跑，文件在盘上；每 60 秒回写 NAS</td><td>绑定完成；本人从保留回来</td><td>闲置 <code>IDLE_SECONDS</code>（30 分钟）或点退出 → 完整写回 NAS、停 opencode → 保留</td></tr>
+<tr><td><b style="color:#c98a12">保留</b></td><td>只有守护进程；这个人的文件还在盘上；不持有 NAS 独占标记</td><td>在用转来</td><td>① 本人回来：比对版本号，一致就起 opencode（0.5–1 秒）<br>② 腾挪：本 Pod 空槽位不足 1 个、超过保留期 <code>RETAIN_DAYS</code>（7 天）、本人已到别处使用 → 清理中</td></tr>
+<tr><td><b style="color:#6b4fd8">清理中</b></td><td>正在重启容器、清盘</td><td>腾挪</td><td>网关核对该容器重启次数 +1 → 空闲；失败或超时 → 停用</td></tr>
+<tr><td><b style="color:#c0392b">停用</b></td><td>—</td><td>清理核对失败</td><td>告警给运维；该槽位不再分配，同 Pod 其他槽位不受影响；运维确认后可整 Pod 重建</td></tr>
+</table>
+<div class="callout blue"><b>「保留」不等于「占着资源」：</b>保留状态下 opencode 已停，只剩一个十几 MB 的守护进程，占的主要是这个槽位的盘。
+内存和 CPU 让给同 Pod 正在用的人。</div>
+</section>
+
+<!-- ============================================================ 5 -->
+<section id="s5">
+<h2>5　分配规则</h2>
+<figure>
+<svg viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+  <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#4a5566"/></marker></defs>
+  <g id="flow"></g>
+</svg>
+<figcaption>图 4　网关收到一个工号的请求时怎么分配槽位（「在用」只算正在用的人，保留着的人不算）</figcaption>
+</figure>
+<ol class="rules">
+<li><b>本人已在用</b>（另一个浏览器标签、刚关页面又回来）→ 直接转发，<b>0 秒</b>。</li>
+<li><b>本人有保留槽位</b>：
+  <ul>
+  <li>他那个 Pod 里<b>没有别人在用</b>，或者集群里<b>已经没有「无人在用」的 Pod</b> → 回到自己的槽位，比对版本号，一致就起 opencode，<b>0.5–1 秒</b>；</li>
+  <li>他那个 Pod 里有别人在用，而别处还有「无人在用」的 Pod → 为满足「16 人以内各自独占」，按第 3 条分到空 Pod（从 NAS 载入，1–2 秒），旧的保留槽位进入腾挪。</li>
+  </ul></li>
+<li><b>新用户</b>（或按上一条需要换 Pod）：
+  <ul>
+  <li>有「无人在用」的 Pod → 在其中选<b>空闲槽位最多、保留人数最少</b>的，同等选编号小的；</li>
+  <li>没有 → 选<b>在用人数最少</b>且有空闲槽位的 Pod；</li>
+  <li>选中的 Pod 没有空闲槽位（全是保留）→ 现场腾挪其中最久没来的那位（多等几秒；后台的「每 Pod 留 1 个空槽位」会让这种情况极少发生）；</li>
+  <li>所有槽位都在用 → 返回「当前使用人数已满（64）」页。</li>
+  </ul></li>
+</ol>
+<div class="callout amber"><b>后台腾挪（不在用户的等待路径上）：</b>
+① 每个 Pod 至少留 <code>FREE_SLOTS_PER_POD</code>（1）个空槽位，不够就腾挪本 Pod 最久没来的保留者；
+② 保留超过 <code>RETAIN_DAYS</code>（7 天）的自动腾挪；③ 本人已在别处使用的旧保留槽位立即腾挪。</div>
+
+<h3>举个例子（为了画得下，按 4 个 Pod × 3 个槽位演示）</h3>
+<div class="legend"><span><i style="background:#2f6fdb"></i>在用</span><span><i style="background:#fbf1dc;border-color:#e8c77f"></i>保留</span><span><i style="background:#eef1f5;border:1px dashed #c3ccd8"></i>空闲</span><span><i style="background:#efebfd;border-color:#c9bdf5"></i>清理中</span><span><i style="background:#fff;outline:2px solid #1f8a5b"></i>这一步变化的槽位</span></div>
+<div class="grid-steps" id="steps"></div>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="s6">
+<h2>6　关键时序</h2>
+<h3>6.1　新用户第一次登录（1–2 秒）</h3>
+<figure><svg id="seq1" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif"></svg>
+<figcaption>图 5　新用户：网关选槽位 → 管家取独占、从 NAS 载入、写指令 → 槽位起 opencode → 网关开始转发</figcaption></figure>
+
+<h3>6.2　闲置转保留，再回来（回来 0.5–1 秒）</h3>
+<figure><svg id="seq2" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif"></svg>
+<figcaption>图 6　人走了先完整写回、停 opencode，文件留在槽位；回来比对版本号，一致就直接起 opencode</figcaption></figure>
+
+<h3>6.3　腾挪：槽位换人前的清理（后台，几秒）</h3>
+<figure><svg id="seq3" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif"></svg>
+<figcaption>图 7　清空复用：重启容器杀掉上一个人的全部进程、清盘，<b>由网关在外部核对重启次数</b>——槽位里的话不可信</figcaption></figure>
+<div class="callout amber"><b>要实测的一点：</b>kubelet 重启容器有退避（10 秒、20 秒、40 秒……，连续正常运行 10 分钟后清零）。
+同一槽位 10 分钟内被反复腾挪，会多等几十秒才能再用；网关把它当「清理中」跳过即可，用户不受影响。</div>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="s7">
+<h2>7　数据一致性：版本号</h2>
+<p>粘性保留带来一个新问题：<b>槽位里留着的文件会不会比 NAS 旧？</b>比如张三的保留槽位在 pool-3，他这次被分到 pool-7 用了一段（§5 第 2 条第二种情况），
+之后又回到了 pool-3 的某个保留位置。解决办法是给每个人的数据记一个<b>版本号</b>：</p>
+<figure>
+<svg viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+  <defs><marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#4a5566"/></marker></defs>
+  <rect x="30" y="30" width="270" height="90" rx="10" fill="#fff" stroke="#9aa8bc"/>
+  <text x="165" y="58" text-anchor="middle" font-size="14" font-weight="600">NAS users/张三/.pool/gen</text>
+  <text x="165" y="84" text-anchor="middle" font-size="13" fill="#4a5566">每次完整写回 +1（任何 Pod 写都算）</text>
+  <text x="165" y="106" text-anchor="middle" font-size="22" font-weight="700" fill="#123a73">gen = 42</text>
+  <rect x="700" y="30" width="270" height="90" rx="10" fill="#fff" stroke="#9aa8bc"/>
+  <text x="835" y="58" text-anchor="middle" font-size="14" font-weight="600">pool-3 / slot-1 的保留记录</text>
+  <text x="835" y="84" text-anchor="middle" font-size="13" fill="#4a5566">转保留时记下当时的版本</text>
+  <text x="835" y="106" text-anchor="middle" font-size="22" font-weight="700" fill="#c98a12">gen = 42</text>
+  <rect x="380" y="40" width="240" height="70" rx="35" fill="#e7effc" stroke="#2f6fdb"/>
+  <text x="500" y="70" text-anchor="middle" font-size="14" font-weight="600" fill="#123a73">回来时比对（读一个小文件）</text>
+  <text x="500" y="92" text-anchor="middle" font-size="12.5" fill="#2f4a75">不到 10 毫秒</text>
+  <line x1="300" y1="75" x2="378" y2="75" stroke="#4a5566" stroke-width="1.5" marker-end="url(#ar5)"/>
+  <line x1="698" y1="75" x2="622" y2="75" stroke="#4a5566" stroke-width="1.5" marker-end="url(#ar5)"/>
+  <rect x="150" y="160" width="320" height="64" rx="10" fill="#e3f4ec" stroke="#9fd2b8"/>
+  <text x="310" y="186" text-anchor="middle" font-size="14" font-weight="600" fill="#1f6d48">相等 → 直接用槽位里的文件</text>
+  <text x="310" y="208" text-anchor="middle" font-size="12.5" fill="#1f6d48">起 opencode，0.5–1 秒</text>
+  <rect x="530" y="160" width="320" height="64" rx="10" fill="#fbf1dc" stroke="#e8c77f"/>
+  <text x="690" y="186" text-anchor="middle" font-size="14" font-weight="600" fill="#7a5a10">NAS 更新 → 槽位里的作废</text>
+  <text x="690" y="208" text-anchor="middle" font-size="12.5" fill="#7a5a10">就地从 NAS 重新载入（1–2 秒）</text>
+  <line x1="460" y1="110" x2="360" y2="158" stroke="#4a5566" stroke-width="1.4" marker-end="url(#ar5)"/>
+  <line x1="540" y1="110" x2="640" y2="158" stroke="#4a5566" stroke-width="1.4" marker-end="url(#ar5)"/>
+</svg>
+<figcaption>图 8　版本号比对：保证用的永远是最新的数据</figcaption>
+</figure>
+<table>
+<tr><th style="width:26%">规则</th><th>说明</th></tr>
+<tr><td>NAS 永远是最终版本</td><td>在用时每 60 秒回写；转保留时完整写回后才停 opencode；腾挪前确认已写回</td></tr>
+<tr><td>独占标记只在「在用」时持有</td><td>沿用 v1.2.0 的 NAS 独占标记，防止同一个人同时在两个槽位里写。转保留时释放，回来时重新取得；取不到说明他正在别处用，网关转过去</td></tr>
+<tr><td>保留中的文件不会被别人改</td><td>保留槽位只属于这个人，别人分不到；腾挪会先清空再给别人</td></tr>
+<tr><td>Pod 故障时</td><td>本地盘随 Pod 消失，NAS 最多缺最近 60 秒（与 v1.2.0 一致）；下次登录从 NAS 载入，并提示「上次非正常退出」</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="s8">
+<h2>8　隔离与安全</h2>
+<table>
+<tr><th style="width:30%">风险</th><th>怎么挡</th><th style="width:110px">来源</th></tr>
+<tr><td>模型看全体用户的历史</td><td>槽位不挂 <code>users/</code>，只有管家挂；容器之间不共享进程空间，模型也看不到管家的进程与密钥</td><td><span class="tag keep">沿用</span></td></tr>
+<tr><td>模型调控制接口给自己换工号</td><td>控制密钥只在管家；指令目录在槽位里只读</td><td><span class="tag keep">沿用</span></td></tr>
+<tr><td>模型用符号链接诱使管家搬别人的文件</td><td>管家读写一律按文件描述符、逐级不跟随链接（<code>fdtree</code>，已有 19 条攻击用例）</td><td><span class="tag keep">沿用</span></td></tr>
+<tr><td>同 Pod 另一个槽位读我的文件</td><td>工作盘只挂给自己；根文件系统只读；可写的只有自己的盘、<code>/tmp</code>、<code>/dev/shm</code></td><td><span class="tag new">新</span></td></tr>
+<tr><td>同 Pod 另一个槽位看我的进程</td><td>每个容器有自己的进程空间</td><td><span class="tag new">新</span></td></tr>
+<tr><td>同 Pod 共享网络（同一个 localhost）</td><td>对话端口每次绑定随机口令；<b>报告端口加令牌</b>（现在没有，必须补）；口令与令牌只在网关，不下发浏览器</td><td><span class="tag new">新</span></td></tr>
+<tr><td>同 Pod 共享 IPC</td><td>每个槽位挂自己的 <code>/dev/shm</code>（内存型、有上限）；槽位 uid 各不相同，System V IPC 默认 0600</td><td><span class="tag new">新</span></td></tr>
+<tr><td>保留期间的文件被别人看到</td><td>保留槽位只属于本人，不分给别人；腾挪必须先清空</td><td><span class="tag new">新</span></td></tr>
+<tr><td>上一个人留下的后台进程</td><td>腾挪时重启容器：1 号进程退出时内核杀掉该容器的全部进程（10-13 实测）；网关在外部核对重启次数 +1</td><td><span class="tag chg">沿用推演，核对方改为网关</span></td></tr>
+<tr><td>同一个人同时进两个槽位</td><td>NAS 独占标记（<code>owner_busy</code>）</td><td><span class="tag keep">沿用</span></td></tr>
+<tr><td>数据库权限</td><td>网关绑定时读 <code>grmp-token-&lt;工号&gt;</code> 下发给该槽位：<b>恢复按人授权</b>（v1.2.0 池化只能全体共用一个令牌）</td><td><span class="tag new">改进</span></td></tr>
+</table>
+<div class="callout red"><b>残余风险（写进交付文档）：</b>同 Pod 的槽位共用内核与网络命名空间，隔离强度低于「不同 Pod」；抽象 Unix 套接字没有权限控制（opencode 与技能都不使用）。
+集群有 gVisor / Kata Containers 时，模板加一行 <code>runtimeClassName</code> 整 Pod 启用。</div>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="s9">
+<h2>9　每个人进来到能用要几秒</h2>
+<table>
+<tr><th>情况</th><th class="c" style="width:120px">时间</th><th>做了什么</th><th style="width:26%">依据</th></tr>
+<tr><td>本人已在用（另一个标签、关页面后 30 分钟内回来）</td><td class="c"><b>0 秒</b></td><td>直接转发</td><td>无额外步骤</td></tr>
+<tr><td>老用户回到保留槽位</td><td class="c"><b>0.5–1 秒</b></td><td>比对版本号 + 起 opencode</td><td>opencode 启动约 0.5 秒（v1.2.0 实测）</td></tr>
+<tr><td>新用户 / 槽位已腾挪 / Pod 重启过</td><td class="c"><b>1–2 秒</b></td><td>从 NAS 载入 + 起 opencode</td><td>v1.2.0 实测绑定约 2 秒（含 port-forward 开销；载入 3.2MB 0.4 秒）</td></tr>
+<tr><td>历史很大（几百 MB）</td><td class="c">更长</td><td>载入耗时随历史大小增长</td><td><b>未测</b>，实施时补测载入曲线</td></tr>
+<tr><td>选中的 Pod 没有空槽位，要现场腾挪（极少）</td><td class="c">+几秒</td><td>写回已在转保留时做完，只剩重启容器与清盘</td><td><b>未测</b>；后台「每 Pod 留 1 个空槽位」让它极少发生</td></tr>
+<tr><td>对比：现在的网关按需模式</td><td class="c">6–7.6 秒</td><td>现建 Pod</td><td>09-21 实测</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ 10 -->
+<section id="s10">
+<h2>10　资源与参数</h2>
+<table>
+<tr><th style="width:220px">参数</th><th>含义</th><th style="width:170px">建议默认</th></tr>
+<tr><td><code>POOL_SIZE</code></td><td>Pod 数，部署时全部启动，运行中固定</td><td>16</td></tr>
+<tr><td><code>SLOTS_PER_POD</code></td><td>每个 Pod 的槽位数 = 同时共用一个 Pod 的最多人数（模板里的容器数，改它要滚动更新）</td><td>4（满额 64 人）</td></tr>
+<tr><td><code>IDLE_SECONDS</code></td><td>闲置多久由在用转保留（完整写回、停 opencode）</td><td>1800（30 分钟）</td></tr>
+<tr><td><code>RETAIN_DAYS</code></td><td>保留多久没来就后台腾挪</td><td>7</td></tr>
+<tr><td><code>FREE_SLOTS_PER_POD</code></td><td>每个 Pod 后台至少留几个空槽位给新人</td><td>1</td></tr>
+<tr><td><code>STATE_SYNC_SECONDS</code></td><td>在用时多久回写一次 NAS</td><td>60（沿用）</td></tr>
+<tr><td>槽位 requests / limits</td><td>每个槽位的预留与上限</td><td>100m / 384Mi；2 CPU / 2Gi（待实测）</td></tr>
+<tr><td>槽位工作盘上限</td><td>每人在槽位里的文件（对话库、工作目录、报告）</td><td>4Gi（按历史大小实测调整）</td></tr>
+</table>
+<p><b>集群预留</b> = POOL_SIZE × (SLOTS_PER_POD × 槽位预留 + 管家预留) = 16 × (4 × 100m/384Mi + 50m/64Mi) ≈ <b>7.2 CPU / 25 GiB</b>；
+上限允许超卖，按实际并发评估节点数。保留状态的人几乎不占内存与 CPU。</p>
+<p><b>能保留多少人</b>：每个 Pod 留 1 个空槽位，所以最多同时保留（含在用）16 × 3 = <b>48 人</b>的文件；注册用户更多时，最久没来的人被腾挪，下次登录从 NAS 载入（1–2 秒），不丢数据。</p>
+</section>
+
+<!-- ============================================================ 11 -->
+<section id="s11">
+<h2>11　故障与运维</h2>
+<table>
+<tr><th style="width:24%">情况</th><th>处理</th></tr>
+<tr><td>某个 Pod 故障 / 节点故障</td><td>StatefulSet 自动拉起同名 Pod，槽位全部空闲。该 Pod 上在用的人最多丢最近 60 秒，下次请求按 §5 重新分配，提示「上次非正常退出」；保留的人下次从 NAS 载入</td></tr>
+<tr><td>网关双副本同时给一个人分配</td><td>真相在各管家（每个槽位绑的是谁），网关只做缓存；NAS 独占标记只让一个成功，另一个按返回的持有者转过去</td></tr>
+<tr><td>网关重启</td><td>启动时扫一遍 16 个管家的状态重建缓存，不需要额外存储</td></tr>
+<tr><td>腾挪核对失败</td><td>槽位停用并告警；其余槽位照常；运维确认后整 Pod 重建（该 Pod 先排空）</td></tr>
+<tr><td>扩容（改 POOL_SIZE 变大）</td><td>改 StatefulSet 副本数，新 Pod 就绪即进入分配</td></tr>
+<tr><td>缩容</td><td>先把末尾的 Pod 标为「排空」，不再分新人、保留者腾挪；在用的人走后再缩副本数</td></tr>
+<tr><td>版本升级</td><td>逐个 Pod 排空 → 更新 → 恢复分配；保留者被腾挪，升级后第一次登录从 NAS 载入</td></tr>
+<tr><td>集群关机</td><td>所有槽位的本地文件丢失；NAS 上是最新版本（在用的人最多丢 60 秒）；开机后全部从 NAS 载入</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ 12 -->
+<section id="s12">
+<h2>12　与现有代码的关系、工作量</h2>
+<table>
+<tr><th style="width:26%">部分</th><th>处理</th></tr>
+<tr><td><code>fdtree</code>、<code>poolsync</code></td><td><span class="tag keep">沿用</span> 安全搬运、回写、退出备份、独占标记；按槽位分目录；新增版本号</td></tr>
+<tr><td><code>poolctl</code>（管家）</td><td><span class="tag chg">改</span> 多槽位：bind 带槽位号与本人令牌；status 返回全部槽位；新增「转保留」「回来」「腾挪」三个指令</td></tr>
+<tr><td><code>poolrun</code>（槽位守护进程）</td><td><span class="tag chg">改</span> 端口按槽位编号；支持「停 opencode 但保留文件」；收到腾挪指令退出 1 号进程</td></tr>
+<tr><td>报告服务</td><td><span class="tag new">新</span> 令牌校验（同 Pod 共享 localhost）</td></tr>
+<tr><td>网关</td><td><span class="tag new">新</span> 调度器（§5）、活跃上报、后台腾挪、重启次数核对；<code>RUNTIME_MODE=ondemand|pool</code> 开关<br><span class="tag del">删</span> 池化模式下建删 Deployment 的权限（RBAC 收窄为只读 Pod）</td></tr>
+<tr><td>k8s 清单</td><td><span class="tag new">新</span> <code>pool</code> StatefulSet 模板（槽位数按参数渲染）、网络策略<br><span class="tag del">删</span> <code>sandbox.yaml</code> 与客户平台对接契约（v1.2.0）、<code>pool-sim.py</code></td></tr>
+<tr><td>网关按需模式</td><td><span class="tag keep">保留</span> 作为备选；NAS 布局相同，切换不迁移数据</td></tr>
+<tr><td>知识库导入容器</td><td><span class="tag keep">不进池</span> 仍按管理员按需建</td></tr>
+</table>
+<table>
+<tr><th>工作项</th><th class="c" style="width:90px">估计</th></tr>
+<tr><td>网关：调度、活跃上报、后台腾挪、重启次数核对、模式开关</td><td class="c">5 天</td></tr>
+<tr><td>管家：多槽位、转保留 / 回来 / 腾挪、版本号</td><td class="c">4 天</td></tr>
+<tr><td>槽位守护进程与报告令牌</td><td class="c">1.5 天</td></tr>
+<tr><td>StatefulSet 模板、网络策略、RBAC</td><td class="c">1 天</td></tr>
+<tr><td>单测 + 本地集群 e2e：17 人共用、保留后回来、版本过期重载、腾挪核对、Pod 故障、网关双副本竞争、载入曲线</td><td class="c">5 天</td></tr>
+<tr><td>文档（部署手册、对接清单、参数手册、交付文档的残余风险）</td><td class="c">1.5 天</td></tr>
+<tr><th>合计</th><th class="c">约 3.5 周</th></tr>
+</table>
+</section>
+
+<!-- ============================================================ 13 -->
+<section id="s13">
+<h2>13　为什么是这个方案（对比）</h2>
+<table>
+<tr><th style="width:17%"></th><th>本方案：槽位容器 + 粘性保留</th><th>A. 单容器多进程，每人独立 uid</th><th>C. 最简：同 Pod 互相可见</th></tr>
+<tr><td>做法</td><td>每 Pod 固定 K 个槽位容器 + 管家</td><td>一个容器挂全部 <code>users/</code>，启动器按人切 uid</td><td>每 Pod 挂 NAS 上自己的一块，用户固定分到某个 Pod</td></tr>
+<tr><td>同 Pod 用户之间</td><td>不同容器，文件与进程隔开</td><td>靠 Unix 权限</td><td><b>互相能看到对话历史</b></td></tr>
+<tr><td>需要 root</td><td>不需要</td><td><b>需要</b>，银行安全审查大概率不过</td><td>不需要</td></tr>
+<tr><td>出事的波及面</td><td>一个槽位</td><td><b>全体用户</b>（全部用户目录都挂在模型所在的容器里）</td><td>同 Pod 的人</td></tr>
+<tr><td>满足「16 人以内各自独占」</td><td>满足</td><td>满足</td><td>只在注册人数 ≤16 时满足</td></tr>
+<tr><td>结论</td><td><b>推荐</b></td><td>不推荐</td><td>只在客户书面接受「同 Pod 互相可见」时考虑</td></tr>
+</table>
+<p class="small">管家容器为什么省不掉：Pod 在知道用户是谁之前就启动了，个人目录挂不进去，运行中又不能加挂载（10-13 实测：<code>pod updates may not add or remove containers</code>）；
+只能由一个挂着全部 <code>users/</code> 的组件来搬，而它绝不能和模型在同一个容器里。这一层是「预先启动」带来的，与是否共用无关。</p>
+</section>
+
+<!-- ============================================================ 14 -->
+<section id="s14">
+<h2>14　待确认</h2>
+<table>
+<tr><th style="width:40px">#</th><th>问题</th><th style="width:36%">我方建议</th></tr>
+<tr><td class="c">Q1</td><td>每个 Pod 最多几人共用（<code>SLOTS_PER_POD</code>），即同时使用的上限。槽位是模板里定死的容器，所以必须有上限</td><td>4，满额 64 人；按客户最大并发人数反推</td></tr>
+<tr><td class="c">Q2</td><td>超过满额怎么办：直接提示已满，还是排队等待</td><td>提示已满并显示当前人数；排队要另做等待页与超时</td></tr>
+<tr><td class="c">Q3</td><td>「独占 Pod」按 Pod 算还是按容器算。按 Pod 算时，老用户的 Pod 若有别人在用、别处有空 Pod，要挪到空 Pod（多 1–2 秒载入）；按容器算则总是回自己的槽位（0.5–1 秒）</td><td>按 Pod 算（客户原话），即本方案 §5 第 2 条</td></tr>
+<tr><td class="c">Q4</td><td>闲置多久转保留（30 分钟）、保留多久没来就腾挪（7 天）</td><td>按建议值，可调</td></tr>
+<tr><td class="c">Q5</td><td>同 Pod 共用内核与网络的隔离强度是否接受</td><td>接受，写进残余风险；有 gVisor / Kata 则启用</td></tr>
+<tr><td class="c">Q6</td><td>池化下 GRMP 令牌按人下发，还是继续全体共用</td><td>按人下发（恢复按人授权）</td></tr>
+<tr><td class="c">Q7</td><td>是否保留网关按需模式作为备选</td><td>保留，切换不迁数据</td></tr>
+</table>
+</section>
+
+</div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const C = {a: ['#2f6fdb', '#fff', '#2f6fdb'], r: ['#fbf1dc', '#c98a12', '#e8c77f'], f: ['#eef1f5', '#aab3c0', '#c3ccd8'], c: ['#efebfd', '#6b4fd8', '#c9bdf5']};
+
+// ---------- 图 1：架构里的 Pod
+(function () {
+  const g = document.getElementById('podsArch');
+  const pods = [['pool-0', 'aarf'], ['pool-1', 'arff'], ['pool-2', 'arrf'], ['pool-15', 'afff']];
+  const xs = [40, 270, 500, 780];
+  pods.forEach(([name, st], i) => {
+    const x = xs[i], y = 170;
+    el('rect', {x, y, width: 200, height: 210, rx: 10, fill: '#fff', stroke: '#8fa3c2', 'stroke-width': 1.3}, g);
+    el('text', {x: x + 100, y: y + 22, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 700, fill: '#123a73'}, g, name);
+    [...st].forEach((s, j) => {
+      const sx = x + 14 + j * 44, sy = y + 36;
+      el('rect', {x: sx, y: sy, width: 38, height: 70, rx: 6, fill: C[s][0], stroke: C[s][2], 'stroke-dasharray': s === 'f' ? '4 3' : ''}, g);
+      el('text', {x: sx + 19, y: sy + 30, 'text-anchor': 'middle', 'font-size': 11.5, fill: C[s][1], 'font-weight': 600}, g, '槽位');
+      el('text', {x: sx + 19, y: sy + 48, 'text-anchor': 'middle', 'font-size': 11.5, fill: C[s][1], 'font-weight': 600}, g, String(j));
+    });
+    el('rect', {x: x + 14, y: y + 120, width: 172, height: 40, rx: 6, fill: '#3d4b60'}, g);
+    el('text', {x: x + 100, y: y + 145, 'text-anchor': 'middle', 'font-size': 12.5, fill: '#fff', 'font-weight': 600}, g, '管家：载入 · 回写 · 清盘');
+    el('text', {x: x + 100, y: y + 186, 'text-anchor': 'middle', 'font-size': 11.5, fill: '#7a8596'}, g, i === 3 ? '（第 16 个）' : '');
+  });
+  el('text', {x: 745, y: 282, 'text-anchor': 'middle', 'font-size': 26, fill: '#8fa3c2'}, g, '…');
+})();
+
+// ---------- 图 2：Pod 内部
+(function () {
+  const g = document.getElementById('podInner');
+  const slots = [['slot-0', '张三', 'a', 'uid 2000', ':4100 对话 / :4101 报告'], ['slot-1', '李四', 'r', 'uid 2001', ':4110 / :4111'],
+                 ['slot-2', '（空闲）', 'f', 'uid 2002', ':4120 / :4121'], ['slot-3', '（空闲）', 'f', 'uid 2003', ':4130 / :4131']];
+  slots.forEach(([n, who, s, uid, ports], i) => {
+    const x = 32 + i * 182, y = 56;
+    el('rect', {x, y, width: 168, height: 300, rx: 10, fill: s === 'a' ? '#e7effc' : s === 'r' ? '#fdf6e7' : '#f4f6f9', stroke: C[s][2], 'stroke-width': 1.4}, g);
+    el('text', {x: x + 84, y: y + 24, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 700, fill: '#123a73'}, g, n + '  ' + who);
+    el('text', {x: x + 84, y: y + 44, 'text-anchor': 'middle', 'font-size': 11.5, fill: '#4a5566'}, g, uid + ' · 非 root');
+    const proc = s === 'a' ? ['守护进程', 'opencode + 技能', '报告服务'] : ['守护进程'];
+    proc.forEach((p, k) => {
+      el('rect', {x: x + 14, y: y + 58 + k * 34, width: 140, height: 28, rx: 5, fill: '#fff', stroke: '#b9c4d4'}, g);
+      el('text', {x: x + 84, y: y + 77 + k * 34, 'text-anchor': 'middle', 'font-size': 12, fill: '#1b2430'}, g, p);
+    });
+    el('text', {x: x + 84, y: y + 178, 'text-anchor': 'middle', 'font-size': 11.5, fill: '#4a5566'}, g, ports);
+    const disks = [['/dev/shm（自己的）', ''], ['指令目录（只读）', ''], ['kb/（只读）', ''], ['工作盘 s' + i, s === 'f' ? '空' : '本人文件']];
+    disks.forEach(([d, t], k) => {
+      const work = k === 3;
+      el('rect', {x: x + 14, y: y + 192 + k * 26, width: 140, height: 22, rx: 4, fill: work ? '#fff7e6' : '#fff', stroke: work ? '#e8c77f' : '#d9dfe8'}, g);
+      el('text', {x: x + 84, y: y + 207 + k * 26, 'text-anchor': 'middle', 'font-size': 11, fill: '#4a5566'}, g, d + (t ? '：' + t : ''));
+    });
+    // 工作盘往下接到总线
+    el('line', {x1: x + 84, y1: y + 292, x2: x + 84, y2: 377, stroke: '#8fa3c2', 'stroke-dasharray': '4 3', 'stroke-width': 1.3}, g);
+  });
+  // steward
+  const x = 772, y = 56;
+  el('rect', {x, y, width: 196, height: 300, rx: 10, fill: '#3d4b60'}, g);
+  el('text', {x: x + 98, y: y + 26, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 700, fill: '#fff'}, g, '管家 steward');
+  el('text', {x: x + 98, y: y + 46, 'text-anchor': 'middle', 'font-size': 11.5, fill: '#c9d3e2'}, g, 'uid 1000 · :4098 控制密钥');
+  ['载入（按文件描述符）', '每 60 秒回写 NAS', '转保留：完整写回', '腾挪：清盘', '版本号、独占标记'].forEach((t, k) => {
+    el('rect', {x: x + 14, y: y + 62 + k * 34, width: 168, height: 28, rx: 5, fill: '#4f5f78', stroke: '#6b7c96'}, g);
+    el('text', {x: x + 98, y: y + 81 + k * 34, 'text-anchor': 'middle', 'font-size': 12, fill: '#fff'}, g, t);
+  });
+  el('text', {x: x + 98, y: y + 252, 'text-anchor': 'middle', 'font-size': 11.5, fill: '#c9d3e2'}, g, '挂：4 个工作盘 + NAS users/');
+  // 总线:各槽位的工作盘都挂在管家里
+  el('polyline', {points: `116,377 ${x + 60},377 ${x + 60},356`, fill: 'none', stroke: '#8fa3c2', 'stroke-dasharray': '4 3', 'stroke-width': 1.3}, g);
+  el('text', {x: 560, y: 370, 'text-anchor': 'middle', 'font-size': 11, fill: '#5b6b82'}, g, '每个槽位的工作盘同时挂在管家里（只有管家看得到全部）');
+})();
+
+// ---------- 图 3：状态机
+(function () {
+  const g = document.getElementById('stateMachine');
+  const S = {
+    free: [70, 170, '空闲', '#eef1f5', '#7a8596'], used: [370, 80, '在用', '#e7effc', '#2f6fdb'], kept: [700, 170, '保留', '#fbf1dc', '#c98a12'],
+    clean: [370, 290, '清理中', '#efebfd', '#6b4fd8'], off: [700, 330, '停用', '#fbe7e5', '#c0392b']};
+  const W = 150, H = 54;
+  const arrow = (x1, y1, x2, y2, label, lx, ly, curve) => {
+    const d = curve ? `M ${x1} ${y1} Q ${curve[0]} ${curve[1]} ${x2} ${y2}` : `M ${x1} ${y1} L ${x2} ${y2}`;
+    el('path', {d, fill: 'none', stroke: '#4a5566', 'stroke-width': 1.5, 'marker-end': 'url(#ar3)'}, g);
+    label.split('\n').forEach((t, i) => el('text', {x: lx, y: ly + i * 16, 'text-anchor': 'middle', 'font-size': 12.5, fill: '#1b2430'}, g, t));
+  };
+  arrow(150, 165, 360, 108, '分给新人\n从 NAS 载入（1–2 秒）', 232, 102);
+  arrow(520, 95, 765, 168, '闲置 30 分钟 / 点退出\n完整写回、停 opencode', 655, 58, [660, 60]);
+  arrow(705, 205, 470, 136, '本人回来，版本一致\n起 opencode（0.5–1 秒）', 575, 222, [560, 215]);
+  arrow(745, 225, 520, 300, '腾挪：缺空槽位 /\n超 7 天 / 本人去了别处', 690, 268);
+  arrow(370, 300, 150, 215, '网关核对重启次数 +1', 230, 286);
+  arrow(520, 330, 690, 350, '核对失败', 600, 362);
+  Object.values(S).forEach(([x, y, t, f, c]) => {
+    el('rect', {x, y, width: W, height: H, rx: 27, fill: f, stroke: c, 'stroke-width': 2}, g);
+    el('text', {x: x + W / 2, y: y + 34, 'text-anchor': 'middle', 'font-size': 17, 'font-weight': 700, fill: c}, g, t);
+  });
+  el('text', {x: 40, y: 40, 'font-size': 13, fill: '#4a5566'}, g, '部署完成时，所有槽位都是「空闲」');
+  el('text', {x: 370, y: 52, 'font-size': 12, fill: '#7a8596'}, g, '每 60 秒回写 NAS，持有独占标记');
+  el('text', {x: 700, y: 248, 'font-size': 12, fill: '#7a8596'}, g, '');
+})();
+
+// ---------- 图 4：分配流程
+(function () {
+  const g = document.getElementById('flow');
+  const box = (x, y, w, h, t, kind) => {
+    const fill = {q: '#fff', ok: '#e3f4ec', warn: '#fbf1dc', bad: '#fbe7e5', act: '#e7effc'}[kind];
+    const stroke = {q: '#8fa3c2', ok: '#9fd2b8', warn: '#e8c77f', bad: '#f0c4be', act: '#9fbbea'}[kind];
+    el('rect', {x, y, width: w, height: h, rx: kind === 'q' ? 8 : 12, fill, stroke, 'stroke-width': 1.5}, g);
+    t.split('\n').forEach((line, i, arr) => el('text', {x: x + w / 2, y: y + h / 2 + 5 + (i - (arr.length - 1) / 2) * 17, 'text-anchor': 'middle', 'font-size': 13, fill: '#1b2430', 'font-weight': i === 0 ? 600 : 400}, g, line));
+  };
+  const line = (pts, label, lx, ly) => {
+    el('polyline', {points: pts.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#4a5566', 'stroke-width': 1.4, 'marker-end': 'url(#ar4)'}, g);
+    if (label) el('text', {x: lx, y: ly, 'font-size': 12, fill: '#4a5566', 'font-weight': 600}, g, label);
+  };
+  box(380, 14, 240, 40, '工号 U 的请求进来', 'act');
+  box(380, 80, 240, 46, '① U 已在用？', 'q');
+  box(700, 80, 260, 46, '直接转发（0 秒）', 'ok');
+  line([[620, 103], [698, 103]], '是', 650, 96);
+  line([[500, 54], [500, 78]]);
+  box(380, 156, 240, 46, '② U 有保留槽位？', 'q');
+  line([[500, 126], [500, 154]], '否', 508, 144);
+  box(700, 150, 260, 58, '他的 Pod 没别人在用，\n或已没有「无人在用」的 Pod？', 'q');
+  line([[620, 179], [698, 179]], '是', 650, 172);
+  box(700, 238, 260, 52, '回到自己的槽位\n比对版本号 → 起 opencode（0.5–1 秒）', 'ok');
+  line([[830, 208], [830, 236]], '是', 838, 226);
+  line([[960, 179], [985, 179], [985, 340], [622, 340]], '否：挪到空 Pod，旧槽位腾挪', 760, 333);
+  box(380, 318, 240, 46, '③ 有「无人在用」的 Pod？', 'q');
+  line([[500, 202], [500, 316]], '否', 508, 262);
+  box(40, 318, 280, 58, '选空闲槽位最多、保留最少的\n（16 人以内各自独占）', 'act');
+  line([[380, 341], [322, 341]], '是', 345, 334);
+  box(380, 410, 240, 46, '选在用人数最少、\n有空闲槽位的 Pod', 'act');
+  line([[500, 364], [500, 408]], '否', 508, 390);
+  box(380, 492, 240, 46, '选中的 Pod 有空闲槽位？', 'q');
+  line([[500, 456], [500, 490]]);
+  line([[180, 376], [180, 515], [378, 515]]);
+  box(700, 486, 260, 58, '没有：现场腾挪最久没来的保留者\n（多等几秒，极少发生）', 'warn');
+  line([[620, 515], [698, 515]], '否', 650, 508);
+  box(380, 574, 240, 52, '绑定：从 NAS 载入，起 opencode\n（1–2 秒）', 'ok');
+  line([[500, 538], [500, 572]], '是', 508, 560);
+  line([[830, 544], [830, 600], [622, 600]]);
+  box(40, 574, 280, 52, '所有槽位都在用（满额 64）\n→ 提示「当前已满」', 'bad');
+  el('text', {x: 40, y: 560, 'font-size': 12, fill: '#7a8596'}, g, '任何一步发现全部槽位都在用：');
+})();
+
+// ---------- 例子：4 个 Pod × 3 个槽位
+(function () {
+  const steps = [
+    ['部署完成', 'fff fff fff fff', '', '16 个 Pod（这里画 4 个）全部启动，槽位全空'],
+    ['A、B、C、D 依次登录', 'aff aff aff aff', '0 1 2 3', '每人一个「无人在用」的 Pod：各自独占'],
+    ['E 登录', 'aaf aff aff aff', '0', '没有「无人在用」的 Pod → 在用人数最少，同等选编号小的 pool-0，与 A 共用'],
+    ['A 闲置 30 分钟', 'raf aff aff aff', '0', 'A 转保留：完整写回、停 opencode，文件留在槽位'],
+    ['F 登录', 'raf aaf aff aff', '1', '仍没有「无人在用」的 Pod → 在用人数都是 1，选空闲槽位多的 pool-1'],
+    ['B、C、D、E、F 都走了', 'rrf rrf rff rff', '', '全部转保留；每个 Pod 仍有 1 个空槽位'],
+    ['A 回来', 'arf rrf rff rff', '0', 'A 的 pool-0 没有别人在用 → 回自己的槽位，版本一致，0.5–1 秒'],
+    ['G（新人）登录', 'arf rrf raf rff', '2', '有「无人在用」的 pool-1/2/3 → 选保留最少的 pool-2，G 独占在用'],
+    ['H（新人）登录', 'arf rrf raf raf', '3', '无人在用的还有 pool-1、pool-3 → pool-3 保留更少，H 独占在用'],
+    ['后台：保留超过 7 天', 'arf crf raf raf', '1', 'B 超过保留期 → 腾挪：重启容器、清盘，网关核对后回到空闲'],
+  ];
+  const root = document.getElementById('steps');
+  ['步骤', '4 个 Pod 的槽位', '说明'].forEach(h => { const d = document.createElement('div'); d.className = 'h'; d.textContent = h; root.appendChild(d); });
+  const letters = {'A、B、C、D 依次登录': ['A', 'B', 'C', 'D']};
+  const owner = [['', '', ''], ['', '', ''], ['', '', ''], ['', '', '']];
+  const who = [
+    null, [['A'], ['B'], ['C'], ['D']], [['A', 'E'], ['B'], ['C'], ['D']], [['A', 'E'], ['B'], ['C'], ['D']], [['A', 'E'], ['B', 'F'], ['C'], ['D']],
+    [['A', 'E'], ['B', 'F'], ['C'], ['D']], [['A', 'E'], ['B', 'F'], ['C'], ['D']], [['A', 'E'], ['B', 'F'], ['C', 'G'], ['D']], [['A', 'E'], ['B', 'F'], ['C', 'G'], ['D', 'H']],
+    [['A', 'E'], ['B', 'F'], ['C', 'G'], ['D', 'H']]];
+  steps.forEach(([t, st, chg, note], idx) => {
+    const c1 = document.createElement('div'); c1.innerHTML = '<b>' + t + '</b>'; root.appendChild(c1);
+    const c2 = document.createElement('div'); const pods = document.createElement('div'); pods.className = 'pods';
+    st.split(' ').forEach((p, i) => {
+      const pd = document.createElement('div'); pd.className = 'pod';
+      pd.innerHTML = '<div class="n">pool-' + i + '</div>';
+      const sl = document.createElement('div'); sl.className = 'slots';
+      [...p].forEach((s, j) => {
+        const d = document.createElement('div'); d.className = 's ' + s;
+        const names = who[idx] ? who[idx][i] : [];
+        d.textContent = s === 'f' ? '' : (s === 'c' ? '清' : (names[j] || ''));
+        if (chg.split(' ').includes(String(i)) && s !== 'f') {
+          const prev = idx > 0 ? steps[idx - 1][1].split(' ')[i][j] : 'f';
+          if (prev !== s) d.classList.add('new');
+        }
+        sl.appendChild(d);
+      });
+      pd.appendChild(sl); pods.appendChild(pd);
+    });
+    c2.appendChild(pods); root.appendChild(c2);
+    const c3 = document.createElement('div'); c3.textContent = note; root.appendChild(c3);
+  });
+})();
+
+// ---------- 时序图
+function seq(id, actors, msgs, width) {
+  const svg = document.getElementById(id);
+  const W = width || 1000, top = 20, colW = W / actors.length, rowH = 40;
+  const H = top + 60 + msgs.length * rowH + 20;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const defs = el('defs', {}, svg);
+  const mk = el('marker', {id: id + 'm', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto'}, defs);
+  el('path', {d: 'M0,0L10,5L0,10z', fill: '#4a5566'}, mk);
+  const xs = actors.map((a, i) => colW * i + colW / 2);
+  actors.forEach((a, i) => {
+    el('rect', {x: xs[i] - 75, y: top, width: 150, height: 38, rx: 8, fill: a[1], stroke: '#8fa3c2'}, svg);
+    el('text', {x: xs[i], y: top + 24, 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: a[2] || '#1b2430'}, svg, a[0]);
+    el('line', {x1: xs[i], y1: top + 38, x2: xs[i], y2: H - 10, stroke: '#c3ccd8', 'stroke-dasharray': '4 4'}, svg);
+  });
+  msgs.forEach((m, k) => {
+    const y = top + 70 + k * rowH;
+    const [f, t, text, kind] = m;
+    if (f === t) {
+      const x = xs[f];
+      el('rect', {x: x - 6, y: y - 14, width: 12, height: 22, fill: kind === 'warn' ? '#fbf1dc' : '#e7effc', stroke: kind === 'warn' ? '#e8c77f' : '#9fbbea'}, svg);
+      const t = el('text', {x: x + 14, y: y + 2, 'font-size': 12.5, fill: kind === 'warn' ? '#7a5a10' : '#1b2430'}, svg, text);
+      if (x + 14 + t.getComputedTextLength() > W - 8) { t.setAttribute('x', x - 14); t.setAttribute('text-anchor', 'end'); }
+    } else {
+      const x1 = xs[f], x2 = xs[t];
+      el('line', {x1: x1 + (x2 > x1 ? 6 : -6), y1: y, x2: x2 + (x2 > x1 ? -8 : 8), y2: y, stroke: kind === 'back' ? '#7a8596' : '#4a5566', 'stroke-width': 1.5,
+        'stroke-dasharray': kind === 'back' ? '5 4' : '', 'marker-end': `url(#${id}m)`}, svg);
+      el('text', {x: (x1 + x2) / 2, y: y - 7, 'text-anchor': 'middle', 'font-size': 12.5, fill: '#1b2430'}, svg, text);
+    }
+  });
+}
+seq('seq1', [['浏览器', '#fff'], ['网关', '#e7effc', '#123a73'], ['管家', '#3d4b60', '#fff'], ['槽位 slot-2', '#fff'], ['NAS', '#fff']], [
+  [0, 1, '打开页面（SSO 已加工号头）'],
+  [1, 1, '§5：新用户 → 选 pool-5 / slot-2'],
+  [1, 2, 'bind {工号, 槽位 2, 本人 GRMP 令牌}'],
+  [2, 4, '取独占标记，读版本号'],
+  [2, 4, '按文件描述符载入历史（几 MB 约 0.4 秒）'],
+  [2, 3, '写指令：run，随机口令、令牌（只读目录）'],
+  [3, 3, '守护进程起 opencode 与报告服务（约 0.5 秒）'],
+  [3, 2, '回执：就绪', 'back'],
+  [2, 1, '200 {端口 4120, 口令}', 'back'],
+  [1, 3, '转发对话（注入口令），流式'],
+]);
+seq('seq2', [['浏览器', '#fff'], ['网关', '#e7effc', '#123a73'], ['管家', '#3d4b60', '#fff'], ['槽位 slot-2', '#fff'], ['NAS', '#fff']], [
+  [1, 2, '持续上报活跃（每 60 秒）'],
+  [2, 2, '30 分钟没有活跃 → 转保留', 'warn'],
+  [2, 3, '指令：stop（中止进行中的对话）'],
+  [3, 2, '最终快照与回执', 'back'],
+  [2, 4, '完整写回，版本号 +1，释放独占标记'],
+  [2, 2, '槽位记为「保留：张三，版本 43」，文件不动', 'warn'],
+  [0, 1, '……第二天张三回来'],
+  [1, 2, 'resume {张三}'],
+  [2, 4, '取独占标记，读 NAS 版本号 = 43，与槽位一致'],
+  [2, 3, '写指令：run（不用载入）'],
+  [3, 2, '起 opencode，就绪（约 0.5 秒）', 'back'],
+  [1, 3, '转发对话：昨天的会话都在'],
+]);
+seq('seq3', [['网关', '#e7effc', '#123a73'], ['k8s API', '#fff'], ['管家', '#3d4b60', '#fff'], ['槽位 slot-1', '#fff']], [
+  [0, 1, '读 slot-1 当前重启次数 = n'],
+  [0, 2, 'evict {李四}（已写回，版本一致）'],
+  [2, 3, '指令：reset'],
+  [3, 3, '1 号进程退出 → 内核杀掉该容器全部进程', 'warn'],
+  [3, 3, 'kubelet 只重启 slot-1（同 Pod 其他槽位不受影响）'],
+  [2, 2, '清空 slot-1 的工作盘、/dev/shm、指令目录'],
+  [2, 0, '回执：已清空', 'back'],
+  [0, 1, '核对重启次数 = n+1'],
+  [0, 0, '通过 → 槽位回到空闲；失败 → 停用并告警', 'warn'],
+], 1000);
+</script>
+</body>
+</html>

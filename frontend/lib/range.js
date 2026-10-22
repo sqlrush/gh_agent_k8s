@@ -85,6 +85,17 @@ export function windowLabel(w) {
   return a.slice(0, 5) === b.slice(0, 5) ? `${a} – ${b.slice(6)}` : `${a} – ${b}`;
 }
 
+const shortSec = (s) => String(s || '').replace('T', ' ').slice(5, 19);   // MM-DD HH:MM:SS(存档只到分钟时就是 MM-DD HH:MM)
+
+/** 深挖首句里的评估窗口:**带秒**,卡片上的显示仍用 windowLabel。
+ *  2026-10-22 测试:首句写「10-21 18:31 – 18:52」,技能按 18:31:00 选起点,而这份报告的起点快照在 18:31:2x ——
+ *  晚于 18:31:00 不能当起点,退到 18:09 的上一个快照,窗口宽一倍、平均活跃会话被摊薄一半,和卡片上的数对不上。 */
+export function windowPromptLabel(w) {
+  if (!w || !w.begin_ts || !w.end_ts) return '';
+  const a = shortSec(w.begin_ts), b = shortSec(w.end_ts);
+  return a.slice(0, 5) === b.slice(0, 5) ? `${a} – ${b.slice(6)}` : `${a} – ${b}`;
+}
+
 export function label(r) {
   if (!r) return '全部';
   if (r.from && r.to) return `${short(r.from)} – ${short(r.to)}`;

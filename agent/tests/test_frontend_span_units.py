@@ -134,9 +134,10 @@ def test_span_reports_on_the_dashboard():
     assert r3["legendNone"] == "采集失败"
 
     # 深挖首句(2026-10-19 测试):带评估窗口,模型不必再去猜是哪一段;死锁类不搬「贴给我」的证据原文
-    assert "10-17 10:46 – 11:06 这段时间里" in r4["dl"] and "贴给我" not in r4["dl"] and "怎么取" in r4["dl"]
-    assert "10-17 10:46 – 11:06 的时段体检" in r4["sp"] and "2858996927" in r4["sp"]
+    # 首句里的窗口带秒(2026-10-22 测试):只到分钟时技能按 :00 选起点,会退到上一个快照
+    assert "10-17 10:46:29 – 11:06:30 这段时间里" in r4["dl"] and "贴给我" not in r4["dl"] and "怎么取" in r4["dl"]
+    assert "10-17 10:46:29 – 11:06:30 的时段体检" in r4["sp"] and "2858996927" in r4["sp"]
     assert "时段体检" not in r4["plain"] and "健康检查" in r4["plain"]
     assert "快照 2980 → 2987" in r4["wdl"] and "贴" not in r4["wdl"].split("我把日志段")[0]
     assert "WDR 窗口 2026-10-17 10:45 – 2026-10-17 11:08(快照 2980 → 2987)的发现" in r4["wsk"]
-    assert "10-17 10:46 – 11:06 时段体检" in r4["dim"]
+    assert "10-17 10:46:29 – 11:06:30 时段体检" in r4["dim"]

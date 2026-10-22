@@ -4,7 +4,7 @@
 import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { esc, num, split, fmtMs, fmtSec, fmtInt, cn, stamp } from '../lib/fmt.js';
 import { lk, instName } from '../lib/ui.js';
-import { loadInRange, windowLabel } from '../lib/range.js';
+import { loadInRange, windowLabel, windowPromptLabel } from '../lib/range.js';
 import { DEADLOCK_CODES, deadlockPrompt } from '../lib/prompts.js';
 
 // 维度名 = gaussdb-health/scripts/model.py 的 DIM_* 常量(契约守卫逐个核对,技能改名这里会先红)。
@@ -59,7 +59,7 @@ export const keyFig = (d) => (d.available === false ? null : (KEYFIG[d.dimension
 
 /** 深挖首句:只放这条发现的数据;m(本页模型)给了且是时段体检时带上评估窗口(见 lib/prompts.js)。 */
 export const fPrompt = (f, m) => {
-  const span = m && m.span && m.win ? m.win : '';
+  const span = m && m.span && m.win ? (m.winq || m.win) : '';
   const src = span ? `${span} 的时段体检` : '健康检查';
   if (DEADLOCK_CODES.has(f.code)) return deadlockPrompt(span ? `${span} 这段时间里` : '健康检查发现', f);
   return f.sql_id
@@ -67,7 +67,7 @@ export const fPrompt = (f, m) => {
     : `请针对${src}发现 ${f.code}(${f.metric}=${f.value},阈值 ${f.threshold})做深入分析:${f.evidence}`;
 };
 /** 维度深挖首句。 */
-export const dimPrompt = (d, m) => `请深入分析${m && m.span && m.win ? `${m.win} 时段体检` : '健康检查'}的「${title(d.dimension)}」维度:${d.headline || ''}`;
+export const dimPrompt = (d, m) => `请深入分析${m && m.span && m.win ? `${m.winq || m.win} 时段体检` : '健康检查'}的「${title(d.dimension)}」维度:${d.headline || ''}`;
 
 export const LOOKBACK = '回看不了';
 /** 没采到的维度在图例里怎么称呼:全是回看不了 / 全是采集失败 / 两种都有。 */
@@ -122,7 +122,8 @@ export function model(key, d, all, file) {
   ];
   return { ok: true, key, d, idx, all, pos, entry: idx[pos] || null, prev: pos > 0 ? idx[pos - 1] : null,
     findings, dims, extra, checks, allNa, level: allNa ? null : d.overall | 0, subs: d.sub_skills || [],
-    span: mode === 'span', win: mode === 'span' ? windowLabel(d.window) : '' };
+    span: mode === 'span', win: mode === 'span' ? windowLabel(d.window) : '',
+    winq: mode === 'span' ? windowPromptLabel(d.window) : '' };   // 深挖首句用,带秒
 }
 
 /** 普通风格的健康检查页。 */

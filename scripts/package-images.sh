@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# 离线交付包:把**五个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
+# 离线交付包:把**四个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
 #   gaussdb-agent-runtime / -kb-import   每用户一个的业务 Pod
 #   gaussdb-agent-gateway                接入网关(全体共用)
 #   gaussdb-agent-frontend               四个大盘的静态页面(全体共用)
-#   opengauss:7.0.0-RC1                  知识库向量存储的基础镜像
-# 后三个漏了的话,客户拿到包也部署不起来 —— 网关起不来、大盘 502、向量库拉不到镜像,
-# 而现场往往没有外网可以补拉。
+# 后两个漏了的话,客户拿到包也部署不起来 —— 网关起不来、大盘 502,而现场往往没有外网可以补拉。
+# (原第 5 个 openGauss 向量库镜像 2026-10-23 下线:知识库索引改为 NAS 上的 index/store.sqlite。)
 # 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64]
 #   前提: 镜像已构建——本机架构用 <TAG>,另一架构用 <TAG>-<arch>(scripts/build-images.sh <TAG>-<arch> --platform linux/<arch>)。
 set -euo pipefail
@@ -14,9 +13,6 @@ TAG=${1:?tag}; shift || true
 ARCHS="amd64,arm64"
 while [ $# -gt 0 ]; do case "$1" in --arch) ARCHS=$2; shift 2 ;; *) echo "unknown $1" >&2; exit 2 ;; esac; done
 HOST_ARCH=$(docker info --format '{{.Architecture}}' 2>/dev/null | sed 's/aarch64/arm64/; s/x86_64/amd64/')
-# 向量库的基础镜像。与 k8s/base/vectordb.yaml 里的版本必须一致 —— 不一致的话
-# 客户载入的是一个版本、清单要拉的是另一个版本,而现场没有外网可以补。
-VECTORDB_IMAGE=${VECTORDB_IMAGE:-opengauss/opengauss:7.0.0-RC1}
 # 包名:标签本身以 agent- 开头时不再重复(gaussdb-agent-v0.4-…),否则 gaussdb-agent-<TAG>
 case "$TAG" in agent-*) PKG="gaussdb-$TAG" ;; *) PKG="gaussdb-agent-$TAG" ;; esac
 DIST="$HERE/dist/$PKG"
@@ -37,17 +33,6 @@ for ARCH in ${ARCHS//,/ }; do
     printf '%-10s %-40s id=%s size=%sMB\n' "$ARCH" "$IMG" "$(docker image inspect "$IMG" --format '{{.Id}}' | cut -c8-19)" \
       "$(docker image inspect "$IMG" --format '{{.Size}}' | awk '{printf "%d", $1/1048576}')" >> "$DIST/MANIFEST.txt"
   done
-  # 向量库用的是上游 openGauss 镜像,不是我们构建的 —— 现场没外网时必须随包带走。
-  # 本机没有就先 docker pull(交叉架构那一份用 --platform 拉)。
-  VECDB="$VECTORDB_IMAGE"
-  if ! docker image inspect "$VECDB" >/dev/null 2>&1; then
-    echo "  本机没有 $VECDB,尝试拉取(需要一次外网)" >&2
-    docker pull --platform "linux/$ARCH" "$VECDB" >/dev/null 2>&1 \
-      || { echo "拉不到 $VECDB —— 请先在有外网的机器上 docker pull 再导入" >&2; exit 1; }
-  fi
-  IMAGES="$IMAGES $VECDB"
-  printf '%-10s %-40s id=%s size=%sMB\n' "$ARCH" "$VECDB" "$(docker image inspect "$VECDB" --format '{{.Id}}' | cut -c8-19)" \
-    "$(docker image inspect "$VECDB" --format '{{.Size}}' | awk '{printf "%d", $1/1048576}')" >> "$DIST/MANIFEST.txt"
   OUT="$DIST/$PKG-$ARCH.tar.gz"
   # shellcheck disable=SC2086
   docker save $IMAGES | gzip -6 > "$OUT"

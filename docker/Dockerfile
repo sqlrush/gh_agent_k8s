@@ -25,12 +25,17 @@ RUN mkdir -p /opt/agent/cache/opencode/bin \
     && curl -fsSL -o /opt/agent/cache/opencode/models.json https://models.dev/api.json \
     && cp /usr/bin/rg /opt/agent/cache/opencode/bin/rg
 
-# Python 依赖(白名单三项;psycopg2-binary 与 psycopg2 同模块名)
+# Python 依赖(agent/requirements.txt 那四项;psycopg2-binary 与 psycopg2 同模块名)
+# sqlite-vec:知识库向量检索(2026-10-23 起索引是 NAS 上的 index/store.sqlite,原 openGauss 向量库下线)。
+#   runtime 与 kb-import 都要:一个只读查,一个写索引。装完当场加载一次 —— 镜像里的 Python 不许加载扩展、
+#   或轮子架构不对时构建就失败,而不是上线后知识库悄悄没了向量召回。
 # 装完依赖就把 pip 连同 ensurepip 自带的 pip 轮子删掉:运行时用不到,而 trivy 报的 python 包漏洞全部来自
 # pip 自带的 vendored msgpack / pkg_resources(setuptools),不是我们的依赖
-RUN pip install --no-cache-dir "psycopg2-binary==2.9.10" "cryptography>=41" "PyYAML>=6" \
+RUN pip install --no-cache-dir "psycopg2-binary==2.9.10" "cryptography>=41" "PyYAML>=6" "sqlite-vec==0.1.9" \
     && pip uninstall -y pip && rm -rf /usr/local/lib/python3.12/ensurepip/_bundled \
-    && python3 -c "import psycopg2, cryptography, yaml"
+    && python3 -c "import psycopg2, cryptography, yaml, sqlite3, sqlite_vec; c = sqlite3.connect(':memory:'); \
+c.enable_load_extension(True); sqlite_vec.load(c); \
+print('sqlite', sqlite3.sqlite_version, 'sqlite-vec', c.execute('select vec_version()').fetchone()[0])"
 
 # 技能代码:用仓库自己的安装脚本装进 opencode 的技能目录(common/、scripts/registry/ 一起)
 COPY agent/ /opt/agent/src/

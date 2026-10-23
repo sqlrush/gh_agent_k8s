@@ -26,8 +26,6 @@ spec:
       ports: [{port: 8781, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS);客户环境换成实际地址段
       ports: [{port: 443, protocol: TCP}]
-    - to: [{podSelector: {matchLabels: {app: vectordb}}}]   # 知识库向量库(只读用户)
-      ports: [{port: 5432, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:runtime 也要算**查询**向量
       ports: [{port: 11434, protocol: TCP}]
 ---
@@ -50,8 +48,6 @@ spec:
       ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS)
       ports: [{port: 443, protocol: TCP}]
-    - to: [{podSelector: {matchLabels: {app: vectordb}}}]   # 知识库向量库(读写用户)
-      ports: [{port: 5432, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:索引时算文档向量
       ports: [{port: 11434, protocol: TCP}]
 ---
@@ -79,8 +75,6 @@ spec:
       ports: [{port: 8781, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS)
       ports: [{port: 443, protocol: TCP}]
-    - to: [{podSelector: {matchLabels: {app: vectordb}}}]   # 知识库向量库(只读用户)
-      ports: [{port: 5432, protocol: TCP}]
     - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:算查询向量
       ports: [{port: 11434, protocol: TCP}]
 ---

@@ -34,25 +34,24 @@
                                          └─────┬─────┴──────────────────────┘
                                                ▼
                          NAS(RWX)   users/<工号>/  admins/<工号>/  kb/(共享)
-                                         +
-                         vectordb(openGauss 7 DataVec,知识库向量检索,全体共用)
+                         知识库索引就是 kb/index/store.sqlite 一个文件(SQLite + sqlite-vec),
+                         kb-import 写,runtime 与池化沙箱只读 —— 没有单独的向量库组件
 ```
 
-### 0.2 五个镜像
+### 0.2 四个镜像
 
 | 镜像 | 形态 | 内容 |
 |---|---|---|
-| `gaussdb-agent-runtime` | **每个用户一个** Pod | 17 个诊断技能 + 知识库只读查询;另开一个只读端口把本人的技能报告端给大盘 |
-| `gaussdb-agent-kb-import` | **每个知识库管理员一个** Pod | 知识库导入与入库前标准化,共 3 个技能 |
+| `gaussdb-agent-runtime` | **每个用户一个** Pod | 17 个诊断技能 + 知识库只读查询(只读打开 `kb/index/store.sqlite`);另开一个只读端口把本人的技能报告端给大盘 |
+| `gaussdb-agent-kb-import` | **每个知识库管理员一个** Pod | 知识库导入与入库前标准化,共 3 个技能;`kb.py index` 在这里写知识库索引 |
 | `gaussdb-agent-gateway` | **全体共用**,2 副本,常驻 | 认身份、建/收 Pod、反向代理 |
 | `gaussdb-agent-frontend` | 全体共用,1 副本,常驻 | 四个大盘(健康检查 / Top SQL / WDR / 知识库)的**静态页面**。不读任何人的数据:页面在浏览器里经网关向用户自己的 Pod 取报告 |
-| `opengauss/opengauss:7.0.0-RC1` | 全体共用,1 副本 | 知识库向量存储(DataVec)。贵方已有高斯 7 实例可不部署 |
 
 ### 0.3 我方交付 / 贵方提供 —— 一页看清
 
 | 项 | 谁做 | 说明 |
 |---|---|---|
-| 四个自建镜像(另有公开的 openGauss 基础镜像) | **我方** | 发布在 GHCR(私有),由我方按人开通后贵方用自己的 GitHub 账号拉取;或走离线压缩包。均含 amd64 与 aarch64。见部署手册 §1.1 |
+| 四个镜像 | **我方** | 发布在 GHCR(私有),由我方按人开通后贵方用自己的 GitHub 账号拉取;或走离线压缩包。均含 amd64 与 aarch64。见部署手册 §1.1 |
 | K8s 清单、脚本、全部文档 | **我方** | **公开仓库**,不需凭据:github.com/sqlrush/gh_agent_k8s |
 | 按工号建/收 Pod、反代、回收 | **我方**(gateway) | 也可只用控制 API,接贵方已有调度器 |
 | 身份认证(SSO 本身) | **贵方** | 我方只要一个稳定工号,见 §2 |
@@ -260,15 +259,12 @@ for f in gaussdb-agent-*-<arch>.tar.gz; do docker load -i "$f"; done
 # 2) 基础资源
 kubectl apply -k k8s/base
 
-# 3) 四个 Secret(样例见 k8s/base/*.example.yaml,**不要**把真实值提交进版本库)
+# 3) Secret(样例见 k8s/base/*.example.yaml,**不要**把真实值提交进版本库)
 kubectl -n gaussdb-agent create secret generic model-api \
     --from-literal=MODEL_API_KEY='<模型服务密钥>'
 kubectl -n gaussdb-agent create secret generic gateway-auth \
     --from-literal=TRUST_SECRET="$(openssl rand -hex 24)" \
     --from-literal=ADMIN_TOKEN="$(openssl rand -hex 24)"
-kubectl -n gaussdb-agent create secret generic vectordb-auth \
-    --from-literal=GS_PASSWORD='<超级用户口令>' \
-    --from-literal=KB_RW='<读写口令>' --from-literal=KB_RO='<只读口令>'
 kubectl -n gaussdb-agent create secret generic grmp-sm2 \
     --from-file=GRMP_SM2_PRIVATE_KEY=<SM2 私钥文件>      # 中间件开了签名校验才需要
 
@@ -276,8 +272,8 @@ kubectl -n gaussdb-agent create secret generic grmp-sm2 \
 kubectl -n gaussdb-agent edit configmap agent-config
 kubectl -n gaussdb-agent edit configmap gateway-config
 
-# 5) 向量库初始化(建库、建读写与只读两个用户、自检 DataVec)
-bash scripts/k8s/init-vectordb.sh
+# 5) 知识库:按需编辑 NAS 上的 kb/kb.yaml(embedding 端点,见 §6.3)。没有向量库要初始化 ——
+#    索引 kb/index/store.sqlite 由管理员导入时 kb.py index 建出来
 
 # 6) NetworkPolicy:把占位网段改成实际地址
 kubectl -n gaussdb-agent edit networkpolicy runtime-policy kb-import-policy gateway-policy
@@ -396,23 +392,26 @@ GRMP_USER_ID_PARAM:  "userId"      # 或放报文顶层
 | 层 | 技术 | 缺席的后果 |
 |---|---|---|
 | 文件 | Markdown + YAML 三元组 + 词法检索 | 必需 |
-| 向量 | 高斯 DataVec / PG pgvector（**同一套 SQL**） | **真会漏**：换了说法的查询召回不到 |
+| 向量 + 词法索引 | `kb/index/store.sqlite`（SQLite + sqlite-vec，**一个文件，不用部署**） | 还没建索引时退回文件模式（词法照常）；**缺向量才真会漏**：换了说法的查询召回不到 |
 | 图 | Neo4j | **无损失**：自动退回读 `graph/*.yaml`，答案一样 |
 
-**真相永远是 `cases/` 下的文件**，两个库都是可随时重建的派生索引。
+**真相永远是 `cases/` 下的文件**，索引文件与图库都是可随时重建的派生索引（`kb.py index --rebuild`）。
 
-### 6.2 向量库
+### 6.2 向量库：知识库目录里的一个文件
 
-我方提供 `openGauss 7.0.0-RC1` 的 StatefulSet（`vector` 类型是 7.0 内核自带，不用装扩展）。
-贵方已有高斯 7 实例的话，可以不部署，把 `kb.yaml` 的 `store.pg` 指过去即可。
+2026-10-23 起，向量 + 词法索引是 NAS 上知识库目录里的 `kb/index/store.sqlite`（SQLite + sqlite-vec 扩展，
+已装进 runtime 与 kb-import 镜像），原来的 openGauss 向量库组件下线：**不需要数据库实例、库用户、口令、Secret 与出网规则**。
 
-**读写分两个库用户**：`kb_rw` 给 kb-import，`kb_ro` 给 runtime。
-原因：runtime 对知识库是只读挂载，给它读写库用户等于绕开那道门
-（用户可让模型在自己 Pod 里读出环境变量拿到口令）。
+- **只有 kb-import 写**：`kb.py index` 持知识库写锁，在同目录的临时副本上写、写完原子替换；
+- **runtime 与池化沙箱只读**：以只读方式打开（`mode=ro&immutable=1`），对知识库的只读挂载照样能用，任何时刻读到的都是完整的一份；
+- 词法是我方代码在索引里的倒排上算 BM25（与文件模式同一套算式）；向量用 sqlite-vec 的 `vec_distance_cosine` **精确**检索，几万块以内够用；
+- 还没建索引或索引打不开时，状态行写「模式：文件（原因）」，检索直接在 `kb/` 文件上做，只少向量召回。
+
+读写分离靠挂载：runtime 对 `kb/` 是只读挂载，没有任何口令可泄露。从带向量库的旧版本升级见部署手册 §10.6。
 
 ### 6.3 embedding 端点 —— 贵方必须提供
 
-**这是硬依赖。** 向量库有了但没有 embedding 端点，向量层一样用不起来。
+**这是硬依赖。** 索引文件不用部署，但没有 embedding 端点，向量层一样用不起来。
 
 请确认三件事：
 
@@ -426,13 +425,12 @@ GRMP_USER_ID_PARAM:  "userId"      # 或放报文顶层
 配置在 NAS 上的 `kb/kb.yaml`（全体共用一份）：
 
 ```yaml
-store:
-  pg: {host: vectordb, port: 5432, database: kb, user: kb_ro, credential: kb-pg,
-       user_env: KB_PG_USER, password_env: KB_PG_PASSWORD}
 embeddings: {source: url, base_url: http://<贵方端点>/v1, model: bge-m3, dims: 1024}
 ```
 
-> **换 embedding 模型必须重建索引。** 同维度换模型而不重建，库里会混着两套向量空间，
+不需要 `store.pg` 段（旧版本留下的会被忽略，`kb.py index` / `kb.py health` 提示可以删）。
+
+> **换 embedding 模型必须重建索引。** 同维度换模型而不重建，索引里会混着两套向量空间，
 > 相似度失去意义而覆盖率仍显示 100%。我方已加闸：换了模型不加 `--rebuild` 直接拒绝。
 
 ---
@@ -574,7 +572,7 @@ opencode 的 Web 界面里，**在空输入框上按回车 = 中断当前回合*
 | 页面「已中断」 | §8.3；网关日志搜 `cancel` |
 | Pod 被意外回收 | 闲置口径（§7.3）；`kubectl get deploy runtime-<工号> -o jsonpath='{.metadata.annotations}'` |
 | 丢了对话 | Pod 日志搜「非优雅」；NAS 上找 `.unclean-*` 快照（§7.4） |
-| 知识库检索不准 | `kb.py health` 看模式；纯文件模式无语义召回（§6.3） |
+| 知识库检索不准 | `kb.py health` 看模式与「向量:」：还没建索引（文件模式）或 kb.yaml 没配 embeddings 时只有关键词召回（§6.3） |
 
 网关自身：`kubectl -n gaussdb-agent logs -l app=agent-gateway`
 用户 Pod：`kubectl -n gaussdb-agent logs deploy/runtime-<工号>`

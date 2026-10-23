@@ -23,5 +23,5 @@ __pycache__/
 docker/vendor/
 dist/
 
-# 第 5 个镜像构建时下载的二进制包与 gosu(scripts/build-vectordb-image.sh)
+# 已下线的知识库向量库镜像(2026-10-23)当年构建时下载的 openGauss 二进制包与 gosu;本机留着的可以直接删
 docker/vectordb/pkg/

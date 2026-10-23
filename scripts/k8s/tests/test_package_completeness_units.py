@@ -44,23 +44,18 @@ def test_builder_and_packager_agree():
     assert built == set(loop.group(1).split())
 
 
-def test_vectordb_base_image_is_packaged_and_version_matches():
-    """向量库用的是上游 openGauss 镜像,不是我们构建的,**更容易被漏**。
+def test_the_retired_vector_db_is_gone_from_the_package_and_the_manifests():
+    """2026-10-23 知识库向量库(openGauss vectordb)下线,索引改为 NAS 上的 index/store.sqlite。
 
-    而且打包脚本里的版本必须与清单里的一致 —— 不一致的话客户载入的是一个版本、
-    清单要拉的是另一个版本,现场没有外网可以补。
+    打包脚本还带着它,客户就得为一个不再部署的组件多载一个几百 MB 的镜像;清单里还留着它,
+    `kubectl apply -k` 会把它重新建出来、继续占一块 20Gi 的盘。两处都不能有。
     """
     pack = _PACKAGER.read_text(encoding="utf-8")
-    m = re.search(r"VECTORDB_IMAGE=\$\{VECTORDB_IMAGE:-([^\}]+)\}", pack)
-    assert m, "package-images.sh 没有导出向量库基础镜像"
-    packaged = m.group(1).strip()
-
-    manifest = (_ROOT / "k8s" / "base" / "vectordb.yaml").read_text(encoding="utf-8")
-    used = re.search(r"^\s*image:\s*(\S+opengauss\S*)", manifest, re.MULTILINE)
-    assert used, "vectordb.yaml 里找不到 openGauss 镜像"
-    # 清单里可能带内网仓库前缀,只比对「名字:标签」这一段
-    assert used.group(1).rsplit("/", 1)[-1] == packaged.rsplit("/", 1)[-1], \
-        "打包的是 %s,清单要的是 %s" % (packaged, used.group(1))
+    assert "VECTORDB_IMAGE" not in pack and "opengauss/opengauss" not in pack
+    assert not (_ROOT / "k8s" / "base" / "vectordb.yaml").exists()
+    for f in list((_ROOT / "k8s").rglob("*.yaml")):
+        text = f.read_text(encoding="utf-8")
+        assert "app: vectordb" not in text and "vectordb-auth" not in text and "KB_PG_" not in text, f
 
 
 def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():

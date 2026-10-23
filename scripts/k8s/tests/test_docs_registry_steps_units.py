@@ -43,7 +43,8 @@ def test_registry_steps_produce_valid_image_names(doc, tmp_path):
     base = tmp_path / "k8s" / "base"
     images = re.findall(r"^\s*image:\s*(\S+)", "\n".join(
         p.read_text(encoding="utf-8") for p in base.glob("*.yaml")), re.MULTILINE)
-    assert len(images) >= 3
+    # base 里有镜像的是网关与大盘前端两个(原第三个 openGauss 向量库 2026-10-23 下线;用户容器的镜像由网关拼名字)
+    assert len(images) >= 2
     for img in images:
         assert img.startswith(_REG + "/"), "%s:%s 没指向内网仓库" % (doc, img)
         assert img.rsplit("/", 1)[-1].count(":") == 1, "%s:%s 不是合法的镜像名" % (doc, img)

@@ -97,5 +97,5 @@
 | Web 界面 | 第一版用 opencode 自带界面（已验证）；deepseek-harness 前端改造看客户要求 |
 | NFS 压测与 `mountOptions` 生效 | 客户环境（第 4 节） |
 | NetworkPolicy 在客户 CNI 上生效 | 客户环境；本仓库在 OrbStack 上验过策略生效 |
-| 向量库 / 图谱库 Pod | 未做；runtime 走知识库文件模式，与带库模式首选结果一致 |
+| 向量库 / 图谱库 Pod | 向量库不需要 Pod：2026-10-23 起向量 + 词法索引是 NAS 上的 `kb/index/store.sqlite`（SQLite + sqlite-vec，kb-import 写、runtime 只读）；图谱库未做，路径走 `graph/*.yaml`，与带图库时首选结果一致 |
 | 中间件签名口径 | 代码与本地对照（mock）已就绪、全部可配；以下项需中间件方书面确认，任一项不符表现为全部请求被拒：① Signature 是 SM2 签名（SM3 摘要）还是「公钥加密」；② userId（国标默认 `1234567812345678`，OpenSSL 默认空串）；③ 原文拼法（`{path}+{timestamp}` 里的 `+` 是否字面、path 是否含完整路径 / 查询串）；④ 时间戳单位与允许偏差；⑤ 签名编码（hex / base64）与格式（raw / DER）；⑥ 私钥文件格式；⑦ 生效日期与兼容期；⑧ 校验失败的响应形态。建议中间件方提供一条可通过的样例请求或其校验代码 |

@@ -92,6 +92,9 @@ docker run -d --name smoke-ki "${RO[@]}" -e GSDB_USER_ID=$U -e POD_NAME=kb-impor
 wait_ready 15098 || { out=$(docker logs smoke-ki 2>&1); bad "kb-import 40 秒内没就绪"; }
 out=$(X smoke-ki "ls $S | grep gaussdb- | tr '\n' ' '; python3 $S/gaussdb-kb-import/scripts/kb.py validate --kb /nas/kb | tail -1; python3 $S/gaussdb-kb/scripts/kb.py health | head -3")
 check "kb-import 只有三个 kb skill,validate 可跑,health 不报只读"  'has "gaussdb-kb-import" && has "gaussdb-kb-init" && ! has "gaussdb-health" && ! has "知识库只读"'
+# 知识库索引(2026-10-23 起是 NAS 上的 index/store.sqlite,原 openGauss 向量库下线):导入容器建,建完检索走索引
+out=$(X smoke-ki "python3 $S/gaussdb-kb-import/scripts/kb.py index --kb /nas/kb 2>&1 | tail -4; ls /nas/kb/index/store.sqlite; python3 $S/gaussdb-kb/scripts/kb.py health --kb /nas/kb | head -1")
+check "kb-import 建出 index/store.sqlite,检索切到向量库模式"     'has "store.sqlite" && has "模式:向量库"'
 
 # 入库前标准化:只在导入镜像里;runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
 out=$(X smoke-ki "printf '%s\n' '# 偶现单条 update 慢' '2026-01-08 CBST 库,单条 update 耗时 3s。' > /tmp/t.txt; python3 $S/gaussdb-kb-init/scripts/kb_init.py scan /tmp/t.txt --kb /nas/kb; echo rc=\$?")

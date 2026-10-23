@@ -37,9 +37,6 @@ spec:
         - {name: GRMP_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: grmp-token, key: GRMP_AUTH_TOKEN}}}
         - {name: MODEL_API_KEY, valueFrom: {secretKeyRef: {name: model-api, key: MODEL_API_KEY}}}
         - {name: GRMP_SM2_PRIVATE_KEY, valueFrom: {secretKeyRef: {name: grmp-sm2, key: GRMP_SM2_PRIVATE_KEY, optional: true}}}
-        # 知识库向量库:只读用户(与 runtime 相同)
-        - {name: KB_PG_USER, value: kb_ro}
-        - {name: KB_PG_PASSWORD, valueFrom: {secretKeyRef: {name: vectordb-auth, key: KB_RO, optional: true}}}
       envFrom:
         - configMapRef: {name: agent-config}
       volumeMounts:

@@ -212,6 +212,13 @@ def cmd_health(args: argparse.Namespace) -> int:
         if readonly:
             print("知识库只读  : 是(本环境不能导入;由知识库管理员在导入环境维护)")
         print(f"收件目录  : {d['inbox']}(用户要导入自己电脑上的文件时,先上传到这里再 ingest)")
+        try:
+            legacy = kbconfig.load(kb).store.legacy_pg
+        except kbconfig.KbConfigError:
+            legacy = False
+        if legacy:
+            print("[warn ] kb.yaml 里的 store.pg 已不再使用(2026-10-23 起向量库改为知识库目录里的 index/store.sqlite,"
+                  "不用配),由知识库管理员删掉这一段即可")
         for w in file_warnings:
             print(f"[warn ] 文件:{w}")
         state = d["index_state"]

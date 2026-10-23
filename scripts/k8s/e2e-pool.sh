@@ -49,7 +49,7 @@ K get secret sandbox-control >/dev/null 2>&1 || K create secret generic sandbox-
 K get secret grmp-token >/dev/null 2>&1 || K create secret generic grmp-token --from-literal=GRMP_AUTH_TOKEN="e2e-shared-token" >/dev/null
 kubectl kustomize "$HERE/k8s/local" | "$PY" -c 'import sys, yaml
 docs = [d for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind") == "NetworkPolicy"
-        and d["metadata"]["name"] in ("sandbox-policy", "vectordb-policy")]
+        and d["metadata"]["name"] == "sandbox-policy"]
 print(yaml.safe_dump_all(docs))' | K apply -f - >/dev/null
 check "sandbox-policy 已就位" K get networkpolicy sandbox-policy -o name
 K delete pod -l role=sandbox --wait=true >/dev/null 2>&1

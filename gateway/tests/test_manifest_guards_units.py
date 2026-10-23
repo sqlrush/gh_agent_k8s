@@ -151,7 +151,7 @@ def test_runtime_exposes_reports_port_and_policies_allow_it():
     np = (_ROOT / "k8s" / "base" / "networkpolicy.yaml").read_text(encoding="utf-8")
     runtime_pol = np[np.index("name: runtime-policy"):np.index("name: kb-import-policy")]
     assert "4097" in runtime_pol.split("egress:")[0], "runtime-policy 入站没放行 4097"
-    gw_pol = np[np.index("name: gateway-policy"):np.index("name: vectordb-policy")]
+    gw_pol = np[np.index("name: gateway-policy"):np.index("name: frontend-policy")]
     assert "4097" in gw_pol.split("egress:")[1], "gateway-policy 出站没到 4097"
     ki = (_ROOT / "k8s" / "templates" / "kb-import.yaml").read_text(encoding="utf-8")
     assert "4097" not in ki, "kb-import 没有大盘,不开报告端口"

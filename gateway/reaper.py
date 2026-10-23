@@ -35,7 +35,7 @@ _PREFIXES = ("runtime-", "kb-import-")
 
 
 def parse(deployment_name: str) -> Optional[Tuple[str, str]]:
-    """Deployment 名 → (形态, 工号)。不是用户 Pod(vectordb / gateway 之类)返回 None。"""
+    """Deployment 名 → (形态, 工号)。不是用户 Pod(gateway / frontend 之类)返回 None。"""
     for p in _PREFIXES:
         if deployment_name.startswith(p) and len(deployment_name) > len(p):
             return p[:-1], deployment_name[len(p):]

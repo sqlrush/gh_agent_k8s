@@ -31,13 +31,9 @@ docker pull ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.3.1-oc1.18.27
 ```
 
 ```bash
-docker pull opengauss/opengauss:7.0.0-RC1
+docker images | grep gaussdb-agent
 ```
-
-```bash
-docker images | grep -E "gaussdb-agent|opengauss"
-```
-> 5 行。
+> 4 行。
 
 ---
 
@@ -61,7 +57,6 @@ docker tag ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.3.1-oc1.18.27 $REG/gau
 docker tag ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.3.1-oc1.18.27 $REG/gaussdb-agent-kb-import:agent-v1.3.1-oc1.18.27
 docker tag ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.3.1-oc1.18.27 $REG/gaussdb-agent-gateway:agent-v1.3.1-oc1.18.27
 docker tag ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.3.1-oc1.18.27 $REG/gaussdb-agent-frontend:agent-v1.3.1-oc1.18.27
-docker tag opengauss/opengauss:7.0.0-RC1 $REG/opengauss:7.0.0-RC1
 ```
 
 ```bash
@@ -69,14 +64,12 @@ docker push $REG/gaussdb-agent-runtime:agent-v1.3.1-oc1.18.27
 docker push $REG/gaussdb-agent-kb-import:agent-v1.3.1-oc1.18.27
 docker push $REG/gaussdb-agent-gateway:agent-v1.3.1-oc1.18.27
 docker push $REG/gaussdb-agent-frontend:agent-v1.3.1-oc1.18.27
-docker push $REG/opengauss:7.0.0-RC1
 ```
 > 每条最后一行是 `digest: sha256:...`。
 
 ```bash
 sed -i "s#image: gaussdb-agent-#image: $REG/gaussdb-agent-#" k8s/base/gateway.yaml k8s/base/frontend.yaml
 sed -i "s#USER_IMAGE_REGISTRY: \"\"#USER_IMAGE_REGISTRY: \"$REG\"#" k8s/base/configmap-gateway.yaml
-sed -i "s#image: opengauss/opengauss:#image: $REG/opengauss:#" k8s/base/vectordb.yaml
 ```
 
 ```bash
@@ -140,16 +133,12 @@ TRUST=$(openssl rand -hex 24)
 kubectl -n gaussdb-agent create secret generic gateway-auth --from-literal=TRUST_SECRET="$TRUST" --from-literal=ADMIN_TOKEN="$(openssl rand -hex 24)"
 echo "$TRUST"
 ```
-> 把这串 48 位字符**抄下来**，第 10 步要用。
-
-```bash
-kubectl -n gaussdb-agent create secret generic vectordb-auth --from-literal=GS_PASSWORD="$(openssl rand -base64 12 | tr -d '/+=')Aa1@" --from-literal=KB_RW="$(openssl rand -base64 12 | tr -d '/+=')Rw1@" --from-literal=KB_RO="$(openssl rand -base64 12 | tr -d '/+=')Ro1@"
-```
+> 把这串 48 位字符**抄下来**，第 9 步要用。
 
 ```bash
 kubectl -n gaussdb-agent get secret
 ```
-> `model-api`、`gateway-auth`、`vectordb-auth` 三行。
+> `model-api`、`gateway-auth` 两行。
 
 ---
 
@@ -180,21 +169,12 @@ kubectl -n gaussdb-agent edit configmap gateway-config
 
 ---
 
-## 8. 启动数据库
-
-```bash
-kubectl -n gaussdb-agent rollout status statefulset/vectordb --timeout=600s
-```
-> 卡住 1–5 分钟是正常的。最后出现 `partitioned roll out complete: 1 pods`。
-
-```bash
-bash scripts/k8s/init-vectordb.sh
-```
-> 出现 `✓ vector 类型在`、`kb 库已建`、`kb_ro 建表应被拒`。
+> 知识库**不用单独起数据库**：向量 + 词法索引是 NAS 上的 `kb/index/store.sqlite`（SQLite + sqlite-vec，已装在镜像里），
+> 管理员在导入容器里导入时自动建（`kb.py index`），诊断容器只读。建索引之前检索走文件模式，不影响使用。
 
 ---
 
-## 9. 启动网关
+## 8. 启动网关
 
 ```bash
 kubectl -n gaussdb-agent rollout restart deploy/gateway
@@ -213,7 +193,7 @@ kubectl -n gaussdb-agent rollout status deploy/frontend --timeout=180s
 
 ---
 
-## 10. 开通用户并验证
+## 9. 开通用户并验证
 
 ```bash
 read -rs -p "该工号的 GRMP 令牌: " V && echo

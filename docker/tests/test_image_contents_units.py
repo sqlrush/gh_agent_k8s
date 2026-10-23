@@ -124,3 +124,18 @@ def test_image_decoder_site_packages_matches_the_base_python():
     """拷到的 site-packages 路径里写死了 python3.12:基础镜像升 Python 时这里必须一起改,否则 import 不到。"""
     assert re.search(r"^FROM python:3\.12-", _DOCKERFILE.read_text(encoding="utf-8"), re.MULTILINE)
     assert re.search(r"^FROM python:3\.12-\S+ AS imgdeps$", _DOCKERFILE.read_text(encoding="utf-8"), re.MULTILINE)
+
+
+def test_sqlite_vec_is_in_both_images_with_the_pinned_version():
+    """2026-10-23 知识库向量库改为 index/store.sqlite + sqlite-vec:runtime 查、kb-import 写,两个镜像都要有,
+    且必须是 agent/requirements.txt 锁的那个版本(未到 1.0,版本间行为不保证一致)。
+
+    装在 base 段,构建期当场 load 一次:Python 不许加载扩展或轮子架构不对时,构建就失败。
+    """
+    st = _stages()
+    base = _code(st["base"])
+    m = re.search(r'"sqlite-vec==([\d.]+)"', base)
+    assert m, "base 段要装 sqlite-vec(runtime 与 kb-import 都从 base 来)"
+    req = (_ROOT / "agent" / "requirements.txt").read_text(encoding="utf-8")
+    assert re.search(r"^sqlite-vec==%s\b" % re.escape(m.group(1)), req, re.MULTILINE), "镜像与 requirements.txt 的版本要一致"
+    assert "sqlite_vec.load(c)" in base and "enable_load_extension(True)" in base

@@ -7,6 +7,7 @@
 所以按结构解析模板逐条核对,不靠字符串匹配(注释里会出现这些词)。
 """
 import pathlib
+import re
 import string
 import sys
 
@@ -130,10 +131,12 @@ def test_sandbox_policy_admits_only_the_platform_and_never_nfs(path):
     assert 2049 not in out_ports and 111 not in out_ports, "不能放行 NFS:模型会自己去连 NFS 服务器"
 
 
-def test_vectordb_admits_the_sandbox():
-    pol = _policies(_ROOT / "k8s" / "base" / "networkpolicy.yaml")["vectordb-policy"]["spec"]
-    roles = {s["podSelector"]["matchLabels"].get("role") for r in pol["ingress"] for s in r["from"]}
-    assert "sandbox" in roles
+def test_the_sandbox_reads_the_kb_index_from_its_read_only_mount():
+    """2026-10-23 向量库下线:沙箱读知识库索引(index/store.sqlite)靠的是只读挂载的 kb/,不再连向量库。"""
+    sb = (_ROOT / "k8s" / "templates" / "sandbox.yaml").read_text(encoding="utf-8")
+    assert re.search(r"mountPath: /nas/kb, subPath: kb, readOnly: true", sb)
+    assert "KB_PG_" not in sb and "vectordb" not in sb
+    assert "vectordb-policy" not in _policies(_ROOT / "k8s" / "base" / "networkpolicy.yaml")
 
 
 def test_secret_examples_for_the_pool_exist_and_are_not_applied_by_kustomize():

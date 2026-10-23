@@ -187,7 +187,7 @@ def kb_samples(out: pathlib.Path):
     kbdir = out / "_kbdir"; (kbdir / "index").mkdir(parents=True, exist_ok=True)
     (kbdir / "index" / "misses.log").write_text("2026-09-20\tNOPK_BIGTABLE\tq\n2026-09-21\tNOPK_BIGTABLE\tq\n2026-09-21\tIDLE_IN_XACT\tq\n", encoding="utf-8")
     st = kbquery.KbStatus(attached=True, version="3", counts={"docs.case": 286, "docs.rule": 412, "docs.raw": 341},
-                          vector="DataVec(覆盖 93%)", graph="图文件", mode="向量库+图文件")
+                          vector="sqlite-vec(覆盖 93%)", graph="图文件", mode="向量库+图文件")
     d = kb.health_dict(kbdir, st, ["cases/bad.md: 缺 frontmatter"], True)
     reports.archive("kb", d, name="health")
     for row in [{"at": "2026-09-22T14:05:00Z", "q": "慢 SQL 平均耗时超阈值 · 全表扫描", "key": "SLOW_AVG_MS", "hits_cases": 3, "hits_rules": 2, "how": "semantic", "elapsed_ms": 42},

@@ -25,6 +25,14 @@ DEFAULT_PORT = 8080
 # Pod 里还额外设了 enableServiceLinks: false 把那组变量整个关掉,这里是第二道。
 ENV_PORT = "GATEWAY_LISTEN_PORT"
 
+# 用户的诊断容器怎么来(2026-10-23):ondemand = 按人现建 Pod(v1.3.x 的做法,默认);pool = 固定池化
+# (部署时建好的 StatefulSet,按槽位分配,docs/plans/2026-10-23-fixed-pool-steward.md)。
+# 知识库管理员的导入容器两种模式下都按需建。
+RUNTIME_ONDEMAND, RUNTIME_POOL = "ondemand", "pool"
+# 只给测试集群:把固定池化各时长的下限降到 5 秒(e2e 要在几分钟里走完闲置 → 保留 → 腾挪)。
+# **刻意不叫 GATEWAY_***,正式清单(gateway.yaml / ConfigMap)里不许出现它(守卫测试核对)。
+TEST_SHORT_TIMERS = "POOL_TEST_SHORT_TIMERS"
+
 
 class ConfigError(Exception):
     """配置不完整或不合法。启动时抛,不要留到运行时。"""
@@ -53,6 +61,15 @@ class Config:
     # 大盘前端的 Service 名:/dash/* 代理到 <frontend_service>.<namespace>.svc:80。
     # 前端镜像没部署时这条路 502,不影响对话与报告两条路。
     frontend_service: str = "frontend"
+    runtime_mode: str = RUNTIME_ONDEMAND
+    pool_selector: str = "app=gaussdb-agent,role=pool"
+    pool_control_key: str = ""
+    pool_idle_seconds: int = 1800           # 在用多久没有交互(也没有会话忙)就转保留
+    pool_early_idle_seconds: int = 600      # 满员时,闲置超过这么久的在用者可以被提前转保留
+    pool_retain_days: int = 7
+    pool_free_slots: int = 1                # 每个 Pod 后台至少留几个空闲槽位给新人
+    pool_sweep_seconds: int = 30
+    pool_wait_seconds: int = 60             # 一次请求最多为分配等多久;等不到回等待页(30 秒自动重试)
 
     @property
     def trust_configured(self) -> bool:
@@ -110,6 +127,23 @@ def load(env: Mapping[str, str]) -> Config:
     # 配得比这还短会在用户等结果的时候把 Pod 收掉。
     idle = _int(env, "GATEWAY_IDLE_SECONDS", reaper.DEFAULT_IDLE_SECONDS, minimum=300)
 
+    runtime_mode = (env.get("GATEWAY_RUNTIME_MODE") or RUNTIME_ONDEMAND).strip().lower()
+    if runtime_mode not in (RUNTIME_ONDEMAND, RUNTIME_POOL):
+        raise ConfigError("GATEWAY_RUNTIME_MODE=%r 不认识,只能是 %s / %s" % (runtime_mode, RUNTIME_ONDEMAND, RUNTIME_POOL))
+    pool_key = (env.get("GATEWAY_POOL_CONTROL_KEY") or "").strip()
+    if runtime_mode == RUNTIME_POOL and len(pool_key) < 16:
+        raise ConfigError("固定池化模式要 GATEWAY_POOL_CONTROL_KEY(Secret sandbox-control 的 KEY,与各 Pod 管家同一把),"
+                          "没配或不足 16 个字符")
+    short = (env.get(TEST_SHORT_TIMERS) or "").strip() == "1"
+
+    def low(n: int) -> int:
+        return 5 if short else n
+    idle = _int(env, "GATEWAY_POOL_IDLE_SECONDS", 1800, minimum=low(300))
+    early = _int(env, "GATEWAY_POOL_EARLY_IDLE_SECONDS", 600, minimum=low(60))
+    if early > idle:
+        raise ConfigError("GATEWAY_POOL_EARLY_IDLE_SECONDS=%d 比 GATEWAY_POOL_IDLE_SECONDS=%d 还长:"
+                          "满员时提前转保留就永远轮不到" % (early, idle))
+
     return Config(
         namespace=ns, image_tag=tag, image_registry=registry,
         pull_policy=(env.get("GATEWAY_PULL_POLICY") or "IfNotPresent").strip(),
@@ -125,4 +159,13 @@ def load(env: Mapping[str, str]) -> Config:
                              (env.get("GATEWAY_KB_ADMIN_ROLES") or "kb-admin").split(",") if r.strip()),
         admin_token=(env.get("GATEWAY_ADMIN_TOKEN") or "").strip(),
         frontend_service=(env.get("GATEWAY_FRONTEND_SERVICE") or "frontend").strip(),
+        runtime_mode=runtime_mode,
+        pool_selector=(env.get("GATEWAY_POOL_SELECTOR") or "app=gaussdb-agent,role=pool").strip(),
+        pool_control_key=pool_key,
+        # 闲置转保留下限 300 秒,理由与按需模式的闲置回收相同:模型跑长任务时几分钟没有交互是正常的
+        pool_idle_seconds=idle, pool_early_idle_seconds=early,
+        pool_retain_days=_int(env, "GATEWAY_POOL_RETAIN_DAYS", 7, minimum=1),
+        pool_free_slots=_int(env, "GATEWAY_POOL_FREE_SLOTS", 1, minimum=0),
+        pool_sweep_seconds=_int(env, "GATEWAY_POOL_SWEEP_SECONDS", 30, minimum=5),
+        pool_wait_seconds=_int(env, "GATEWAY_POOL_WAIT_SECONDS", 60, minimum=low(10)),
     )

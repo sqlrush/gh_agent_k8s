@@ -41,6 +41,20 @@ data:
   ACTIVITY_INTERVAL_SECONDS: "60"   # 活动时间写入节流(≥5);调小会显著增加对 API Server 的写入
   READY_TIMEOUT_SECONDS: "120"      # 等新 Pod 就绪的上限(≥10);超时用户看到 504
 
+  # 用户的诊断容器怎么来:
+  #   ondemand  按人现建 Pod(默认,v1.3.x 的做法)
+  #   pool      固定池化:部署时建好的 StatefulSet(k8s/tools/render-pool.py 渲染),按槽位分配,闲置转保留
+  # 知识库管理员的导入容器两种模式下都按需建。改模式 = 改这里 + 重启网关;两种模式的 NAS 布局相同,可以来回切。
+  RUNTIME_MODE: "ondemand"
+  # 以下只在 RUNTIME_MODE=pool 时生效。括号里是下限,低于下限网关拒绝启动。
+  POOL_SELECTOR: "app=gaussdb-agent,role=pool"   # 池子 Pod 的标签(与渲染脚本一致)
+  POOL_IDLE_SECONDS: "1800"         # 在用多久没有交互(也没有会话在跑)就转保留:完整写回、停 opencode(≥300)
+  POOL_EARLY_IDLE_SECONDS: "600"    # 满员时,闲置超过这么久的在用者可被提前转保留,腾出的位置给等待的人(≥60,不长于上一项)
+  POOL_RETAIN_DAYS: "7"             # 保留多少天没来就腾挪;下次登录从 NAS 载入,不丢数据(≥1)
+  POOL_FREE_SLOTS: "1"              # 每个 Pod 后台至少留几个空闲槽位给新人(≥0)
+  POOL_SWEEP_SECONDS: "30"          # 清扫多久一轮:报活动、转保留、腾挪、核验(≥5)
+  POOL_WAIT_SECONDS: "60"           # 一次请求为分配最多等多久;等不到回等待页,页面 30 秒自动重试(≥10)
+
   # 允许携带工号头的来源网段(上游 SSO / Ingress 的地址),逗号分隔。
   # 与 Secret 里的 TRUST_SECRET 两道门任一即可,但**两者不能都为空** —— 都空网关拒绝启动。
   TRUST_CIDRS: ""

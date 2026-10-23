@@ -364,6 +364,20 @@ def test_evict_restarts_the_container_and_verify_needs_a_new_container_id(pod):
     assert not (pod.slot_dir(0) / "state" / "xdg-data" / "opencode" / "opencode.db").exists()
 
 
+def test_a_reserved_slot_is_evicted_and_handed_to_the_waiting_user_only(pod):
+    pod.bind(user="u1234")
+    _retain(pod)
+    assert pod.st.reserve({"slot": 0, "user_id": "u7777", "seconds": 120})[0] == 200
+    assert pod.st.evict({"slot": 0, "container_id": pod.slots[0].container_id})[0] == 202
+    assert _wait(lambda: pod.slots[0].restarts == 1 and pod.slots[0].running)
+    assert _wait(lambda: pod.st.verify({"slot": 0, "container_id": pod.slots[0].container_id})[0] == 200)
+    assert pod.st.status()["slots"][0]["reserved_for"] == "u7777", "核验后预留照旧"
+    code, body = pod.bind(slot=0, user="u8888")
+    assert (code, body["reason"]) == (409, "reserved")
+    assert pod.bind(slot=0, user="u7777")[0] == 200
+    assert pod.st.status()["slots"][0]["reserved_for"] is None, "等的人绑上了,预留清掉"
+
+
 def test_verify_before_the_restart_is_refused(pod):
     pod.slots[0].auto_restart = False
     assert pod.st.evict({"slot": 0, "container_id": "c-0-0"})[0] == 202
@@ -561,6 +575,23 @@ def test_state_matrix(bare, state, extra, op, code, reason):
     got_code, body = calls[op]()
     assert (got_code, body.get("reason")) == (code, reason), body
     assert st.slots[0].state == state, "被拒绝的操作不能改状态"
+
+
+def test_a_reservation_keeps_third_parties_out_and_survives_the_eviction(bare):
+    st, _v, _l = bare
+    assert st.reserve({"slot": 0, "user_id": "u1111", "seconds": 60})[0] == 200
+    assert st.reserve({"slot": 0, "user_id": "u2222", "seconds": 60})[1]["reason"] == "reserved"
+    code, body = st.bind({"slot": 0, "user_id": "u2222", "expect_in_use": 0})
+    assert (code, body["reason"]) == (409, "reserved"), "第三个人抢不走"
+    out = st.status()["slots"][0]
+    assert out["reserved_for"] == "u1111" and out["reserved_until"] > time.time()
+    s = st.slots[0]
+    s._set(state=poolslot.EVICTING, evict={"boot": "b0", "container_id": "c", "at": time.time()})
+    s._set(**s._reservation())
+    assert s._reservation()["reserved_for"] == "u1111"
+    for bad in ({"slot": 0, "user_id": "u1", "seconds": 0}, {"slot": 0, "user_id": "u1", "seconds": 601},
+                {"slot": 0, "seconds": 5}, {"slot": 9, "user_id": "u1", "seconds": 5}):
+        assert st.reserve(bad)[0] == 400
 
 
 # -- 控制接口 --------------------------------------------------------------------------------------

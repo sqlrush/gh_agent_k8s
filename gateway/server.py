@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional, Tuple
 
 from . import identity as idt
-from . import pods, proxy
+from . import pods, poolrouter, proxy
 from .diagnose import NotReady
 
 _MAX_BODY = 64 * 1024 * 1024        # 上传走网关的话,单请求上限;超过直接 413
@@ -40,6 +40,24 @@ TARGET_COOKIE = "gsa_target"
 SWITCH_PATHS = {"/kb-import": pods.KIND_KB_IMPORT, "/runtime": pods.KIND_RUNTIME}
 # 切换后落到 opencode 的项目页:base64url("/data/state/workspace"),两个容器同一个工作目录(docker/entrypoint.sh)
 LANDING = "/L2RhdGEvc3RhdGUvd29ya3NwYWNl"
+
+
+# 固定池化:这些请求**不算交互、也不为它分配槽位** —— opencode 网页开着就每 10 秒探一次活、事件流一直挂着
+# (P0 摸底 S5)。算的话开着的标签页永远不闲置,转保留了也会被它马上拉回来。
+_NON_INTERACTIVE = frozenset({"/api/health", "/global/health", "/global/event", "/event"})
+PLACEHOLDER_BODY = b'{"reason": "slot_not_running"}'      # 槽位不跑 opencode 时占位监听的回答(docker/slotrun.py)
+WAITING_PAGE = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="%(retry)d"><title>%(title)s</title>
+<style>body{font-family:system-ui,sans-serif;max-width:36rem;margin:18vh auto;padding:0 1.5rem;color:#333}
+h1{font-size:1.3rem}p{line-height:1.7;color:#555}</style></head>
+<body><h1>%(title)s</h1><p>%(body)s</p><p>本页每 %(retry)d 秒自动重试,不用手动刷新。</p></body></html>"""
+
+
+def pool_interactive(method: str, path: str, headers) -> bool:
+    p = path.split("?", 1)[0].rstrip("/") or "/"
+    if p in _NON_INTERACTIVE:
+        return False
+    return "text/event-stream" not in (headers.get("Accept") or "")
 
 
 def route_for(path: str) -> str:
@@ -162,6 +180,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(403, {"error": "控制 API 密钥不对"})
 
         parts = [p for p in path.split("/") if p]        # ['admin','pods',...]
+        if len(parts) >= 2 and parts[1] == "pool":
+            return self._admin_pool(parts)
         if len(parts) == 2 and parts[1] == "pods" and self.command == "GET":
             return self._json(200, {"pods": self.app.list_pods()})
         if len(parts) == 3 and parts[1] == "pods":
@@ -198,6 +218,25 @@ class _Handler(BaseHTTPRequestHandler):
                                         "note": "NAS 上的会话/历史/上传文件保留,下次登录挂回来即恢复"})
         self._json(404, {"error": "没有这个控制接口"})
 
+    def _admin_pool(self, parts) -> None:
+        adm = self.app.pool_admin
+        if adm is None:
+            return self._json(404, {"error": "网关不是固定池化模式(GATEWAY_RUNTIME_MODE=pool)"})
+        if len(parts) == 2 and self.command == "GET":
+            return self._json(200, adm.summary())
+        if len(parts) == 3 and self.command == "POST":
+            raw = self._read_body() or b"{}"
+            try:
+                req = json.loads(raw)
+                pod, slot = str(req["pod"]), req["slot"]
+                if isinstance(slot, bool) or not isinstance(slot, int):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError):
+                return self._json(400, {"error": "请求体要是 {\"pod\": Pod 名, \"slot\": 槽位号}"})
+            code, body = adm.act(parts[2], pod, slot, str(req.get("reason") or "admin"))
+            return self._json(code, body)
+        self._json(404, {"error": "没有这个控制接口"})
+
     # -- 代理 ---------------------------------------------------------------
 
     def _proxy(self) -> None:
@@ -230,6 +269,8 @@ class _Handler(BaseHTTPRequestHandler):
             kb_admin = self.app.is_kb_admin(who)
             # 报告只在诊断容器里;对话按目标选
             kind = self._target(who, kb_admin) if route == ROUTE_OPENCODE else pods.KIND_RUNTIME
+            if kind == pods.KIND_RUNTIME and self.app.pool is not None:
+                return self._proxy_pool(who, route, body)      # 固定池化;导入容器照旧按需建
             try:
                 password = self.app.ensure_ready(who.user_id, kb_admin, kind)
             except pods.PrerequisiteMissing as exc:
@@ -264,7 +305,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.app.log("转发到 %s(%s)失败:%s" % (who.user_id, route, exc))
             return self._text(502, "大盘服务未部署或不可达。" if route == ROUTE_DASH
                               else "无法连接到您的环境,请稍后重试。")
+        # 建连时先记一次,免得长连接期间被判闲置;静态页除外
+        touch = (lambda: self.app.mgr.touch(who.user_id, kind=kind)) if route != ROUTE_DASH else (lambda: None)
+        self._relay(resp, who, touch, per_bytes=True)
 
+    def _relay(self, resp, who: idt.Identity, touch, per_bytes: bool) -> None:
         self.send_response(resp.status)
         for k, v in proxy.response_headers(resp.getheaders()):
             self.send_header(k, v)
@@ -279,11 +324,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
         self._streaming = True
-        # 建连时先记一次,免得长连接期间被判闲置;静态页除外
-        touch = (lambda: self.app.mgr.touch(who.user_id, kind=kind)) if route != ROUTE_DASH else (lambda: None)
         try:
             touch()
-            proxy.pump(resp, self._write_chunk, self.wfile.flush, on_bytes=lambda _n: touch())
+            proxy.pump(resp, self._write_chunk, self.wfile.flush, on_bytes=(lambda _n: touch()) if per_bytes else None)
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
         except pods.EnvironmentGone as exc:
@@ -297,6 +340,91 @@ class _Handler(BaseHTTPRequestHandler):
             pass                                     # 用户关了页面,正常
         finally:
             resp.close()
+
+    # -- 固定池化 -------------------------------------------------------------
+
+    def _proxy_pool(self, who: idt.Identity, route: str, body: Optional[bytes]) -> None:
+        """槽位由 poolrouter 分配。活动只按交互请求记一次(不按转发字节:事件流的心跳不算在用)。"""
+        interactive = pool_interactive(self.command, self.path, self.headers)
+        pool = self.app.pool
+        for attempt in (0, 1):
+            try:
+                t = pool.target(who.user_id, interactive)
+            except poolrouter.NotActive:
+                return self._json_retry(503, {"reason": "not_active", "error": "您的环境当前未在运行,有操作时自动恢复"}, 30)
+            except poolrouter.PoolFull as exc:
+                return self._waiting("当前使用人数已满", "已为您排队:有人空出来就会自动进入。", exc.retry_after)
+            except poolrouter.PoolWait as exc:
+                self.app.log("为 %s 分配槽位还在等(%s)" % (who.user_id, exc.reason))
+                return self._waiting("正在为您准备环境", "马上就好。", exc.retry_after)
+            except pods.PrerequisiteMissing as exc:
+                self.app.log("为 %s 准备环境失败(前置条件):%s" % (who.user_id, exc))
+                return self._text(503, "您的环境尚未开通,请联系管理员为您开通后再登录。")
+            except Exception as exc:                    # noqa: BLE001
+                self.app.log("为 %s 分配槽位失败:%s" % (who.user_id, exc))
+                return self._text(502, "环境准备失败,请联系管理员。")
+            if interactive:
+                pool.note_activity(who.user_id)
+            if route == ROUTE_REPORTS:
+                up = proxy.Upstream(t.host, t.reports_port, retries=1)
+                headers = proxy.forward_headers(self.headers.items(), None, who.user_id) + \
+                    [("Authorization", "Bearer " + t.reports_token)]
+                path = self.path[len("/reports"):]
+            else:
+                up = proxy.Upstream(t.host, t.port, retries=1)
+                headers = proxy.forward_headers(self.headers.items(), t.password, who.user_id)
+                path = self.path
+            try:
+                resp = up.send(self.command, path, headers, body)
+            except OSError as exc:
+                pool.forget(who.user_id)
+                if attempt == 0:
+                    continue
+                self.app.log("转发到 %s(%s/槽位 %d)失败:%s" % (who.user_id, t.pod, t.slot, exc))
+                return self._text(502, "无法连接到您的环境,请稍后重试。")
+            if resp.status == 503:
+                data = resp.read()
+                resp.close()
+                if data == PLACEHOLDER_BODY:
+                    # 打到占位监听上了:槽位刚转保留 / 被腾挪,视图还没刷新。占位监听什么都没处理,换个地方重来是安全的
+                    pool.forget(who.user_id)
+                    if attempt == 0:
+                        continue
+                return self._complete(503, resp.getheaders(), data)
+            return self._relay(resp, who, lambda: None, per_bytes=False)
+
+    def _json_retry(self, code: int, payload: dict, retry_after: int) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Retry-After", str(retry_after))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _waiting(self, title: str, text: str, retry_after: int) -> None:
+        """浏览器打开页面:一张自动重试的等待页;接口请求(opencode 网页里的 fetch):503 + Retry-After。"""
+        if self.command == "GET" and "text/html" in (self.headers.get("Accept") or ""):
+            page = WAITING_PAGE % {"title": title, "body": text, "retry": retry_after}
+            data = page.encode("utf-8")
+            self.send_response(503)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Retry-After", str(retry_after))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        return self._json_retry(503, {"reason": "waiting", "error": "%s,%s" % (title, text)}, retry_after)
+
+    def _complete(self, code: int, headers, data: bytes) -> None:
+        self.send_response(code)
+        for k, v in proxy.response_headers(headers):
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _target(self, who: idt.Identity, kb_admin: bool) -> str:
         """请求头优先(SSO 给管理员入口加的),其次 cookie(浏览器切换过)。不是管理员一律回诊断容器。"""
@@ -336,10 +464,12 @@ class _Handler(BaseHTTPRequestHandler):
 class App:
     """把配置、k8s、Pod 管理、回收器串起来。"""
 
-    def __init__(self, cfg, mgr: pods.Manager, log=print):
+    def __init__(self, cfg, mgr: pods.Manager, log=print, pool=None, pool_admin=None):
         self.cfg = cfg
         self.mgr = mgr
         self.log = log
+        self.pool = pool                    # 固定池化时是 poolrouter.PoolRouter;按需模式 None
+        self.pool_admin = pool_admin        # 固定池化的运维接口(/admin/pool)
         self._waiters: dict = {}
         self._lock = threading.Lock()
 

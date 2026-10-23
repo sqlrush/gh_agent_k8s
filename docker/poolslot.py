@@ -64,7 +64,7 @@ def _blank(boot: str = "", container_id: str = "") -> dict:
     return {"state": BOOTING, "user": None, "since": None, "password": None, "reports_token": None,
             "boot": boot, "container_id": container_id, "gen": "", "fingerprint": None, "dirty": False,
             "stale": False, "bound_at": None, "retained_at": None, "last_active": None, "evict": None,
-            "error": "", "snap_seq": 0, "quiet": False}
+            "error": "", "snap_seq": 0, "quiet": False, "reserved_for": None, "reserved_until": 0.0}
 
 
 class Slot:
@@ -126,6 +126,7 @@ class Slot:
                 "busy": self.busy, "busy_at": self.busy_at, "dirty": r["dirty"], "stale": r["stale"],
                 "listener": self.listener, "offender": self.offender, "boot": r["boot"],
                 "container_id": r["container_id"], "evicting_since": ev.get("at"), "error": r["error"],
+                "reserved_for": r.get("reserved_for"), "reserved_until": r.get("reserved_until") or 0.0,
                 "ports": {"opencode": self.ports[0], "reports": self.ports[1]},
                 "last_sync_at": self.last_sync_at, "last_sync": self.last_sync}
 
@@ -240,6 +241,8 @@ class Slot:
         with self.lock:
             if self.state != FREE:
                 return 409, {"reason": "state", "state": self.state}
+            if self._reserved_for_other(user):
+                return 409, {"reason": "reserved", "state": self.state}
             try:
                 ufd = poolsync.open_user(self.users_fd, user)
             except (poolsync.PoolError, ValueError, OSError) as exc:
@@ -253,7 +256,8 @@ class Slot:
             self.ufd = ufd
             self.snap_seen = {}
             self._set(state=BINDING, user=user, gen=gen, container_id=container_id or self.rec["container_id"],
-                      dirty=False, stale=False, error="", bound_at=None, retained_at=None, since=None, quiet=False)
+                      dirty=False, stale=False, error="", bound_at=None, retained_at=None, since=None, quiet=False,
+                      reserved_for=None, reserved_until=0.0)
         return None
 
     def finish_bind(self, grmp_token: str) -> Reply:
@@ -494,7 +498,8 @@ class Slot:
             if not self._listener_ok():
                 return 409, {"reason": "listener", "state": self.state}
             with self.lock:
-                self.rec = dict(_blank(boot=boot, container_id=container_id), state=FREE, quiet=True)
+                self.rec = dict(_blank(boot=boot, container_id=container_id), state=FREE, quiet=True,
+                                **self._reservation())      # 为等待者腾出来的槽位,核验后预留照旧
                 self._persist()
             self.snap_seen = {}
             self.offender = False
@@ -514,6 +519,22 @@ class Slot:
                 return
             self._set(boot=ack["boot"])
             self._begin_evict("", error="not_clean_at_start")
+
+    # -- 预留(满员时为等待者腾出来的槽位,所有网关副本都从 status 看到) ------------------------------
+
+    def _reserved_for_other(self, user: str) -> bool:
+        r = self.rec
+        return bool(r.get("reserved_for")) and r["reserved_for"] != user and float(r.get("reserved_until") or 0) > time.time()
+
+    def _reservation(self) -> dict:
+        return {"reserved_for": self.rec.get("reserved_for"), "reserved_until": self.rec.get("reserved_until") or 0.0}
+
+    def reserve(self, user: str, seconds: float) -> Reply:
+        with self.lock:
+            if self._reserved_for_other(user):
+                return 409, {"reason": "reserved", "state": self.state}
+            self._set(reserved_for=user, reserved_until=time.time() + seconds)
+        return 200, {"slot": self.i, "reserved_for": user, "reserved_until": self.rec["reserved_until"]}
 
     def disable(self, reason: str) -> Reply:
         with self.lock:
@@ -659,7 +680,8 @@ class Slot:
         if quiet and st in (FREE, RETAINED):
             rec = self._read_pool(BOOT_FILE)
             if rec.get("boot") == boot and rec.get("state_empty") is True and self.disk_is_clean():
-                self._set(**dict(_blank(boot=boot, container_id=self.rec["container_id"]), state=FREE, quiet=True))
+                self._set(**dict(_blank(boot=boot, container_id=self.rec["container_id"]), state=FREE, quiet=True,
+                                 **self._reservation()))
                 self.log("槽位 %d 重启后已清盘,空闲(boot %s)" % (self.i, boot))
                 return
         self._begin_evict(self.rec["container_id"], error="restarted")

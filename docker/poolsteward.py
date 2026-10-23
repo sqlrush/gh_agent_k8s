@@ -19,6 +19,7 @@
   POST /pool/verify  {slot, container_id}                 container_id:重启后的
   POST /pool/touch   {activity: [[slot, user_id, ts], …]} 网关每 30 秒报一次交互活动
   POST /pool/disable {slot, reason}
+  POST /pool/reserve {slot, user_id, seconds}             满员时为等待者预留腾出来的槽位(最长 600 秒)
 """
 from __future__ import annotations
 
@@ -248,6 +249,14 @@ class Steward:
         with self.lock:
             return s.disable(reason[:200])
 
+    def reserve(self, body: dict) -> Reply:
+        s, user = self._slot(body), self._user(body)
+        secs = body.get("seconds")
+        if s is None or not user or isinstance(secs, bool) or not isinstance(secs, (int, float)) or not 0 < secs <= 600:
+            return 400, {"reason": "bad_request"}
+        with self.lock:
+            return s.reserve(user, float(secs))
+
     def touch(self, body: dict) -> Reply:
         items = body.get("activity")
         if not isinstance(items, list) or len(items) > 4 * len(self.slots):
@@ -287,7 +296,7 @@ class Steward:
 # --- HTTP ------------------------------------------------------------------------------------
 
 _ROUTES = {"/pool/bind": "bind", "/pool/resume": "resume", "/pool/retain": "retain", "/pool/evict": "evict",
-           "/pool/verify": "verify", "/pool/touch": "touch", "/pool/disable": "disable"}
+           "/pool/verify": "verify", "/pool/touch": "touch", "/pool/disable": "disable", "/pool/reserve": "reserve"}
 
 
 def make_server(st: Steward, host: str = "0.0.0.0", port: Optional[int] = None) -> http.server.ThreadingHTTPServer:

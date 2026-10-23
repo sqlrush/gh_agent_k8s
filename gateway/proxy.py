@@ -70,10 +70,13 @@ CONNECT_BACKOFF = 1.0
 class Upstream:
     """一次转发。connect_timeout 有值,**读响应不设超时**(SSE 永不结束)。"""
 
-    def __init__(self, host: str, port: int = 4096, connect_timeout: float = 10.0):
+    retries = CONNECT_RETRIES
+
+    def __init__(self, host: str, port: int = 4096, connect_timeout: float = 10.0, retries: int = CONNECT_RETRIES):
         self.host = host
         self.port = port
         self.connect_timeout = connect_timeout
+        self.retries = retries              # 固定池化直连 Pod IP,没有 DNS 生效的延迟,只试一次
 
     def send(self, method: str, path: str, headers: List[Tuple[str, str]],
              body: Optional[bytes]) -> http.client.HTTPResponse:
@@ -86,14 +89,14 @@ class Upstream:
         只对**连接阶段**重试:请求已经发出去就不能重发(可能不是幂等的)。
         """
         last = None
-        for attempt in range(CONNECT_RETRIES):
+        for attempt in range(self.retries):
             conn = http.client.HTTPConnection(self.host, self.port, timeout=self.connect_timeout)
             try:
                 conn.connect()
             except OSError as exc:
                 last = exc
                 conn.close()
-                if attempt == CONNECT_RETRIES - 1:
+                if attempt == self.retries - 1:
                     break
                 time.sleep(CONNECT_BACKOFF * (attempt + 1))
                 continue
@@ -105,7 +108,7 @@ class Upstream:
                 conn.sock.settimeout(None)
             conn.request(method, path, body=body, headers=dict(headers))
             return conn.getresponse()
-        raise OSError("连不上 %s:%s(重试 %d 次):%s" % (self.host, self.port, CONNECT_RETRIES, last))
+        raise OSError("连不上 %s:%s(重试 %d 次):%s" % (self.host, self.port, self.retries, last))
 
 
 def pump(resp: http.client.HTTPResponse, write: Callable[[bytes], None],

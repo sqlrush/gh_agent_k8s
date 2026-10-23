@@ -16,6 +16,11 @@ NAS 上的本人目录同样不可信:按需模式下主容器对它可写,能�
 (改名替换的是目录项本身,目标是链接时替换掉链接,不会写穿到链接指向的地方)。
 
 只用标准库;Linux(镜像)与 macOS(开发机跑测试)上行为一致(2026-10-14 实测)。
+
+**权限(2026-10-23,固定池化)。** 槽位容器(uid 2000+i)与管家(uid 1000)同组 1000,靠组权限互通:
+新建目录、复制文件都可以指定**目标**权限(不受 umask 影响,也不继承源上的 0600 / 0700),
+载入槽位盘用 0660 / 2770,回写 NAS 用 0600 / 0700。不指定时保持原行为(继承源权限),
+但一律去掉 setuid / setgid / sticky 位。
 """
 from __future__ import annotations
 
@@ -48,6 +53,11 @@ class Stats:
     skipped: int = 0        # 链接、FIFO 等被拒绝的条目
     deleted: int = 0
     errors: List[str] = field(default_factory=list)
+    blind: List[str] = field(default_factory=list)      # 没有权限进入的子目录(相对路径,以 / 结尾)
+
+    def covers(self, rel: str) -> bool:
+        """rel 落在某个看不见的子目录里:对它不做删除传播。"""
+        return any(rel.startswith(b) for b in self.blind)
 
 
 # --- 打开 ---------------------------------------------------------------------
@@ -81,20 +91,25 @@ def open_dir(parent_fd: int, name: str) -> Optional[int]:
 def open_path(root_fd: int, rel: str, create: bool, mode: int = 0o700) -> Optional[int]:
     """逐级打开 rel(`/` 分隔,不许 `..`、`.`、空段、绝对路径)。
 
-    create=True 时缺的目录建出来;create=False 时任一级不存在 → None。返回的描述符由调用方关闭。
+    create=True 时缺的目录建出来,权限**精确**是 mode(建出来之后 fchmod,不受 umask 影响;
+    已存在的目录不动);create=False 时任一级不存在 → None。返回的描述符由调用方关闭。
     """
     cur = os.dup(root_fd)
     try:
         for part in _split(rel):
+            created = False
             if create:
                 try:
-                    os.mkdir(part, mode, dir_fd=cur)
+                    os.mkdir(part, mode & 0o777, dir_fd=cur)
+                    created = True
                 except FileExistsError:
                     pass
             nxt = open_dir(cur, part)
             if nxt is None:
                 os.close(cur)
                 return None
+            if created:
+                os.fchmod(nxt, mode)
             os.close(cur)
             cur = nxt
         return cur
@@ -115,11 +130,16 @@ def listdir(dir_fd: int) -> List[str]:
         os.close(lfd)
 
 
-def walk(root_fd: int, prefix: str = "") -> Iterator[Tuple[str, int, str, os.stat_result]]:
+def walk(root_fd: int, prefix: str = "", *, skip_dir: Optional[Callable[[str], bool]] = None,
+         blind: Optional[List[str]] = None) -> Iterator[Tuple[str, int, str, os.stat_result]]:
     """深度优先列出所有**非目录**条目:(相对路径, 所在目录描述符, 名字, lstat)。
 
     子目录一律经 open_dir 进入(拒绝链接),所以指向别处的目录链接只会作为一个条目出现、不会被进入。
     yield 出的目录描述符只在迭代到下一个目录之前有效。
+
+    skip_dir(相对路径) 为真的子目录不进入。blind 不为 None 时,**没有权限进入**的子目录记进 blind
+    (相对路径,以 / 结尾)后跳过,而不是让整棵树的遍历中断:槽位里 opencode 自己会建 0700 的锁目录,
+    管家进不去(2026-10-23 实测)。调用方据此对这些子树**不做删除传播**——看不见不等于没有。
     """
     # **列目录用一个现开的描述符,不用 root_fd 本身。** overlayfs 上(容器的 /tmp)对「打开之后才新建了文件」
     # 的目录描述符,第一次 scandir 返回空列表、第二次才正常(2026-10-14 在 python:3.12-slim 里实测;
@@ -130,8 +150,15 @@ def walk(root_fd: int, prefix: str = "") -> Iterator[Tuple[str, int, str, os.sta
         except FileNotFoundError:
             continue
         if stat.S_ISDIR(st.st_mode):
+            if skip_dir is not None and skip_dir(prefix + name):
+                continue
             try:
                 sub = open_dir(root_fd, name)
+            except PermissionError:
+                if blind is None:
+                    raise
+                blind.append(prefix + name + "/")
+                continue
             except UnsafePath:
                 # 列出时是目录、打开时已被换成链接:当成一个不可信条目交给调用方计数
                 yield prefix + name, root_fd, name, os.stat(name, dir_fd=root_fd, follow_symlinks=False)
@@ -139,7 +166,7 @@ def walk(root_fd: int, prefix: str = "") -> Iterator[Tuple[str, int, str, os.sta
             if sub is None:
                 continue
             try:
-                yield from walk(sub, prefix + name + "/")
+                yield from walk(sub, prefix + name + "/", skip_dir=skip_dir, blind=blind)
             finally:
                 os.close(sub)
         else:
@@ -214,9 +241,19 @@ def _differs(st: os.stat_result, dst_dir_fd: int, name: str) -> bool:
     return st.st_mtime_ns // g != d.st_mtime_ns // g
 
 
+def _file_mode(st: os.stat_result, mode: Optional[int]) -> int:
+    """目标文件权限:给了就用给的;没给就继承源,但去掉 setuid / setgid / sticky。"""
+    if mode is not None:
+        return mode & 0o777
+    return (stat.S_IMODE(st.st_mode) & 0o777) or 0o600
+
+
 def copy_file(src_dir_fd: int, name: str, dst_dir_fd: int, dst_name: str, *,
-              dev: Optional[int] = None, only_if_changed: bool = True) -> int:
-    """复制一个普通文件;返回写出的字节数(没变则 0)。不是普通文件 / 跨设备 → UnsafePath。"""
+              dev: Optional[int] = None, only_if_changed: bool = True, mode: Optional[int] = None) -> int:
+    """复制一个普通文件;返回写出的字节数(没变则 0)。不是普通文件 / 跨设备 → UnsafePath。
+
+    mode:目标权限(None = 继承源权限,去掉特殊位)。
+    """
     fd, st = _open_regular(src_dir_fd, name, dev)
     try:
         if only_if_changed and not _differs(st, dst_dir_fd, dst_name):
@@ -231,8 +268,7 @@ def copy_file(src_dir_fd: int, name: str, dst_dir_fd: int, dst_name: str, *,
                 while view:
                     view = view[os.write(out, view):]
 
-        _write_atomic(dst_dir_fd, dst_name, pump, stat.S_IMODE(st.st_mode) or 0o600,
-                      (st.st_atime_ns, st.st_mtime_ns))
+        _write_atomic(dst_dir_fd, dst_name, pump, _file_mode(st, mode), (st.st_atime_ns, st.st_mtime_ns))
         return st.st_size
     finally:
         os.close(fd)
@@ -276,15 +312,16 @@ def _parent_and_name(rel: str) -> Tuple[str, str]:
 class _DirCache:
     """walk 按目录成组产出文件,目标目录只缓存当前这一个,不攒一堆描述符。"""
 
-    def __init__(self, root_fd: int):
+    def __init__(self, root_fd: int, dir_mode: int = 0o700):
         self.root_fd = root_fd
+        self.dir_mode = dir_mode
         self.rel: Optional[str] = None
         self.fd: Optional[int] = None
 
     def get(self, rel_dir: str) -> int:
         if rel_dir != self.rel or self.fd is None:
             self.close()
-            self.fd = open_path(self.root_fd, rel_dir, create=True)     # 抛错时 fd 仍是 None
+            self.fd = open_path(self.root_fd, rel_dir, create=True, mode=self.dir_mode)   # 抛错时 fd 仍是 None
             self.rel = rel_dir
         return self.fd
 
@@ -295,18 +332,23 @@ class _DirCache:
 
 
 def copy_tree(src_root_fd: int, dst_root_fd: int, *, stats: Stats,
-              skip: Optional[Callable[[str], bool]] = None, only_if_changed: bool = True) -> Set[str]:
+              skip: Optional[Callable[[str], bool]] = None, only_if_changed: bool = True,
+              file_mode: Optional[int] = None, dir_mode: int = 0o700,
+              skip_dir: Optional[Callable[[str], bool]] = None) -> Set[str]:
     """把 src 下所有普通文件复制到 dst 同样的相对位置;返回见到的相对路径集合(给删除传播用)。
 
     链接、FIFO、跨设备的条目计入 stats.skipped,不进返回集合——它们在源里「不算文件」,
     目标里同名的旧文件因此会被删除传播清掉(镜像语义)。出错的条目记 errors 但**留在集合里**:
     一次 IO 错误不该让 NAS 上那份被删。
+
+    file_mode / dir_mode:目标文件 / 新建目录的权限(见模块说明)。源里没有权限进入的子目录记进
+    stats.blind,调用方对这些子树不做删除传播。
     """
     dev = os.fstat(src_root_fd).st_dev
     seen: Set[str] = set()
-    dirs = _DirCache(dst_root_fd)
+    dirs = _DirCache(dst_root_fd, dir_mode)
     try:
-        for rel, dfd, name, lst in walk(src_root_fd):
+        for rel, dfd, name, lst in walk(src_root_fd, skip_dir=skip_dir, blind=stats.blind):
             if is_temporary(name) or (skip is not None and skip(rel)):
                 continue
             if not stat.S_ISREG(lst.st_mode):
@@ -320,7 +362,7 @@ def copy_tree(src_root_fd: int, dst_root_fd: int, *, stats: Stats,
                 stats.errors.append("%s:%s" % (rel, exc))
                 continue
             try:
-                n = copy_file(dfd, name, dst_dir, base, dev=dev, only_if_changed=only_if_changed)
+                n = copy_file(dfd, name, dst_dir, base, dev=dev, only_if_changed=only_if_changed, mode=file_mode)
             except UnsafePath:                  # 源里的条目打开时已不是普通文件(被抢先换掉)
                 stats.skipped += 1
                 continue
@@ -348,3 +390,103 @@ def prune(root_fd: int, keep: Set[str], *, stats: Stats,
                 stats.deleted += 1
         except OSError as exc:
             stats.errors.append("删 %s:%s" % (rel, exc))
+
+
+# --- 清盘与规整权限(固定池化,2026-10-23) ----------------------------------------------
+
+def is_empty(root_fd: int) -> bool:
+    return not listdir(root_fd)
+
+
+def wipe_contents(root_fd: int, *, stats: Stats) -> None:
+    """删掉 root 下的一切(root 本身保留),不跟随链接,不跨设备(挂载点留着并计入 skipped)。
+
+    **由槽位新起的 PID 1 调用**:上一个使用者的文件属主都是这个槽位的 uid,只有它删得掉,
+    而那时容器里没有别的进程(重启已杀光),目录不会在遍历中途被换掉。被前一个使用者 chmod 成
+    0000 / 0500 的目录先改回 0700 再进(只改属主是自己的,改不了的记错误)。
+    """
+    dev = os.fstat(root_fd).st_dev
+    for name in listdir(root_fd):
+        try:
+            st = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(st.st_mode):
+            try:
+                os.unlink(name, dir_fd=root_fd)
+                stats.deleted += 1
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                stats.errors.append("删 %s:%s" % (name, exc))
+            continue
+        if st.st_dev != dev:
+            stats.skipped += 1
+            continue
+        try:
+            sub = open_dir(root_fd, name)
+        except PermissionError:
+            # lstat 确认过它是目录、容器里又没有别的进程:按名字改权限不会被换成链接
+            try:
+                os.chmod(name, 0o700, dir_fd=root_fd)
+                sub = open_dir(root_fd, name)
+            except OSError as exc:
+                stats.errors.append("进不去 %s:%s" % (name, exc))
+                continue
+        except UnsafePath:
+            continue                    # 刚刚被换掉了:下一轮 listdir 会把它当普通条目删
+        if sub is None:
+            continue
+        try:
+            try:
+                os.fchmod(sub, 0o700)   # 0500 的目录里删不了东西
+            except OSError:
+                pass
+            wipe_contents(sub, stats=stats)
+        finally:
+            os.close(sub)
+        try:
+            os.rmdir(name, dir_fd=root_fd)
+            stats.deleted += 1
+        except OSError as exc:
+            stats.errors.append("删目录 %s:%s" % (name, exc))
+
+
+def grant_group(root_fd: int, *, stats: Stats, file_bits: int = 0o040, dir_bits: int = 0o050) -> None:
+    """给自己名下的文件加组读、目录加组读与进入(槽位在每次回写前调用,好让管家读得到)。
+
+    技能代码每次运行都会把自己的目录 chmod 成 0700(common/config.ensure_dir、common/session),
+    opencode 也会建 0700 的锁目录(2026-10-23 实测)。不是自己名下的条目跳过;链接不跟随。
+    这一步只影响本槽位自己的文件:使用者把它们改回 0700 只会让自己的回写失败,碰不到别人。
+    """
+    me = os.geteuid()
+    for name in listdir(root_fd):
+        try:
+            st = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if st.st_uid != me or not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
+            continue
+        want = dir_bits if stat.S_ISDIR(st.st_mode) else file_bits
+        if stat.S_IMODE(st.st_mode) & want != want:
+            try:
+                os.chmod(name, stat.S_IMODE(st.st_mode) | want, dir_fd=root_fd, follow_symlinks=False)
+            except (NotImplementedError, OSError):
+                try:            # Linux 不支持不跟随链接的 chmod:lstat 已确认不是链接,按名字改
+                    os.chmod(name, stat.S_IMODE(st.st_mode) | want, dir_fd=root_fd)
+                except OSError as exc:
+                    stats.errors.append("改权限 %s:%s" % (name, exc))
+                    continue
+            stats.files += 1
+        if stat.S_ISDIR(st.st_mode):
+            try:
+                sub = open_dir(root_fd, name)
+            except (OSError, UnsafePath) as exc:
+                stats.errors.append("进不去 %s:%s" % (name, exc))
+                continue
+            if sub is None:
+                continue
+            try:
+                grant_group(sub, stats=stats, file_bits=file_bits, dir_bits=dir_bits)
+            finally:
+                os.close(sub)

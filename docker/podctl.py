@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shutil
 import sqlite3
 import sys
@@ -18,6 +19,8 @@ import time
 from typing import List, Mapping, Optional
 
 OWNER_NAME = ".owner"
+# 版本令牌:任何模式下取得独占标记都换一个新的随机值(固定池化靠它判断保留在槽位里的副本还能不能用)
+GEN_NAME = ".gen"
 PROVIDER_DEFAULT = "model-service"
 
 
@@ -202,6 +205,8 @@ def owner_acquire(dir_: pathlib.Path, pod: str, stale_s: int = 90, wait_s: int =
         age = time.time() - float(cur.get("ts") or 0)
         if not cur or cur.get("pod") == pod or age >= stale_s:
             _write_owner(path, pod)
+            # 按需模式也要换:否则这个人在按需模式下用过之后,池化里他的旧保留副本会被当成最新的
+            _write_private(pathlib.Path(dir_) / GEN_NAME, secrets.token_hex(16))
             how = "接管过期标记 %s" % cur.get("pod") if cur and cur.get("pod") != pod else "新建"
             print("独占标记: 本 Pod %s 持有(%s)" % (pod, how))
             return True

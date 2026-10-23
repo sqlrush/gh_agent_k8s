@@ -17,6 +17,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import stat
 import time
 from dataclasses import dataclass, field
@@ -41,6 +42,29 @@ SNAPSHOT_PREFIX = statesync.SNAPSHOT_PREFIX
 OWNER_STALE_S = 90
 USER_ID_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,52}[a-z0-9])?$")   # 与网关同一条规则
 _SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
+# 版本令牌(固定池化,2026-10-23):每次取得独占标记时换一个新的随机值。保留在槽位里的副本记着当时的令牌,
+# 回来时与 NAS 上的比:一样 = 这期间没人在别处用过,本地那份可以直接用;不一样 = 作废。
+# 用随机值不用计数器:独占标记 90 秒过期被接管时,两边可能同时写出同一个「n+1」。
+GEN = podctl.GEN_NAME
+
+
+@dataclass(frozen=True)
+class Modes:
+    """目标一侧的权限。file=None 表示继承源权限(v1.2.0 的行为)。"""
+    file: Optional[int]
+    dir: int
+
+
+LEGACY_MODES = Modes(file=None, dir=0o700)
+NAS_MODES = Modes(file=0o600, dir=0o700)          # NAS 上只给管家(及按需模式的 Pod,同为 uid 1000)
+SLOT_MODES = Modes(file=0o660, dir=0o2770)        # 槽位盘:管家 uid 1000 与槽位 uid 2000+i 同组 1000
+
+
+def _skip_dir(sub: str) -> Callable[[str], bool]:
+    """不搬的子目录:opencode 的锁目录(0700、临时的,管家进不去,搬了也没用)。"""
+    def skip(rel: str) -> bool:
+        return sub == "xdg-state" and (rel == "opencode/locks" or rel.startswith("opencode/locks/"))
+    return skip
 _DB_SUFFIXES = (".db", ".sqlite", ".sqlite3")
 
 
@@ -154,7 +178,11 @@ def _write_owner(user_fd: int, pod: str, now: float) -> None:
 
 def owner_acquire(user_fd: int, pod: str, now: Optional[float] = None,
                   stale_s: int = OWNER_STALE_S) -> Tuple[bool, str, int]:
-    """拿独占标记。返回 (拿到没有, 当前持有者, 还要等几秒才过期)。**不等待**——bind 立即回 409(方案 §7.1)。"""
+    """拿独占标记。返回 (拿到没有, 当前持有者, 还要等几秒才过期)。**不等待**——bind 立即回 409(方案 §7.1)。
+
+    pod 是持有者标识,按字符串**整串**比较:固定池化下传「pod/槽位」(如 pool-3/2),
+    同一个 Pod 的两个槽位因此不会把对方当成自己。
+    """
     now = time.time() if now is None else now
     cur = _owner(user_fd)
     holder = str(cur.get("pod") or "")
@@ -181,6 +209,42 @@ def owner_release(user_fd: int, pod: str) -> None:
         fdtree.unlink(user_fd, OWNER)
 
 
+# --- 版本令牌 ---------------------------------------------------------------------
+
+def gen_read(user_fd: int) -> str:
+    """NAS 上当前的版本令牌;没有 / 读不了 → 空串(当作「谁也对不上」)。"""
+    try:
+        raw = fdtree.read_small(user_fd, GEN, limit=256)
+    except fdtree.UnsafePath:
+        return ""
+    return (raw or b"").decode("ascii", "replace").strip()
+
+
+def gen_rotate(user_fd: int) -> str:
+    """换一个新令牌并返回。**只在刚拿到独占标记之后调用**(本人在任何地方的旧副本因此作废)。"""
+    new = secrets.token_hex(16)
+    fdtree.write_small(user_fd, GEN, new.encode("ascii"), mode=0o600)
+    return new
+
+
+def db_fingerprint(user_fd: int) -> Optional[Tuple[int, int, int]]:
+    """NAS 上主库的 (inode, 纳秒修改时间, 大小);没有 → None。版本令牌之外的第二道核对。"""
+    parent, _sep, base = MAIN_DB.rpartition("/")
+    try:
+        d = fdtree.open_path(user_fd, parent, create=False)
+    except fdtree.UnsafePath:
+        return None
+    if d is None:
+        return None
+    try:
+        st = os.stat(base, dir_fd=d, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    finally:
+        os.close(d)
+    return st.st_ino, st.st_mtime_ns, st.st_size
+
+
 # --- dirty 标记 -----------------------------------------------------------------
 
 def is_dirty(user_fd: int) -> bool:
@@ -202,27 +266,32 @@ def clear_dirty(user_fd: int) -> None:
 # --- 载入 -----------------------------------------------------------------------
 
 def _copy_sub(src_root: int, dst_root: int, sub: str, moved: Moved,
-              skip: Optional[Callable[[str], bool]] = None) -> Optional[set]:
-    """复制一个子目录。源不存在 → None;源是链接等 → 记错并返回 None。"""
+              skip: Optional[Callable[[str], bool]] = None,
+              modes: Modes = LEGACY_MODES) -> Tuple[Optional[set], List[str]]:
+    """复制一个子目录。返回 (见到的相对路径, 看不见的子目录);源不存在 → (None, []),源是链接等 → 记错并 (None, [])。"""
     try:
         src = fdtree.open_path(src_root, sub, create=False)
     except fdtree.UnsafePath as exc:
         moved.errors.append("%s:%s" % (sub, exc))
-        return None
+        return None, []
     if src is None:
-        return None
+        return None, []
     try:
-        dst = fdtree.open_path(dst_root, sub, create=True)
+        dst = fdtree.open_path(dst_root, sub, create=True, mode=modes.dir)
     except OSError as exc:
         os.close(src)
         moved.errors.append("%s:%s" % (sub, exc))
-        return None
+        return None, []
     try:
         st = fdtree.Stats()
-        seen = fdtree.copy_tree(src, dst, stats=st,
-                                skip=lambda rel: _is_sidecar(_name(rel)) or (skip is not None and skip(rel)))
+        seen = fdtree.copy_tree(src, dst, stats=st, file_mode=modes.file, dir_mode=modes.dir,
+                                skip=lambda rel: _is_sidecar(_name(rel)) or (skip is not None and skip(rel)),
+                                skip_dir=_skip_dir(sub))
         moved.add(st)
-        return seen
+        if st.blind:
+            moved.warnings.append("%s:%d 个子目录没有权限进入,本轮不搬、也不对它们传播删除:%s"
+                                  % (sub, len(st.blind), "、".join(st.blind[:3])))
+        return seen, list(st.blind)
     finally:
         os.close(src)
         os.close(dst)
@@ -257,10 +326,10 @@ def snapshot_unclean(user_fd: int, now: Optional[float] = None) -> Optional[str]
 
 
 def load(user_fd: int, state_fd: int, log: Callable[[str], None] = print,
-         now: Optional[float] = None) -> Tuple[Moved, bool]:
+         now: Optional[float] = None, modes: Modes = LEGACY_MODES) -> Tuple[Moved, bool]:
     """NAS → state 卷。库原样搬(NAS 上的库是静止的:独占在我们手里,写它的只有原子改名)。
 
-    返回 (搬运统计, 上次是不是非正常退出)。
+    返回 (搬运统计, 上次是不是非正常退出)。modes 是 state 卷一侧的权限(固定池化传 SLOT_MODES)。
     """
     t0 = time.monotonic()
     unclean = is_dirty(user_fd)
@@ -274,9 +343,9 @@ def load(user_fd: int, state_fd: int, log: Callable[[str], None] = print,
                 "上次绑定之后一次回写都没来得及,那次的对话已丢失。")
     moved = Moved()
     for sub in POOL_LOCALIZED:
-        seen = _copy_sub(user_fd, state_fd, sub, moved)
+        seen, _blind = _copy_sub(user_fd, state_fd, sub, moved, modes=modes)
         if seen is None:                # NAS 上还没有(新用户)或不可用:本地照样建出空目录
-            os.close(fdtree.open_path(state_fd, sub, create=True))
+            os.close(fdtree.open_path(state_fd, sub, create=True, mode=modes.dir))
             continue
         moved.dbs += sum(1 for rel in seen if is_db_name(_name(rel)))
     moved.seconds = time.monotonic() - t0
@@ -338,7 +407,8 @@ def selfcheck(state_dir: pathlib.Path, user_fd: int, state_fd: int,
 Ident = Tuple[int, int, int]
 
 
-def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: bool = True) -> Moved:
+def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: bool = True,
+         modes: Modes = LEGACY_MODES) -> Moved:
     """state 卷 → NAS。普通文件按 fdtree 增量搬;库**只搬主容器生成的快照**(.pool/snap/),
     state 卷上活着的库文件一概不碰。snap_seen 记各个快照上次搬过时的身份(inode、纳秒修改时间、大小),
     没变就不搬(M1 在副容器这一侧的样子)。
@@ -361,22 +431,26 @@ def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: b
                 return True
             return False
 
-        seen = _copy_sub(state_fd, user_fd, sub, moved, skip=skip_db)
+        seen, blind = _copy_sub(state_fd, user_fd, sub, moved, skip=skip_db, modes=modes)
         if seen is None:
             moved.warnings.append("%s:state 卷上没有这个目录(或不是普通目录),本轮不对它传播删除" % sub)
             continue
         seen |= live_dbs
-        _sync_snapshots(user_fd, state_fd, sub, snap_seen, seen, moved)
+        _sync_snapshots(user_fd, state_fd, sub, snap_seen, seen, moved, modes)
         if may_delete:
             try:
-                dst = fdtree.open_path(user_fd, sub, create=True)
+                dst = fdtree.open_path(user_fd, sub, create=True, mode=modes.dir)
             except OSError as exc:
                 moved.errors.append("%s:%s" % (sub, exc))
                 continue
+            skip_sub = _skip_dir(sub)
+
+            def protect(rel: str, _blind=blind, _skip=skip_sub) -> bool:
+                return (_is_sidecar(_name(rel)) or fdtree.is_temporary(_name(rel))
+                        or any(rel.startswith(b) for b in _blind) or _skip(rel.rpartition("/")[0]))
             try:
                 st = fdtree.Stats()
-                fdtree.prune(dst, seen, stats=st,
-                             protect=lambda rel: _is_sidecar(_name(rel)) or fdtree.is_temporary(_name(rel)))
+                fdtree.prune(dst, seen, stats=st, protect=protect)
                 moved.add(st)
             finally:
                 os.close(dst)
@@ -385,7 +459,7 @@ def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: b
 
 
 def _sync_snapshots(user_fd: int, state_fd: int, sub: str, snap_seen: Dict[str, Ident],
-                    seen: set, moved: Moved) -> None:
+                    seen: set, moved: Moved, modes: Modes = LEGACY_MODES) -> None:
     try:
         snap = fdtree.open_path(state_fd, SNAP_DIR + "/" + sub, create=False)
     except fdtree.UnsafePath as exc:
@@ -405,12 +479,12 @@ def _sync_snapshots(user_fd: int, state_fd: int, sub: str, snap_seen: Dict[str, 
                 continue
             parent, _sep, base = rel.rpartition("/")
             try:
-                dst = fdtree.open_path(user_fd, sub + ("/" + parent if parent else ""), create=True)
+                dst = fdtree.open_path(user_fd, sub + ("/" + parent if parent else ""), create=True, mode=modes.dir)
             except OSError as exc:
                 moved.errors.append("%s:%s" % (key, exc))
                 continue
             try:
-                n = fdtree.copy_file(dfd, name, dst, base, dev=dev, only_if_changed=False)
+                n = fdtree.copy_file(dfd, name, dst, base, dev=dev, only_if_changed=False, mode=modes.file)
                 moved.dbs += 1
                 moved.bytes += n
                 snap_seen[key] = ident
@@ -424,7 +498,8 @@ def _sync_snapshots(user_fd: int, state_fd: int, sub: str, snap_seen: Dict[str, 
         os.close(snap)
 
 
-def backup(user_fd: int, state_fd: int, keep: int = 3, now: Optional[float] = None) -> Optional[str]:
+def backup(user_fd: int, state_fd: int, keep: int = 3, now: Optional[float] = None,
+           modes: Modes = LEGACY_MODES) -> Optional[str]:
     """退出备份:把主容器的最终快照拷成 NAS 上的 backup/opencode.db.<UTC 时间戳>,保留最近 keep 份。没有快照 → None。"""
     parent, _sep, base = MAIN_DB.rpartition("/")
     try:
@@ -434,11 +509,12 @@ def backup(user_fd: int, state_fd: int, keep: int = 3, now: Optional[float] = No
     if sdir is None:
         return None
     try:
-        bdir = fdtree.open_path(user_fd, BACKUP_DIR, create=True)
+        bdir = fdtree.open_path(user_fd, BACKUP_DIR, create=True, mode=modes.dir)
         try:
             target = "opencode.db.%s" % _utc_stamp(now)
             try:
-                fdtree.copy_file(sdir, base, bdir, target, dev=os.fstat(state_fd).st_dev, only_if_changed=False)
+                fdtree.copy_file(sdir, base, bdir, target, dev=os.fstat(state_fd).st_dev, only_if_changed=False,
+                                 mode=modes.file)
             except FileNotFoundError:
                 return None
             olds = [n for n in fdtree.listdir(bdir) if podctl._BACKUP_RE.match(n)]

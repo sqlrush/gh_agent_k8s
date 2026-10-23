@@ -34,3 +34,7 @@ data:
   MODEL_BASE_URL: http://llm.example.internal/v1
   MODEL_ID: qwen3-32b
   MODEL_PROVIDER_NAME: model-service
+  # 模型能接收的输入,逗号分隔:text,image(可选还有 audio / video / pdf)。不写 = 纯文本。
+  # 知识库导入要读照片 / 截图时必须含 image,否则 read 报「this model does not support image input」。
+  # 只在模型服务确实支持图片时才开:纯文本模型开了,发图那一轮模型服务会报错。
+  MODEL_INPUT_MODALITIES: ""

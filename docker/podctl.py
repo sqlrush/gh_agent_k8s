@@ -65,12 +65,40 @@ def strip_jsonc(src: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
 
 
+# opencode 认的输入模态(capabilities.input 的键)
+_MODALITIES = ("text", "image", "audio", "video", "pdf")
+
+
+def input_modalities(env: Mapping[str, str]) -> Optional[list]:
+    """MODEL_INPUT_MODALITIES(如 `text,image`)→ opencode 模型配置里的 modalities.input。不设 = None。
+
+    2026-10-22 用户反馈:知识库导入读照片时 read 报「this model does not support image input」。
+    模型本身能看图(deepseek-flash 实测答对红 / 蓝两张图),是配置里只写了模型名:opencode 认不出的模型
+    默认按纯文本处理,在客户端就把图片拦下了。声明了 image,read 才把图片交给模型。
+    默认不声明——部署样例的 qwen3-32b 不能看图,贸然打开会让读图请求在模型服务那边报错。
+    写错的项当场报错并列出可选值,不悄悄忽略(忽略了就是又一次「读不了图、不知道为什么」)。
+    """
+    raw = (env.get("MODEL_INPUT_MODALITIES") or "").strip()
+    if not raw:
+        return None
+    items = [x.strip().lower() for x in raw.replace(";", ",").split(",") if x.strip()]
+    bad = [x for x in items if x not in _MODALITIES]
+    if bad:
+        raise ConfigError("MODEL_INPUT_MODALITIES=%r 里有不认识的项 %s;可选 %s,逗号分隔,如 text,image"
+                          % (raw, "、".join(bad), "、".join(_MODALITIES)))
+    return list(dict.fromkeys(["text"] + items))      # text 总要有;去重保序
+
+
 def render_opencode_config(env: Mapping[str, str]) -> dict:
     missing = [k for k in ("MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_ID") if not env.get(k)]
     if missing:
         raise ConfigError("缺少环境变量:%s(模型服务地址、密钥、模型 id 由平台注入)" % "、".join(missing))
     name = env.get("MODEL_PROVIDER_NAME") or PROVIDER_DEFAULT
     model = env["MODEL_ID"]
+    model_def = {"name": model}
+    mods = input_modalities(env)
+    if mods:
+        model_def["modalities"] = {"input": mods, "output": ["text"]}
     return {
         "$schema": "https://opencode.ai/config.json",
         "share": "disabled",                              # 绝不把对话分享到 opencode.ai
@@ -81,7 +109,7 @@ def render_opencode_config(env: Mapping[str, str]) -> dict:
                 "npm": "@ai-sdk/openai-compatible",
                 "name": name,
                 "options": {"baseURL": env["MODEL_BASE_URL"], "apiKey": env["MODEL_API_KEY"]},
-                "models": {model: {"name": model}},
+                "models": {model: model_def},
             }
         },
         "model": "%s/%s" % (name, model),

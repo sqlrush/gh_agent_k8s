@@ -33,6 +33,34 @@ def test_render_opencode_config_requires_model_vars():
     assert "MODEL_API_KEY" in str(exc.value) and "MODEL_ID" in str(exc.value)
 
 
+_ENV = {"MODEL_BASE_URL": "u", "MODEL_API_KEY": "k", "MODEL_ID": "deepseek-flash"}
+
+
+def test_model_is_text_only_unless_modalities_are_declared():
+    """不设 MODEL_INPUT_MODALITIES 时与以前完全一样:opencode 按纯文本模型处理。"""
+    cfg = podctl.render_opencode_config(_ENV)
+    assert cfg["provider"]["model-service"]["models"]["deepseek-flash"] == {"name": "deepseek-flash"}
+
+
+def test_declared_image_input_reaches_the_model_config():
+    """2026-10-22:没声明时 read 在客户端就拦下图片(this model does not support image input)。"""
+    cfg = podctl.render_opencode_config(dict(_ENV, MODEL_INPUT_MODALITIES="image"))
+    m = cfg["provider"]["model-service"]["models"]["deepseek-flash"]
+    assert m["modalities"] == {"input": ["text", "image"], "output": ["text"]}   # text 自动带上
+
+
+@pytest.mark.parametrize("raw,want", [("text,image", ["text", "image"]), (" Image ; TEXT ", ["text", "image"]),
+                                      ("text,image,image,pdf", ["text", "image", "pdf"]), ("", None)])
+def test_modalities_are_normalized(raw, want):
+    assert podctl.input_modalities({"MODEL_INPUT_MODALITIES": raw}) == want
+
+
+def test_unknown_modality_fails_loudly_with_the_choices():
+    with pytest.raises(podctl.ConfigError) as exc:
+        podctl.render_opencode_config(dict(_ENV, MODEL_INPUT_MODALITIES="text,images"))
+    assert "images" in str(exc.value) and "image" in str(exc.value) and "text,image" in str(exc.value)
+
+
 def test_render_opencode_config_matches_template_keys():
     """docker/opencode.jsonc.tmpl 是给人看的;它的顶层键必须和真正渲染出来的一致,否则文档骗人。"""
     tmpl = json.loads(podctl.strip_jsonc((_ROOT / "docker" / "opencode.jsonc.tmpl").read_text(encoding="utf-8")))

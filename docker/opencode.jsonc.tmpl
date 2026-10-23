@@ -10,6 +10,9 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "model-service",
       "options": { "baseURL": "{env:MODEL_BASE_URL}", "apiKey": "{env:MODEL_API_KEY}" },
+      // 设了 MODEL_INPUT_MODALITIES(如 text,image)时,模型这一项还会多出
+      //   "modalities": { "input": ["text", "image"], "output": ["text"] }
+      // 不设 = 按纯文本模型处理(read 不会把图片交给模型)
       "models": { "<MODEL_ID>": { "name": "<MODEL_ID>" } }
     }
   },

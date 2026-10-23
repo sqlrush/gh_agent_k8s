@@ -65,6 +65,8 @@ check "runtime 对 /nas/kb 只读"                                 'has "Read-on
 # 入库前标准化只属于管理员镜像;runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
 out=$(X smoke-rt "ls $S/gaussdb-kb-init 2>&1; echo rc=\$?")
 check "runtime 里没有 kb-init"                                  'has "No such file" && has "rc=2"'
+out=$(X smoke-rt "python3 -c 'import PIL' 2>&1; echo rc=\$?")
+check "runtime 里没有看图依赖(pillow 只在 kb-import)"          'has "No module named" && has "rc=1"'
 
 # 4 .owner 冲突:同一用户目录第二个 Pod 必须等待,不打开 db
 run_rt smoke-rt2 15097; sleep 8
@@ -94,6 +96,12 @@ check "kb-import 只有三个 kb skill,validate 可跑,health 不报只读"  'ha
 # 入库前标准化:只在导入镜像里;runtime 里必须没有,否则模型会引导用户去跑写知识库的命令
 out=$(X smoke-ki "printf '%s\n' '# 偶现单条 update 慢' '2026-01-08 CBST 库,单条 update 耗时 3s。' > /tmp/t.txt; python3 $S/gaussdb-kb-init/scripts/kb_init.py scan /tmp/t.txt --kb /nas/kb; echo rc=\$?")
 check "kb-init 能建批次并开工作单(退出 2 = 草稿待写)"            'has "工作单" && has "rc=2"'
+# 看图:HEIC 是手机直出格式,read 打不开;scan 要转出 jpg 副本、工作单指向副本(2026-10-22)
+out=$(X smoke-ki "mkdir -p /tmp/img && python3 -c \"
+import pillow_heif; from PIL import Image; pillow_heif.register_heif_opener()
+Image.new('RGB', (64, 48), (200, 30, 30)).save('/tmp/img/IMG_1.HEIC'); Image.new('RGB', (64, 48)).save('/tmp/img/scan.tif')\" \
+  && python3 $S/gaussdb-kb-init/scripts/kb_init.py scan /tmp/img --kb /nas/kb --batch smoke-img; echo rc=\$?; ls /nas/kb/init/smoke-img/sources/")
+check "kb-init 把 HEIC / TIFF 转成 jpg 副本"                     'has "HEIC 已自动转成 IMG_1.HEIC.jpg" && has "TIF 已自动转成 scan.tif.jpg" && has "rc=2"'
 
 echo "== 汇总: PASS $pass, FAIL $fail"
 [ $fail -eq 0 ]

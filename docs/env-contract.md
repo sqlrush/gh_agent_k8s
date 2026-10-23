@@ -20,6 +20,7 @@
 | `MODEL_API_KEY` | 是 | 模型服务密钥 | Secret | 渲染进 `/data/oc/opencode.json`（0600，emptyDir，随 Pod 消失） |
 | `MODEL_ID` | 是 | 模型 id | ConfigMap | opencode 默认模型 = `<MODEL_PROVIDER_NAME>/<MODEL_ID>` |
 | `MODEL_PROVIDER_NAME` | 否 | 默认 `model-service` | ConfigMap | |
+| `MODEL_INPUT_MODALITIES` | 要看图时是 | 模型能接收的输入，逗号分隔：`text,image`（可选项 `text` / `image` / `audio` / `video` / `pdf`，`text` 自动带上） | ConfigMap | 不设 = 纯文本：opencode 的 read 不把图片交给模型，报「this model does not support image input」——知识库导入读照片 / 截图要设 `text,image`。只在模型服务确实支持图片时设；写了不认识的项 Pod 启动即失败并列出可选项 |
 | `OPENCODE_SERVER_PASSWORD` | 建议 | 本 Pod 随机口令 | 网关生成 | opencode 自带的 HTTP 基本认证；配套 `OPENCODE_SERVER_USERNAME`（默认 `opencode`） |
 | `OPENCODE_PORT` | 否 | 默认 `4096` | — | |
 | `NAS_ME` / `NAS_KB` | 否 | 默认 `/nas/me`、`/nas/kb` | — | 挂载点变了才需要改 |

@@ -48,6 +48,13 @@ HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
   CMD curl -fsS ${OPENCODE_SERVER_PASSWORD:+-u "opencode:$OPENCODE_SERVER_PASSWORD"} http://127.0.0.1:4096/global/health || exit 1
 ENTRYPOINT ["/opt/agent/entrypoint.sh"]
 
+# ---------------------------------------------------------------- imgdeps:只给 kb-import 的看图依赖
+# read 打不开 HEIC / TIFF(手机直出的照片多是 HEIC),kb-init scan 用 pillow + pillow-heif 转成 JPEG 副本给模型看。
+# 单独一段装到 /opt/imgdeps 再拷进 kb-import:base 已经删了 pip,而 runtime 不看图、不该多出这些带原生库的包。
+# --only-binary:两种架构都有 manylinux 轮子(libheif 已打包在 pillow-heif 轮子里),不需要编译器与 apt 包。
+FROM python:3.12-slim-bookworm AS imgdeps
+RUN pip install --no-cache-dir --only-binary=:all: --target /opt/imgdeps "pillow==12.3.0" "pillow-heif==1.8.1"
+
 # ---------------------------------------------------------------- runtime:诊断 skill + 知识库查询
 FROM base AS runtime
 USER root
@@ -68,8 +75,10 @@ FROM base AS kb-import
 USER root
 RUN cd /opt/agent/config/opencode/skills && for d in gaussdb-*; do case "$d" in gaussdb-kb|gaussdb-kb-import|gaussdb-kb-init) ;; *) rm -rf "$d" ;; esac; done \
     && test "$(ls -d gaussdb-* | wc -l)" = "3"
+COPY --from=imgdeps /opt/imgdeps/ /usr/local/lib/python3.12/site-packages/
+RUN python3 -c "import PIL.Image, pillow_heif; pillow_heif.register_heif_opener(); print('pillow', PIL.__version__, 'pillow-heif', pillow_heif.__version__)"
 USER agent
 ENV GSDB_KB_INBOX=/nas/kb/inbox/uploads
 LABEL org.opencontainers.image.title="gaussdb-agent-kb-import" \
       org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \
-      org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import + gaussdb-kb-init; kb/ mounted read-write; no GRMP token"
+      org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import + gaussdb-kb-init (HEIC/TIFF -> JPEG for image reading); kb/ mounted read-write; no GRMP token"

@@ -18,3 +18,4 @@ data:
   MODEL_BASE_URL: https://api.deepseek.com/v1
   MODEL_ID: deepseek-flash
   MODEL_PROVIDER_NAME: deepseek
+  MODEL_INPUT_MODALITIES: "text,image"

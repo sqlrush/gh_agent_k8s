@@ -9,7 +9,7 @@
     建好自己名下的顶层目录(技能每次运行都 chmod 0700 自己的目录,属主不是本槽位就 EPERM,P0 摸底 S1)。
   · **指令按 boot 编号认**:每次启动生成一个随机 boot 编号写进 `.pool/boot.json`,管家写的 run.json /
     snap.json 里的 boot 对不上就不理 —— 新容器绝不会按上一个人的指令起 opencode。
-  · **端口不留空档**:不跑 opencode 时自己占着对话与报告两个端口(接受连接就重置),同 Pod 别的槽位
+  · **端口不留空档**:不跑 opencode 时自己占着对话与报告两个端口(连上来的回 503),同 Pod 别的槽位
     抢不走(P0 摸底 S3)。opencode 起来到开始监听之间的约 2.5 秒仍是空档,由管家按 uid 核对监听者兜底。
   · **停止时杀光**:停 opencode 后,1 号进程向容器里所有别的进程发 SIGKILL(模型 nohup 起的后台命令),
     再出最终快照 —— 保留态的盘上不会再有人写。
@@ -30,7 +30,6 @@ import secrets
 import shutil
 import signal
 import socket
-import struct
 import sys
 import time
 from dataclasses import dataclass
@@ -51,6 +50,8 @@ PORT_STEP = 10
 MAX_SLOT = 63
 BUSY_EVERY_S = 5.0
 _NONCE_MAX = 128
+_PLACEHOLDER_REPLY = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+                      b"Content-Length: 30\r\nConnection: close\r\n\r\n{\"reason\": \"slot_not_running\"}")
 _SCRUB_ENV = ("GRMP_AUTH_TOKEN", "OPENCODE_SERVER_PASSWORD", "REPORTS_TOKEN", "SANDBOX_CONTROL_KEY",
               "POOL_CONTROL_KEY", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PYTHONUSERBASE")
 
@@ -188,7 +189,9 @@ class SlotSupervisor(poolrun.Supervisor):
         self.placeholders.clear()
 
     def _serve_placeholders(self) -> None:
-        linger = struct.pack("ii", 1, 0)    # 直接 RST:不在本端口留 TIME_WAIT,opencode 随后能绑上
+        """连上来的一律回 503 再正常关闭(不用 RST:kubectl port-forward 遇到 RST 会整条断掉)。
+        先把对方已经发来的请求读掉 —— 带着没读的数据关闭,内核照样发 RST。这里留下的 TIME_WAIT 不碍事:
+        opencode、报告服务与占位监听都设了 SO_REUSEADDR。"""
         for s in self.placeholders.values():
             while True:
                 try:
@@ -196,10 +199,17 @@ class SlotSupervisor(poolrun.Supervisor):
                 except OSError:
                     break
                 try:
-                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+                    conn.settimeout(0.05)
+                    try:
+                        conn.recv(65536)
+                    except OSError:
+                        pass
+                    conn.sendall(_PLACEHOLDER_REPLY)
+                    conn.shutdown(socket.SHUT_WR)
                 except OSError:
                     pass
-                conn.close()
+                finally:
+                    conn.close()
 
     # -- 一轮 ---------------------------------------------------------------------------
 

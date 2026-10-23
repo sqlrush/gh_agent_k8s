@@ -54,3 +54,23 @@
 - opencode 崩溃后重启的约 2.5 秒里端口是空的（opencode 不能接管我们占着的套接字）。同 Pod 的恶意槽位抢到时，
   管家秒级发现（外来监听者，定位到肇事槽位），网关停止转发；在那之前本人的下一个请求可能落到冒充者手里。
 - 同 Pod 的槽位共用内核与网络命名空间，隔离强度低于「不同 Pod」；抽象 Unix 套接字没有权限控制（opencode 与技能都不使用）。
+
+## 清单（P4，`k8s/tools/render-pool.py`）
+
+- 渲染而不是 kustomize：容器数 = 槽位数，每个槽位有自己的 uid、端口与 5 块盘（data / state / ctl / tmp / shm），kustomize 生成不了。
+  只用标准库，输出确定；守卫 `gateway/tests/test_pool_manifest_units.py` 按结构逐条核对。
+- StatefulSet `OnDelete` + `Parallel`，headless Service `publishNotReadyAddresses`，PDB 最多 1 个不可用；
+  Pod 级 seccomp RuntimeDefault、不挂 ServiceAccount 令牌；槽位环境里没有任何 GRMP 令牌与控制密钥。
+- `--test-override` 只给测试集群缩短时长，渲染结果带标签 `gaussdb-agent/test-overrides`，正式清单里不会有。
+- 占位监听回 `503 {"reason": "slot_not_running"}` 再正常关闭：最初用 RST 关连接，测试集群上 `kubectl port-forward`
+  遇到 RST 整条断掉；改成先读掉请求再回 503（带着没读的数据关闭，内核照样发 RST）。
+
+## 测试集群核对（2026-10-23，OrbStack，3 个 Pod × 3 个槽位）
+
+| 项 | 结果 |
+|---|---|
+| 部署 | 3 个 Pod 7 秒内 4/4 Running，9 个槽位握手后全部空闲 |
+| 槽位内（slot-1） | uid 2001 / gid 1000；没有 /pool；/nas 下只有 kb；只看得到自己的进程；环境里没有密钥；管家接口 401；抢 slot-0 端口 EADDRINUSE；指令目录与根文件系统只读 |
+| 绑定 u9501 | 200，载入 27 个文件、1 个库，自检 ok；本人对话 / 报告端口带凭证 200；slot-1 连 slot-0 的对话与报告都 401；opencode 拿到按人 GRMP 令牌；NAS 独占标记 `agent-pool-0/0`；管家看到的监听者全部 ok |
+| 转保留 → 恢复 | 写回干净、独占释放、旧口令打到占位监听（503）；恢复 3.3 秒（含命令行与端口转发），新口令 200、旧口令 401 |
+| 腾挪 → 核验 | 4 秒内只重启 slot-0（其他槽位 restartCount 不变）；旧 containerID 核验 409 not_restarted，新的 200 → 空闲；盘上只剩 boot.json 与 ack.json |

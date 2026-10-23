@@ -296,9 +296,21 @@ def test_run_stop_run_rotates_the_password(rig):
 def test_placeholders_hold_both_ports_whenever_opencode_is_not_running(rig):
     rig.start()
     assert _bind_fails(rig.cfg.port) and _bind_fails(rig.cfg.reports_port)
-    c = socket.create_connection(("127.0.0.1", rig.cfg.port), timeout=1)
-    rig.sup.tick()
+    c = socket.create_connection(("127.0.0.1", rig.cfg.port), timeout=2)
+    c.sendall(b"GET /global/health HTTP/1.1\r\nHost: x\r\n\r\n")
+    c.settimeout(0.1)
+    reply, deadline = b"", time.monotonic() + 5
+    while not reply.endswith(b"}") and time.monotonic() < deadline:
+        rig.sup.tick()                  # connect() 返回时服务端那头不一定已经进了 accept 队列
+        try:
+            reply += c.recv(4096)
+        except socket.timeout:
+            pass
     c.close()
+    assert reply.startswith(b"HTTP/1.1 503 ") and reply.endswith(b'{"reason": "slot_not_running"}'), \
+        "占位监听回 503 并正常关闭(RST 会让 kubectl port-forward 整条断掉)"
+    head, _sep, payload = reply.partition(b"\r\n\r\n")
+    assert b"Content-Length: %d" % len(payload) in head
     rig.run()
     rig.until(rig.healthy)
     assert not rig.sup.placeholders

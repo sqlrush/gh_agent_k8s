@@ -24,16 +24,16 @@ def test_reports_server_is_killed_with_the_other_background_loops():
     assert re.search(r'^kill "\$REFRESHER" "\$SYNCER" "\$REPORTS"', _EP, re.M), "停机要连报告服务一起收掉"
 
 
-def test_pool_mode_hands_pid_1_to_the_daemon_before_any_nas_step():
-    """池化下主容器不挂 NAS:分支必须在第一次碰 $NAS_ME 之前 exec 走,否则 mkdir /nas/me 在只读根上直接失败。"""
-    m = re.search(r'^if \[ "\$\{POOL_MODE:-0\}" = "1" \]; then\n(.*?)^fi$', _EP, re.M | re.S)
-    assert m, "没有 POOL_MODE=1 分支"
-    body = m.group(1)
-    assert body.rstrip().endswith("exec $PODCTL pool-run"), "分支最后要 exec 守护进程(它是 1 号进程)"
-    assert "NAS" not in body and "/nas" not in body, "池化分支不碰 NAS"
-    assert "render-opencode-config" in body, "模型配置与身份无关,在这里渲染"
+def test_the_platform_managed_pool_branch_is_gone():
+    """v1.2.0 池化(POOL_MODE=1,平台管理的预热沙箱)由固定池化取代,入口里不再有它。"""
+    assert 'POOL_MODE:-0}" = "1"' not in _EP and "pool-run" not in _EP
+
+
+def test_steward_mode_execs_the_steward_before_any_nas_step():
+    m = re.search(r'^if \[ "\$\{POOL_MODE:-0\}" = "steward" \]; then\n(.*?)^fi$', _EP, re.M | re.S)
+    assert m and "exec python3 -u /opt/agent/podctl.py pool-steward" in m.group(1)
     first_nas = min(_EP.index(k) for k in ('"$NAS_ME', "$NAS_ME/"))
-    assert m.end() < first_nas, "池化分支要在按需模式的第一个 NAS 步骤之前"
+    assert m.end() < first_nas, "管家分支要在按需模式的第一个 NAS 步骤之前"
 
 
 def test_slot_mode_execs_the_slot_daemon_before_touching_anything():
@@ -44,4 +44,4 @@ def test_slot_mode_execs_the_slot_daemon_before_touching_anything():
     assert lines == ["exec python3 -E -s -u /opt/agent/podctl.py pool-slot"], "分支里只能有这一行 exec"
     before = [l.strip() for l in _EP[:m.start()].splitlines() if l.strip() and not l.lstrip().startswith("#")]
     assert before == ["set -euo pipefail"], "槽位分支要是第一条命令:之前连变量都不设"
-    assert m.end() < _EP.index('if [ "${POOL_MODE:-0}" = "1" ]'), "要在 v1.2.0 池化分支之前"
+    assert m.end() < _EP.index('if [ "${POOL_MODE:-0}" = "steward" ]'), "要在管家分支之前"

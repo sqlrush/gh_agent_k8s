@@ -51,33 +51,6 @@ spec:
     - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:索引时算文档向量
       ports: [{port: 11434, protocol: TCP}]
 ---
-# 池化沙箱的本地版:入站同 base(平台标签);出站同上面本地的 runtime-policy。
-# 本地 e2e 由 scripts/k8s/pool-sim.py 经 kubectl port-forward 调接口(port-forward 不经 Pod 网络,策略管不到);
-# 入站规则另由 scripts/k8s/e2e-pool.sh 用带 / 不带平台标签的临时 Pod 各连一次 4098 来验。
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: sandbox-policy
-  namespace: gaussdb-agent
-spec:
-  podSelector:
-    matchLabels: {app: gaussdb-agent, role: sandbox}
-  policyTypes: [Ingress, Egress]
-  ingress:
-    - from:
-        - podSelector: {matchLabels: {gaussdb-agent/platform: "true"}}
-        - namespaceSelector: {matchLabels: {gaussdb-agent/platform: "true"}}
-      ports: [{port: 4096, protocol: TCP}, {port: 4097, protocol: TCP}, {port: 4098, protocol: TCP}]
-  egress:
-    - to: [{namespaceSelector: {}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
-      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
-    - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主网关:中间件 mock 的转发入口
-      ports: [{port: 8781, protocol: TCP}]
-    - to: [{ipBlock: {cidr: 0.0.0.0/0}}]              # 模型服务(HTTPS)
-      ports: [{port: 443, protocol: TCP}]
-    - to: [{ipBlock: {cidr: 0.250.250.254/32}}]      # 宿主上的 Ollama:算查询向量
-      ports: [{port: 11434, protocol: TCP}]
----
 # Mac 本地:OrbStack 把 Service ClusterIP 和 Pod IP 放在同一段(192.168.194.0/24),
 # base 里给的 10.96.0.0/12 / 172.16.0.0/12 覆盖不到 —— 网关连 k8s API 会被挡成
 # 「Connection refused」(2026-09-21 真部署时踩到)。客户环境按实际 Service CIDR 填。

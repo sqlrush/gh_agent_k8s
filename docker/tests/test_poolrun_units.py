@@ -1,7 +1,7 @@
 """池化主容器守护进程(方案 §4、§6)。用假 opencode(tests/fake_opencode.py)驱动真进程。
 
-守护进程是副容器与 opencode 之间唯一的接口:副容器只写 ctl、只读回执。
-所以这里核对的都是「回执说的和实际发生的一致」——副容器据此决定什么时候可以收尾。
+守护进程是管家与 opencode 之间唯一的接口:管家只写 ctl、只读回执。
+所以这里核对的都是「回执说的和实际发生的一致」——管家据此决定什么时候可以收尾。
 """
 import json
 import os
@@ -112,7 +112,7 @@ def test_run_starts_opencode_with_the_bound_identity(rig):
     assert env["XDG_DATA_HOME"] == str(rig.state / "xdg-data") and env["GSDB_HOME"] == str(rig.state / "gdaa")
     assert env["GSDB_REPORTS_DIR"] == str(rig.state / "reports") and env["GSDB_KB_DIR"] == str(rig.kb)
     assert pathlib.Path(env["cwd"]).resolve() == (rig.state / "workspace").resolve()
-    assert env["SANDBOX_CONTROL_KEY"] is None, "控制密钥只在副容器"
+    assert env["SANDBOX_CONTROL_KEY"] is None, "控制密钥只在管家"
     cfg = rig.state / "gdaa" / "config.yaml"
     assert "connection_mode: api" in cfg.read_text(encoding="utf-8")
     assert stat.S_IMODE(cfg.stat().st_mode) == 0o600 and stat.S_IMODE((rig.state / "gdaa").stat().st_mode) == 0o700
@@ -200,7 +200,7 @@ def test_a_crashed_opencode_is_restarted_with_state_intact(rig):
 
 
 def test_sigterm_stops_and_writes_the_final_ack(rig):
-    """直接删 Pod:两个容器同时收到 SIGTERM。副容器靠这份 final 回执知道可以收尾(停止握手)。"""
+    """直接删 Pod:各容器同时收到 SIGTERM。管家靠这份 final 回执知道可以收尾(停止握手)。"""
     rig.run()
     rig.until(rig.healthy)
     rig.sup.term = True

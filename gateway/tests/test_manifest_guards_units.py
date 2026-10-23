@@ -21,7 +21,6 @@ _ROOT = pathlib.Path(__file__).resolve().parents[2]
 _POD_MANIFESTS = [
     _ROOT / "k8s" / "templates" / "runtime.yaml",
     _ROOT / "k8s" / "templates" / "kb-import.yaml",
-    _ROOT / "k8s" / "templates" / "sandbox.yaml",
     _ROOT / "k8s" / "base" / "gateway.yaml",
     _ROOT / "k8s" / "base" / "frontend.yaml",
 ]
@@ -54,7 +53,7 @@ def test_service_links_are_disabled(path):
         "%s 没关 enableServiceLinks —— 会把其他用户的 Service 注入成环境变量" % path.name)
 
 
-@pytest.mark.parametrize("path", _POD_MANIFESTS[:3], ids=lambda p: p.name)
+@pytest.mark.parametrize("path", _POD_MANIFESTS[:2], ids=lambda p: p.name)
 def test_emptydir_has_a_size_limit_and_is_not_tmpfs(path):
     text = path.read_text(encoding="utf-8")
     empties = re.findall(r"emptyDir:\s*\{([^}]*)\}", text)

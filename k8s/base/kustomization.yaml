@@ -10,7 +10,7 @@ resources:
   - gateway.yaml
   - frontend.yaml
 # 五个 *.example.yaml 都是样例;平台用 kubectl create secret 创建真实的
-# model-api / grmp-sm2 / gateway-auth,池化沙箱另要 sandbox-control / grmp-token。
+# model-api / grmp-sm2 / gateway-auth;固定池化另要 sandbox-control(管家与网关共用的控制密钥)。
 # 原来的知识库向量库组件(openGauss StatefulSet 与它的 Secret)2026-10-23 下线:索引是 NAS 上知识库目录里的
-# index/store.sqlite(SQLite + sqlite-vec),由 kb-import 写、runtime / 沙箱只读,不需要单独的组件。
-# 池化沙箱的 Pod 由平台按 k8s/templates/sandbox.yaml 渲染,不在这里。
+# index/store.sqlite(SQLite + sqlite-vec),由 kb-import 写、runtime / 池化槽位只读,不需要单独的组件。
+# 固定池化(GATEWAY_RUNTIME_MODE=pool)的 StatefulSet 与网络策略由 k8s/tools/render-pool.py 渲染,不在这里(《固定池化手册》)。

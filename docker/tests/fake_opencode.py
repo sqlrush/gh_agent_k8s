@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """测试用的假 opencode:`fake_opencode.py serve --hostname H --port P`。
 
-只做池化守护进程与副容器会碰到的几件事,行为对齐 opencode 1.18.27(10-14 实机核对):
+只做槽位守护进程与管家会碰到的几件事,行为对齐 opencode 1.18.27(10-14 实机核对):
   · Basic 认证(用户名 opencode,口令取 OPENCODE_SERVER_PASSWORD),/global/health 也要;
   · 启动时在 $XDG_DATA_HOME/opencode/opencode.db 建库(WAL 模式)并写一行——像真 opencode 一样一直开着连接;
   · GET /session/status:$FAKE_OUT/busy 存在时报 ses_1 正忙;POST /session/ses_1/abort 记一笔;

@@ -384,7 +384,6 @@ kubectl apply -k k8s/base
 > networkpolicy.networking.k8s.io/gateway-policy created
 > networkpolicy.networking.k8s.io/kb-import-policy created
 > networkpolicy.networking.k8s.io/runtime-policy created
-> networkpolicy.networking.k8s.io/sandbox-policy created
 > ```
 
 ```bash
@@ -538,7 +537,7 @@ done
 
 **没有向量库要初始化。** 知识库的向量 + 词法索引是 NAS 上知识库目录里的一个文件 `kb/index/store.sqlite`
 （SQLite + sqlite-vec，runtime 与 kb-import 两个镜像里都已装好），由导入容器里的 `kb.py index` 建：
-管理员导入规范 / 工单时导入流程会自动跑；runtime 与池化沙箱只读打开它。还没建索引时检索直接走 `kb/` 下的文件（文件模式），
+管理员导入规范 / 工单时导入流程会自动跑；runtime 与固定池化的槽位只读打开它。还没建索引时检索直接走 `kb/` 下的文件（文件模式），
 不影响使用。要手工建一次（例如知识库目录是从别处拷来的）：
 
 ```bash

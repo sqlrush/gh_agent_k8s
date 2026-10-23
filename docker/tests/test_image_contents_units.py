@@ -82,8 +82,9 @@ def test_every_local_module_any_copied_module_imports_is_copied():
 
 
 def test_the_pool_subcommands_are_wired_and_their_modules_copied():
-    assert {"pool-serve", "pool-run", "pool-slot", "pool-steward"} <= _registered_subcommands()
-    assert {"poolctl.py", "poolrun.py", "poolsync.py", "fdtree.py", "slotrun.py", "poolslot.py", "poolsteward.py",
+    assert {"pool-slot", "pool-steward"} <= _registered_subcommands()
+    assert not {"pool-serve", "pool-run"} & _registered_subcommands(), "v1.2.0 池化(平台管理的沙箱)已删"
+    assert {"poolrun.py", "poolsync.py", "fdtree.py", "slotrun.py", "poolslot.py", "poolsteward.py",
             "poolauth.py", "netcheck.py"} <= _copied_files()
 
 

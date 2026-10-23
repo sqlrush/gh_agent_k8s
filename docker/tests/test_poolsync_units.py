@@ -1,7 +1,7 @@
-"""池化布局的状态搬运(副容器用)。方案 §4、§8、§9。
+"""池化布局的状态搬运(管家用)。方案 §4、§8、§9。
 
-副容器挂着**全部**用户目录。这里的攻击用例都在问同一个问题:
-「能不能诱使副容器把 u9999 的东西读进 u1234 的目录,或者写坏 u9999 的东西?」
+管家挂着**全部**用户目录。这里的攻击用例都在问同一个问题:
+「能不能诱使管家把 u9999 的东西读进 u1234 的目录,或者写坏 u9999 的东西?」
 每条结尾都核对 u9999 的文件字节不变、u1234 那边没有它的内容。
 """
 import json
@@ -186,7 +186,7 @@ def test_load_for_a_new_user_creates_empty_dirs(env):
 
 def test_load_does_not_follow_links_planted_in_the_nas_dir(env):
     """按需模式下主容器对本人 NAS 目录可写,能埋 `workspace/x → /pool/users/u9999/…`;
-    这个字符串到了副容器里会被解析成别人的目录。"""
+    这个字符串到了管家里会被解析成别人的目录。"""
     (env.me / "workspace").mkdir(parents=True)
     (env.me / "workspace" / "x").symlink_to(env.victim_db)
     (env.me / "xdg-data").symlink_to(env.victim / "xdg-data")          # 整个子目录换成链接
@@ -304,7 +304,7 @@ def test_an_unchanged_snapshot_is_not_copied_again(env):
 
 
 def test_a_snapshot_replaced_by_a_link_to_someone_elses_db_is_refused(env):
-    """主容器(模型)把快照换成指向 u9999 库的链接:副容器按路径搬就会把别人的历史拷进本人目录。"""
+    """主容器(模型)把快照换成指向 u9999 库的链接:管家按路径搬就会把别人的历史拷进本人目录。"""
     ps.load(env.user_fd, env.state_fd, log=lambda _m: None)
     snap = env.state / ".pool" / "snap" / "xdg-data" / "opencode"
     snap.mkdir(parents=True)
@@ -315,7 +315,7 @@ def test_a_snapshot_replaced_by_a_link_to_someone_elses_db_is_refused(env):
 
 
 def test_a_link_to_the_sidecars_own_environment_is_not_copied(env, tmp_path):
-    """链接指向副容器自己的 /proc/self/environ(里面有控制密钥)。macOS 没有 /proc,用一个「副容器私有文件」代替。"""
+    """链接指向管家自己的 /proc/self/environ(里面有控制密钥)。macOS 没有 /proc,用一个「管家私有文件」代替。"""
     priv = tmp_path / "sidecar-private"
     priv.write_text("SANDBOX_CONTROL_KEY=topsecret", encoding="utf-8")
     ps.load(env.user_fd, env.state_fd, log=lambda _m: None)

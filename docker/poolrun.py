@@ -1,23 +1,23 @@
-"""池化沙箱主容器的守护进程(POOL_MODE=1 时的 1 号进程)。方案 §4、§6。
+"""固定池化槽位守护进程(slotrun.SlotSupervisor)的基类:按指令起停 opencode、生成库快照、写回执。
 
-它只听 ctl 目录(副容器写,本容器只读挂载)里的两份指令,结果写回 state 卷上的 `.pool/`:
+它只听 ctl 目录(管家写,本容器只读挂载)里的两份指令,结果写回状态盘上的 `.pool/`:
 
 | 读 | 内容 |
 |---|---|
 | ctl `run.json` | `{"state": "run"|"stop", "since", "user_id", "password"}`——以谁的身份跑 opencode,或停下 |
-| ctl `snap.json` | `{"seq": n}`——副容器定期回写前要一份新快照 |
+| ctl `snap.json` | `{"seq": n}`——管家定期回写前要一份新快照 |
 
 | 写 | 内容 |
 |---|---|
 | `.pool/snap/<子目录>/<相对路径>` | 各个库的一致性快照(合并 WAL + 在线备份,原子改名) |
 | `.pool/ack.json` | 已完成的快照序号、opencode 是否在跑、是否已最终停止、停止时是否中止了对话、最近的错误 |
 
-**为什么快照由这里生成**:副容器挂着全部用户目录,绑定之后它不能用 SQLite 打开 state 卷上的任何文件
-(SQLite 按路径打开,模型换一个链接就能让它读写别人的库,方案 §9)。这里是模型所在的一侧,
-按路径打开最多伤到本人的数据——与他本来就能删自己的会话同级。
+**为什么快照由这里生成**:管家挂着全部用户目录,它不能用 SQLite 打开槽位盘上的任何文件(SQLite 按路径打开,
+模型换一个链接就能让它读写别人的库)。这里是模型所在的一侧,按路径打开最多伤到本人的数据——与他本来就能删
+自己的会话同级。
 
-空闲时不起 opencode(4096 不监听);收到 SIGTERM 时停 opencode、写最终快照与回执再退出——
-直接删 Pod 时两个容器同时收到信号,副容器靠这份回执知道可以收尾了(停止握手,方案 §6.2)。
+不在用时不起 opencode;收到 SIGTERM 时停 opencode、写最终快照与回执再退出——删 Pod 时各容器同时收到信号,
+管家靠这份回执知道可以完整写回了。槽位那一层加的东西(启动清盘、按 boot 认指令、占位监听……)见 slotrun.py。
 """
 from __future__ import annotations
 
@@ -145,7 +145,7 @@ class Supervisor:
     def run_forever(self) -> int:
         signal.signal(signal.SIGTERM, self._on_term)
         signal.signal(signal.SIGINT, self._on_term)
-        self.log("池化守护进程就绪:等待副容器的绑定指令(%s)" % (self.cfg.ctl_dir / RUN_FILE))
+        self.log("守护进程就绪:等待管家的指令(%s)" % (self.cfg.ctl_dir / RUN_FILE))
         while self.tick():
             time.sleep(self.cfg.poll_s)
         self.log("守护进程收尾完成,退出")
@@ -381,6 +381,3 @@ class Supervisor:
             except ChildProcessError:
                 pass
 
-
-def main() -> int:
-    return Supervisor(Config.from_env(os.environ)).run_forever()

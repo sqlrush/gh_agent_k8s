@@ -161,3 +161,71 @@ def test_grant_group_adds_read_to_own_files_and_dirs_only(tmp_path):
     assert _mode(disk / "gdaa" / "sessions") & 0o050 == 0o050
     assert _mode(f) & 0o040 == 0o040
     assert _mode(target) == 0o600, "链接指向的文件不能被改"
+
+
+# -- 接管属主(槽位在起 opencode 之前,把管家载入的文件换成自己的) ---------------------------
+
+def _ino(p: pathlib.Path) -> int:
+    return p.lstat().st_ino
+
+
+def _adopt_tree(tmp_path):
+    root = tmp_path / "t"
+    (root / "d" / "sub").mkdir(parents=True)
+    (root / "a.txt").write_text("A", encoding="utf-8")
+    (root / "opencode.db").write_text("DB", encoding="utf-8")
+    (root / "d" / "f.txt").write_text("F", encoding="utf-8")
+    (root / "d" / "sub" / "g").write_text("G", encoding="utf-8")
+    (root / "d").chmod(0o2770)
+    (root / "a.txt").chmod(0o660)
+    os.utime(root / "a.txt", ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+    os.symlink("/etc/passwd", root / "link")
+    foreign = {_ino(root / n) for n in ("a.txt", "opencode.db", "d", "d/f.txt", "d/sub/g")}
+    return root, foreign
+
+
+def test_adopt_replaces_foreign_files_and_dirs_with_own_copies(tmp_path):
+    root, foreign = _adopt_tree(tmp_path)
+    before = {n: _ino(root / n) for n in ("a.txt", "opencode.db", "d", "d/sub", "d/f.txt", "d/sub/g")}
+    st = fdtree.Stats()
+    fd = fdtree.open_root(root)
+    fdtree.adopt(fd, stats=st, foreign=lambda s: s.st_ino in foreign, keep_file=lambda n: n.endswith(".db"))
+    os.close(fd)
+    assert not st.errors
+    for n in ("a.txt", "d", "d/f.txt", "d/sub/g"):
+        assert _ino(root / n) != before[n], "%s 应换成新的 inode(属于槽位自己)" % n
+    assert _ino(root / "opencode.db") == before["opencode.db"], "库文件不复制"
+    assert _ino(root / "d" / "sub") == before["d/sub"], "自己的目录原样移过去"
+    assert (root / "a.txt").read_text(encoding="utf-8") == "A" and (root / "d" / "sub" / "g").read_text(encoding="utf-8") == "G"
+    assert _mode(root / "a.txt") == 0o660 and (root / "a.txt").stat().st_mtime_ns == 1_600_000_000_000_000_000
+    assert _mode(root / "d") == 0o2770
+    assert os.readlink(root / "link") == "/etc/passwd"
+    assert not [n for n in os.listdir(root) if n.startswith(fdtree.ADOPT_PREFIX)]
+
+
+def test_adopt_is_a_no_op_when_everything_is_already_own(tmp_path):
+    root, _foreign = _adopt_tree(tmp_path)
+    st = fdtree.Stats()
+    fd = fdtree.open_root(root)
+    fdtree.adopt(fd, stats=st)
+    os.close(fd)
+    assert st.files == 0 and not st.errors
+
+
+def test_adopt_puts_children_back_when_a_dir_cannot_be_replaced(tmp_path, monkeypatch):
+    root, foreign = _adopt_tree(tmp_path)
+    real_rmdir = os.rmdir
+
+    def rmdir(name, *a, **kw):
+        if name == "d":
+            raise PermissionError(13, "denied")
+        return real_rmdir(name, *a, **kw)
+
+    monkeypatch.setattr(fdtree.os, "rmdir", rmdir)
+    st = fdtree.Stats()
+    fd = fdtree.open_root(root)
+    fdtree.adopt(fd, stats=st, foreign=lambda s: s.st_ino in foreign)
+    os.close(fd)
+    assert any("接管目录 d" in e for e in st.errors)
+    assert sorted(os.listdir(root / "d")) == ["f.txt", "sub"], "内容不能散在两处"
+    assert not [n for n in os.listdir(root) if n.startswith(fdtree.ADOPT_PREFIX)]

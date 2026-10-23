@@ -82,8 +82,14 @@ def test_every_local_module_any_copied_module_imports_is_copied():
 
 
 def test_the_pool_subcommands_are_wired_and_their_modules_copied():
-    assert {"pool-serve", "pool-run"} <= _registered_subcommands()
-    assert {"poolctl.py", "poolrun.py", "poolsync.py", "fdtree.py"} <= _copied_files()
+    assert {"pool-serve", "pool-run", "pool-slot"} <= _registered_subcommands()
+    assert {"poolctl.py", "poolrun.py", "poolsync.py", "fdtree.py", "slotrun.py"} <= _copied_files()
+
+
+def test_slot_users_exist_in_the_image():
+    """固定池化的槽位以 uid 2000–2015 运行,与 agent 同组;没有 passwd 条目时 git 等工具报不认识的用户。"""
+    src = _DOCKERFILE.read_text(encoding="utf-8")
+    assert re.search(r"for i in \$\(seq 0 15\); do useradd --uid \$\(\(2000 \+ i\)\) --gid agent", src)
 
 
 def _stages() -> dict:

@@ -81,6 +81,11 @@ def _is_db(name: str) -> bool:
 
 
 class Supervisor:
+    # 固定池化的槽位(slotrun)要让管家(另一个 uid、同组)读得到,覆盖成组可读;这里是按需池化的口径
+    GDAA_MODE: Optional[int] = 0o700
+    SNAP_MODE = 0o600
+    GIT_ENV: Dict[str, str] = {}
+
     def __init__(self, cfg: Config, env: Optional[Mapping[str, str]] = None,
                  log: Callable[[str], None] = print):
         self.cfg = cfg
@@ -171,15 +176,17 @@ class Supervisor:
         for sub in POOL_LOCALIZED + ("xdg-data/opencode", "xdg-state/opencode"):
             (st / sub).mkdir(parents=True, exist_ok=True)
         gdaa = st / "gdaa"
-        os.chmod(gdaa, 0o700)
+        if self.GDAA_MODE is not None:
+            os.chmod(gdaa, self.GDAA_MODE)
         podctl._write_private(gdaa / "config.yaml", podctl.render_gdaa_config(env))   # 配置不是状态:每次重生成
         podctl.log_prune(st / "xdg-data" / "opencode" / "log", 7)
         ws = st / "workspace"
         if not (ws / ".git").exists():          # opencode 以 git 仓识别「项目」,与按需模式同一做法
+            genv = dict(os.environ, **self.GIT_ENV) if self.GIT_ENV else None
             try:
-                subprocess.run(["git", "-C", str(ws), "init", "-q"], check=False)
+                subprocess.run(["git", "-C", str(ws), "init", "-q"], check=False, env=genv)
                 subprocess.run(["git", "-C", str(ws), "-c", "user.name=agent", "-c", "user.email=agent@pod",
-                                "commit", "-q", "--allow-empty", "-m", "workspace init"], check=False)
+                                "commit", "-q", "--allow-empty", "-m", "workspace init"], check=False, env=genv)
             except OSError as exc:              # 镜像里有 git;没有时会话照样能用,只是 Web 界面不按项目归类
                 self.log("工作目录没能初始化成 git 仓(%s);会话可用,Web 界面的项目归类会缺失" % exc)
         if self.cfg.env_file is not None:       # exec 进容器排障时 `. /data/env.sh`;只放路径,不放口令
@@ -335,7 +342,7 @@ class Supervisor:
                         if statesync._db_unchanged(sig, self.record.get(rel), dst):
                             continue
                         statesync.copy_db(src, dst)
-                        os.chmod(dst, 0o600)        # 快照会原样成为 NAS 上的库与退出备份,与按需模式一样 0600
+                        os.chmod(dst, self.SNAP_MODE)   # 快照会原样成为 NAS 上的库与退出备份(管家写到 NAS 时另定 mode)
                         self.record[rel] = sig
                         changed.append(rel)
                     except (OSError, sqlite3.Error) as exc:

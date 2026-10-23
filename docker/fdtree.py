@@ -449,7 +449,10 @@ def wipe_contents(root_fd: int, *, stats: Stats) -> None:
             os.rmdir(name, dir_fd=root_fd)
             stats.deleted += 1
         except OSError as exc:
-            stats.errors.append("删目录 %s:%s" % (name, exc))
+            if exc.errno == errno.EBUSY:  # 挂载点(同一块盘上的另一个 emptyDir):里面已清空,目录本身留着
+                stats.skipped += 1
+            else:
+                stats.errors.append("删目录 %s:%s" % (name, exc))
 
 
 def grant_group(root_fd: int, *, stats: Stats, file_bits: int = 0o040, dir_bits: int = 0o050) -> None:
@@ -490,3 +493,79 @@ def grant_group(root_fd: int, *, stats: Stats, file_bits: int = 0o040, dir_bits:
                 grant_group(sub, stats=stats, file_bits=file_bits, dir_bits=dir_bits)
             finally:
                 os.close(sub)
+
+
+ADOPT_PREFIX = ".adopt-"
+
+
+def adopt(root_fd: int, *, stats: Stats, foreign: Optional[Callable[[os.stat_result], bool]] = None,
+          keep_file: Optional[Callable[[str], bool]] = None) -> None:
+    """把 root 下不是自己名下的条目换成自己名下的同样内容(固定池化槽位,绑定后、起 opencode 之前)。
+
+    管家(uid 1000)载入的文件属主是它;技能每次运行都 chmod 0700 会话目录,属主不是槽位就 EPERM
+    (P0 摸底 S1)。不是 root 改不了属主,只能「复制成自己的」:
+      · 普通文件:复制到同目录的临时名(内容、权限、修改时间不变)再原子改名覆盖 —— 新 inode 属于自己;
+        keep_file(名字) 为真的不动(库文件:只需组读写,复制几百 MB 不值得,也没人 chmod 它);
+      · 目录:先处理里面,再建一个自己的新目录、把孩子逐个改名移进去、删掉旧的空目录、新目录改回原名。
+    调用时容器里没有别的进程(新起的槽位,或停止时已 kill(-1)),不会有人在中途换目录。链接不跟随、不处理。
+    foreign 默认「属主不是自己」;测试里换成按名字判断(非 root 造不出别人的文件)。
+    """
+    me = os.geteuid()
+    is_foreign = foreign or (lambda st: st.st_uid != me)
+    for name in listdir(root_fd):
+        if name.startswith(ADOPT_PREFIX) or is_temporary(name):
+            continue
+        try:
+            st = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            if is_foreign(st) and not (keep_file is not None and keep_file(name)):
+                try:
+                    copy_file(root_fd, name, root_fd, name, only_if_changed=False, mode=stat.S_IMODE(st.st_mode))
+                    stats.files += 1
+                except (OSError, UnsafePath) as exc:
+                    stats.errors.append("接管 %s:%s" % (name, exc))
+            continue
+        if not stat.S_ISDIR(st.st_mode):
+            continue
+        try:
+            sub = open_dir(root_fd, name)
+        except (OSError, UnsafePath) as exc:
+            stats.errors.append("进不去 %s:%s" % (name, exc))
+            continue
+        if sub is None:
+            continue
+        try:
+            adopt(sub, stats=stats, foreign=foreign, keep_file=keep_file)
+            if is_foreign(st):
+                _adopt_dir(root_fd, name, sub, st, stats)
+        finally:
+            os.close(sub)
+
+
+def _adopt_dir(parent_fd: int, name: str, old_fd: int, st: os.stat_result, stats: Stats) -> None:
+    tmp = ADOPT_PREFIX + secrets.token_hex(6)
+    try:
+        os.mkdir(tmp, 0o700, dir_fd=parent_fd)
+        new_fd = open_dir(parent_fd, tmp)
+    except (OSError, UnsafePath) as exc:
+        stats.errors.append("接管目录 %s:%s" % (name, exc))
+        return
+    try:
+        os.fchmod(new_fd, stat.S_IMODE(st.st_mode))
+        for child in listdir(old_fd):
+            os.rename(child, child, src_dir_fd=old_fd, dst_dir_fd=new_fd)
+        os.rmdir(name, dir_fd=parent_fd)
+        os.rename(tmp, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        stats.files += 1
+    except OSError as exc:
+        stats.errors.append("接管目录 %s:%s" % (name, exc))
+        try:                            # 搬回原处:宁可这个目录还是管家的,也不能让内容散在两处
+            for child in listdir(new_fd):
+                os.rename(child, child, src_dir_fd=new_fd, dst_dir_fd=old_fd)
+            os.rmdir(tmp, dir_fd=parent_fd)
+        except OSError:
+            pass
+    finally:
+        os.close(new_fd)

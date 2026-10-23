@@ -9,6 +9,14 @@
 # 节点故障、--force 删 Pod —— 那三种没有 trap 的机会,是架构性代价。细节见 statesync.py。
 set -euo pipefail
 
+# ---- 固定池化的槽位(2026-10-23,docs/plans/2026-10-23-fixed-pool-spikes.md)---------------------
+# 槽位容器重启后 /data、/tmp、/dev/shm 里上一个使用者的文件都还在。这里**什么都不碰**,直接把 1 号进程
+# 交给 slotrun:它先清盘,再拷配置、渲染、等管家的指令。-E -s:不读 PYTHON* 环境变量与用户 site-packages;
+# -E 也让 PYTHONUNBUFFERED 失效,所以另加 -u,日志才实时进 kubectl logs。
+if [ "${POOL_MODE:-0}" = "slot" ]; then
+  exec python3 -E -s -u /opt/agent/podctl.py pool-slot
+fi
+
 NAS_ME=${NAS_ME:-/nas/me}
 NAS_KB=${NAS_KB:-/nas/kb}
 POD_NAME=${POD_NAME:-$(hostname)}

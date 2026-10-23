@@ -352,7 +352,8 @@ _REPORT_TYPES = {".json": "application/json; charset=utf-8",
                  ".html": "text/html; charset=utf-8"}
 
 
-def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir: Optional[pathlib.Path] = None):
+def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir: Optional[pathlib.Path] = None,
+                        token: str = ""):
     """本人 reports/ 目录的只读静态服务(4097),大盘经网关按工号读它。
 
     **只做三件事以外的一律 404**:GET、本目录之内、三种后缀。它和 opencode 同一个 Pod,
@@ -362,6 +363,10 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir
     另一条不是文件的路径是 /_kb/catalog.json:大盘知识库页签的目录,由 kbcatalog 从共享知识库现读现算
     (只读案例 / 现行条款 / 已确认的边,不读收件目录与原件)。没给 kb_dir 就没有这条路。
     知识库里的文件本身不能经这个端口直接取 —— 只端算好的目录。
+
+    token 非空时(固定池化,2026-10-23)每个请求都要带 `Authorization: Bearer <token>`,否则 401:
+    同一个 Pod 的 8 个槽位共用 localhost,只靠「网关只把本人的请求路由过来」挡不住同 Pod 的别人。
+    令牌每次绑定 / 恢复都换,由网关注入,不到浏览器。
     """
     import http.server
     import posixpath
@@ -380,6 +385,11 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir
             pass
 
         def do_GET(self):
+            if token:
+                import hmac
+                got = self.headers.get("Authorization") or ""
+                if not hmac.compare_digest(got.encode("utf-8"), ("Bearer " + token).encode("utf-8")):
+                    return self._status(401)
             rel = posixpath.normpath(urllib.parse.unquote(self.path.split("?", 1)[0])).lstrip("/")
             if rel == "_kb/catalog.json" and catalog is not None:
                 try:
@@ -470,6 +480,8 @@ def _parser() -> argparse.ArgumentParser:
     # 池化沙箱(方案 2026-10-13):副容器的控制接口,主容器的守护进程。参数全部来自环境变量
     sub.add_parser("pool-serve")
     sub.add_parser("pool-run")
+    # 固定池化(2026-10-23):槽位容器的 1 号进程(先清盘再等管家的指令),参数来自环境变量
+    sub.add_parser("pool-slot")
     p = sub.add_parser("serve-reports")
     p.add_argument("--dir", required=True)
     p.add_argument("--port", type=int, default=4097)
@@ -502,14 +514,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             n = len(log_prune(pathlib.Path(a.dir), a.days))
             print("日志清理: 删除 %d 个超过 %d 天的 .log" % (n, a.days))
         elif a.cmd == "serve-reports":
+            # 令牌经环境变量传(不放命令行:同容器里 ps 能看到命令行)
             make_reports_server(pathlib.Path(a.dir), a.port, user_id=os.environ.get("GSDB_USER_ID", ""),
-                                kb_dir=pathlib.Path(a.kb_dir) if a.kb_dir else None).serve_forever()
+                                kb_dir=pathlib.Path(a.kb_dir) if a.kb_dir else None,
+                                token=os.environ.get("REPORTS_TOKEN", "")).serve_forever()
         elif a.cmd == "pool-serve":
             import poolctl
             return poolctl.serve()
         elif a.cmd == "pool-run":
             import poolrun
             return poolrun.main()
+        elif a.cmd == "pool-slot":
+            import slotrun
+            return slotrun.main()
         elif a.cmd in ("state-load", "state-sync", "state-finish"):
             import statesync
             lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))

@@ -309,9 +309,9 @@ def _serve(tmp_path):
     return srv, srv.server_address[1]
 
 
-def _get(port, path, method="GET"):
+def _get(port, path, method="GET", headers=None):
     c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-    c.request(method, path)
+    c.request(method, path, headers=headers or {})
     r = c.getresponse()
     body = r.read()
     hdrs = {k.lower(): v for k, v in r.getheaders()}
@@ -354,7 +354,7 @@ def test_serve_reports_subcommand_is_wired(monkeypatch, tmp_path):
             called["ran"] = True
 
     monkeypatch.setattr(podctl, "make_reports_server",
-                        lambda root, port, user_id="", kb_dir=None: called.setdefault("args", (root, port)) and _Srv())
+                        lambda root, port, user_id="", kb_dir=None, token="": called.setdefault("args", (root, port)) and _Srv())
     assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097"]) == 0
     assert called["args"] == (tmp_path, 4097) and called["ran"]
 
@@ -410,9 +410,42 @@ def test_serve_reports_passes_kb_dir(monkeypatch, tmp_path):
             pass
 
     monkeypatch.setattr(podctl, "make_reports_server",
-                        lambda root, port, user_id="", kb_dir=None: called.setdefault("kb", kb_dir) and _Srv() or _Srv())
+                        lambda root, port, user_id="", kb_dir=None, token="": called.setdefault("kb", kb_dir) and _Srv() or _Srv())
     assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097", "--kb-dir", str(tmp_path / "kb")]) == 0
     assert called["kb"] == tmp_path / "kb"
+
+
+def test_serve_reports_takes_the_token_from_env_not_argv(monkeypatch, tmp_path):
+    """固定池化:报告令牌经环境变量传 —— 命令行同容器里 ps 看得到。"""
+    called = {}
+
+    class _Srv:
+        def serve_forever(self):
+            pass
+
+    monkeypatch.setenv("REPORTS_TOKEN", "t" * 32)
+    monkeypatch.setattr(podctl, "make_reports_server",
+                        lambda root, port, user_id="", kb_dir=None, token="": called.setdefault("token", token) and _Srv())
+    assert podctl.main(["serve-reports", "--dir", str(tmp_path), "--port", "4097"]) == 0
+    assert called["token"] == "t" * 32
+
+
+def test_reports_server_with_a_token_refuses_everything_without_it(tmp_path):
+    """同一个 Pod 的 8 个槽位共用 localhost:有令牌时每条路(含 whoami 与知识库目录)都要带 Bearer。"""
+    root = tmp_path / "reports"
+    root.mkdir()
+    (root / "r.html").write_text("<p>x</p>", encoding="utf-8")
+    srv = podctl.make_reports_server(root, 0, user_id="u1234", token="t" * 32)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        port = srv.server_address[1]
+        for path in ("/whoami.json", "/r.html", "/_kb/catalog.json", "/nope.html"):
+            assert _get(port, path)[0] == 401, path
+        assert _get(port, "/whoami.json", headers={"Authorization": "Bearer " + "x" * 32})[0] == 401
+        st, _h, body = _get(port, "/whoami.json", headers={"Authorization": "Bearer " + "t" * 32})
+        assert st == 200 and json.loads(body) == {"user_id": "u1234"}
+    finally:
+        srv.shutdown()
 
 
 # ---- 实例别名(api 模式) ------------------------------------------------------

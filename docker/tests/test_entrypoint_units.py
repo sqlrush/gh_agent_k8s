@@ -34,3 +34,14 @@ def test_pool_mode_hands_pid_1_to_the_daemon_before_any_nas_step():
     assert "render-opencode-config" in body, "模型配置与身份无关,在这里渲染"
     first_nas = min(_EP.index(k) for k in ('"$NAS_ME', "$NAS_ME/"))
     assert m.end() < first_nas, "池化分支要在按需模式的第一个 NAS 步骤之前"
+
+
+def test_slot_mode_execs_the_slot_daemon_before_touching_anything():
+    """固定池化的槽位:上一个使用者的文件还在 /data、/tmp 里,清盘之前不能碰它们(也不能 source 任何东西)。"""
+    m = re.search(r'^if \[ "\$\{POOL_MODE:-0\}" = "slot" \]; then\n(.*?)^fi$', _EP, re.M | re.S)
+    assert m, "没有 POOL_MODE=slot 分支"
+    lines = [l.strip() for l in m.group(1).splitlines() if l.strip() and not l.strip().startswith("#")]
+    assert lines == ["exec python3 -E -s -u /opt/agent/podctl.py pool-slot"], "分支里只能有这一行 exec"
+    before = [l.strip() for l in _EP[:m.start()].splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    assert before == ["set -euo pipefail"], "槽位分支要是第一条命令:之前连变量都不设"
+    assert m.end() < _EP.index('if [ "${POOL_MODE:-0}" = "1" ]'), "要在 v1.2.0 池化分支之前"

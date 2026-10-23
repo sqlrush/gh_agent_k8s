@@ -82,8 +82,9 @@ def test_every_local_module_any_copied_module_imports_is_copied():
 
 
 def test_the_pool_subcommands_are_wired_and_their_modules_copied():
-    assert {"pool-serve", "pool-run", "pool-slot"} <= _registered_subcommands()
-    assert {"poolctl.py", "poolrun.py", "poolsync.py", "fdtree.py", "slotrun.py"} <= _copied_files()
+    assert {"pool-serve", "pool-run", "pool-slot", "pool-steward"} <= _registered_subcommands()
+    assert {"poolctl.py", "poolrun.py", "poolsync.py", "fdtree.py", "slotrun.py", "poolslot.py", "poolsteward.py",
+            "poolauth.py", "netcheck.py"} <= _copied_files()
 
 
 def test_slot_users_exist_in_the_image():

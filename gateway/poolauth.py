@@ -11,10 +11,15 @@
   · 时间戳超出窗口(默认 60 秒)拒绝;同一个随机数窗口内只认一次 —— 重放不了;
   · 应答也签名(用请求的随机数),冒充者给不出 —— 网关不会把冒充者的回答当真。
 
+**请求体里的秘密另外加密(seal)。** 签名只防篡改、不防偷看:冒充者收到的 bind / resume 请求里有这个人的
+GRMP 令牌。所以令牌字段由网关 seal 成密文,管家 unseal。只用标准库:HMAC-SHA256 当伪随机函数做计数器模式
+的密钥流(先加密后认证,加密与认证各用从控制密钥派生出的一把子密钥);每次 seal 一个新的随机数。
+
 密钥本身只在网关与管家的环境变量里(Secret sandbox-control),槽位容器里没有。
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import secrets
@@ -27,6 +32,10 @@ HDR_SIG = "X-Pool-Sig"
 HDR_RESP_SIG = "X-Pool-Resp-Sig"
 WINDOW_S = 60
 MAX_NONCES = 20000
+SEAL_PREFIX = "s1."
+SEAL_MAX = 4096                 # 明文上限(令牌几百字节)
+_SEAL_NONCE = 16
+_SEAL_TAG = 16
 
 
 def _mac(key: bytes, *parts: str) -> str:
@@ -92,3 +101,51 @@ class Verifier:
         # 超量(被灌了大量合法签名的请求 —— 只有持密钥的人能做到):按时间留新的一半
         keep = sorted(self._seen.items(), key=lambda kv: kv[1])[-(self.max_nonces // 2):]
         self._seen = dict(keep)
+
+
+# --- 请求体里的秘密字段 ---------------------------------------------------------------
+
+def _subkey(key: bytes, label: bytes) -> bytes:
+    return hmac.new(key, b"pool-seal\n" + label, hashlib.sha256).digest()
+
+
+def _keystream(key: bytes, nonce: bytes, n: int) -> bytes:
+    k = _subkey(key, b"enc")
+    out = bytearray()
+    ctr = 0
+    while len(out) < n:
+        out += hmac.new(k, nonce + ctr.to_bytes(8, "big"), hashlib.sha256).digest()
+        ctr += 1
+    return bytes(out[:n])
+
+
+def _seal_tag(key: bytes, nonce: bytes, ct: bytes) -> bytes:
+    return hmac.new(_subkey(key, b"mac"), nonce + ct, hashlib.sha256).digest()[:_SEAL_TAG]
+
+
+def seal(key: bytes, plaintext: str) -> str:
+    data = plaintext.encode("utf-8")
+    if len(data) > SEAL_MAX:
+        raise ValueError("要加密的内容超过 %d 字节" % SEAL_MAX)
+    nonce = secrets.token_bytes(_SEAL_NONCE)
+    ct = bytes(a ^ b for a, b in zip(data, _keystream(key, nonce, len(data))))
+    return SEAL_PREFIX + base64.urlsafe_b64encode(nonce + ct + _seal_tag(key, nonce, ct)).decode("ascii")
+
+
+def unseal(key: bytes, token: object) -> Optional[str]:
+    """解不开(格式不对、被改过、密钥不对)返回 None。"""
+    if not isinstance(token, str) or not token.startswith(SEAL_PREFIX) or len(token) > 2 * SEAL_MAX:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(token[len(SEAL_PREFIX):].encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        return None
+    if len(raw) < _SEAL_NONCE + _SEAL_TAG:
+        return None
+    nonce, ct, tag = raw[:_SEAL_NONCE], raw[_SEAL_NONCE:-_SEAL_TAG], raw[-_SEAL_TAG:]
+    if not hmac.compare_digest(_seal_tag(key, nonce, ct), tag):
+        return None
+    try:
+        return bytes(a ^ b for a, b in zip(ct, _keystream(key, nonce, len(ct)))).decode("utf-8")
+    except UnicodeDecodeError:
+        return None

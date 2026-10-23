@@ -355,8 +355,9 @@ def load(user_fd: int, state_fd: int, log: Callable[[str], None] = print,
 # --- 库自检(只在 opencode 启动之前调用) -------------------------------------------
 
 def selfcheck(state_dir: pathlib.Path, user_fd: int, state_fd: int,
-              log: Callable[[str], None] = print) -> str:
-    """返回 ok / absent / restored / reset。
+              log: Callable[[str], None] = print, modes: Modes = LEGACY_MODES) -> str:
+    """返回 ok / absent / restored / reset。modes 是 state 卷一侧的权限(固定池化传 SLOT_MODES:
+    从备份恢复出来的库要让槽位读写得到;NAS 上的备份是 0600)。
 
     **只在 opencode 启动之前调用**:那时主容器还没执行过任何用户命令,state 卷可信,可以用 SQLite 按路径打开。
     NAS 上的备份不可信(可能是预先埋的链接),先按描述符拷进 state 卷再查,查过的才用。
@@ -379,11 +380,11 @@ def selfcheck(state_dir: pathlib.Path, user_fd: int, state_fd: int,
     if bfd is not None:
         try:
             dev = os.fstat(bfd).st_dev
-            tdir = fdtree.open_path(state_fd, RESTORE_DIR, create=True)
+            tdir = fdtree.open_path(state_fd, RESTORE_DIR, create=True, mode=modes.dir)
             try:
                 for name in reversed([n for n in fdtree.listdir(bfd) if podctl._BACKUP_RE.match(n)]):
                     try:
-                        fdtree.copy_file(bfd, name, tdir, name, dev=dev, only_if_changed=False)
+                        fdtree.copy_file(bfd, name, tdir, name, dev=dev, only_if_changed=False, mode=modes.file)
                     except fdtree.UnsafePath:
                         log("数据库自检: 备份 %s 不是普通文件(可能是链接),跳过" % name)
                         continue

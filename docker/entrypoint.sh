@@ -16,6 +16,10 @@ set -euo pipefail
 if [ "${POOL_MODE:-0}" = "slot" ]; then
   exec python3 -E -s -u /opt/agent/podctl.py pool-slot
 fi
+# 固定池化的管家:载入 / 回写 / 腾挪 + 控制接口 4098。模型不在这个容器里执行命令,只要 1 号进程交给它
+if [ "${POOL_MODE:-0}" = "steward" ]; then
+  exec python3 -u /opt/agent/podctl.py pool-steward
+fi
 
 NAS_ME=${NAS_ME:-/nas/me}
 NAS_KB=${NAS_KB:-/nas/kb}

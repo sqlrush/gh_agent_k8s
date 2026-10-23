@@ -119,3 +119,21 @@ def test_on_demand_owner_acquire_rotates_gen_too(tmp_path):
     first = (tmp_path / podctl.GEN_NAME).read_text()
     assert podctl.owner_acquire(tmp_path, "runtime-u1234-abc", wait_s=0)
     assert (tmp_path / podctl.GEN_NAME).read_text() != first
+
+
+def test_selfcheck_restore_into_a_slot_disk_is_group_shared(env):
+    """从 NAS 备份(0600)恢复出来的库要让槽位(另一个 uid、同组)读写得到。"""
+    import sqlite3
+    nas, state, me, sfd = env
+    ps.load(me, sfd, log=lambda m: None, modes=ps.SLOT_MODES)
+    db = state / "xdg-data" / "opencode" / "opencode.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.write_bytes(b"garbage" * 1000)
+    (nas / "backup").mkdir()
+    con = sqlite3.connect(nas / "backup" / "opencode.db.20261013T000000Z")
+    con.execute("create table t (i integer)")
+    con.commit()
+    con.close()
+    os.chmod(nas / "backup" / "opencode.db.20261013T000000Z", 0o600)
+    assert ps.selfcheck(state, me, sfd, log=lambda _m: None, modes=ps.SLOT_MODES) == "restored"
+    assert _mode(db) == 0o660 and _mode(state / ps.RESTORE_DIR) == 0o2770

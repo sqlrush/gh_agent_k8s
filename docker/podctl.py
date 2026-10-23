@@ -480,8 +480,9 @@ def _parser() -> argparse.ArgumentParser:
     # 池化沙箱(方案 2026-10-13):副容器的控制接口,主容器的守护进程。参数全部来自环境变量
     sub.add_parser("pool-serve")
     sub.add_parser("pool-run")
-    # 固定池化(2026-10-23):槽位容器的 1 号进程(先清盘再等管家的指令),参数来自环境变量
+    # 固定池化(2026-10-23):槽位容器的 1 号进程(先清盘再等管家的指令)与管家的控制接口,参数来自环境变量
     sub.add_parser("pool-slot")
+    sub.add_parser("pool-steward")
     p = sub.add_parser("serve-reports")
     p.add_argument("--dir", required=True)
     p.add_argument("--port", type=int, default=4097)
@@ -527,6 +528,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif a.cmd == "pool-slot":
             import slotrun
             return slotrun.main()
+        elif a.cmd == "pool-steward":
+            import poolsteward
+            return poolsteward.serve()
         elif a.cmd in ("state-load", "state-sync", "state-finish"):
             import statesync
             lay = statesync.Layout(nas=pathlib.Path(a.nas), local=pathlib.Path(a.local))

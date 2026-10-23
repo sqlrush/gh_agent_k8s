@@ -42,7 +42,7 @@ COPY agent/ /opt/agent/src/
 RUN cd /opt/agent/src && bash install-opencode.sh --dest /opt/agent/config/opencode/skills --no-backup \
         --agents-md /opt/agent/config/opencode/AGENTS.md >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; } \
     && grep -E "installed" /tmp/install.log | tail -1 && rm -rf /opt/agent/src /tmp/install.log
-COPY docker/podctl.py docker/statesync.py docker/fdtree.py docker/poolsync.py docker/poolctl.py docker/poolrun.py docker/slotrun.py docker/kbcatalog.py docker/entrypoint.sh /opt/agent/
+COPY docker/podctl.py docker/statesync.py docker/fdtree.py docker/poolsync.py docker/poolctl.py docker/poolrun.py docker/slotrun.py docker/poolslot.py docker/poolsteward.py docker/poolauth.py docker/netcheck.py docker/kbcatalog.py docker/entrypoint.sh /opt/agent/
 RUN chmod 0755 /opt/agent/entrypoint.sh && chown -R agent:agent /opt/agent && mkdir -p /data /nas && chown agent:agent /data
 # 固定池化的槽位以 uid 2000+i 运行(与管家 agent 同组):给它们 passwd 条目,git / getpwuid 才不报「不认识的用户」
 RUN for i in $(seq 0 15); do useradd --uid $((2000 + i)) --gid agent --no-create-home --home-dir /data/home \

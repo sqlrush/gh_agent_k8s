@@ -70,3 +70,30 @@ def test_nonce_cache_stays_bounded():
 def test_gateway_and_steward_copies_are_identical():
     """两份一字不差:改一份忘了另一份,签名就对不上(表现是所有控制请求 401)。"""
     assert (_ROOT / "docker" / "poolauth.py").read_bytes() == (_ROOT / "gateway" / "poolauth.py").read_bytes()
+
+
+# -- 秘密字段加密 -----------------------------------------------------------------------
+
+KEY2 = b"k" * 32
+
+
+def test_seal_round_trips_and_is_randomized():
+    a, b = pa.seal(KEY2, "grmp-令牌-123"), pa.seal(KEY2, "grmp-令牌-123")
+    assert a != b and a.startswith(pa.SEAL_PREFIX)
+    assert pa.unseal(KEY2, a) == pa.unseal(KEY2, b) == "grmp-令牌-123"
+    assert "grmp" not in a and pa.unseal(KEY2, pa.seal(KEY2, "")) == ""
+
+
+def test_unseal_refuses_tampering_wrong_key_and_garbage():
+    tok = pa.seal(KEY2, "secret-token")
+    raw = bytearray(pa.base64.urlsafe_b64decode(tok[len(pa.SEAL_PREFIX):]))
+    raw[20] ^= 1
+    flipped = pa.SEAL_PREFIX + pa.base64.urlsafe_b64encode(bytes(raw)).decode()
+    for bad in (flipped, tok[:-4], "secret-token", None, 42, pa.SEAL_PREFIX + "!!!", pa.SEAL_PREFIX):
+        assert pa.unseal(KEY2, bad) is None, bad
+    assert pa.unseal(b"x" * 32, tok) is None
+
+
+def test_seal_refuses_oversized_input():
+    with pytest.raises(ValueError):
+        pa.seal(KEY2, "x" * (pa.SEAL_MAX + 1))

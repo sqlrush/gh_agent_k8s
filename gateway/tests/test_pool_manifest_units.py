@@ -181,6 +181,17 @@ def test_network_policies_admit_only_the_gateway_on_exactly_the_pool_ports(docs)
     assert gw["policyTypes"] == ["Egress"] and {p["port"] for r in gw["egress"] for p in r["ports"]} == want
 
 
+def test_extra_egress_targets_are_rendered_and_bad_ones_refused():
+    docs = _docs("--egress", "10.1.2.3/32:11434", "--egress", "10.9.0.0/16:8443,9443")
+    eg = _kind(docs, "NetworkPolicy", "pool-policy")["spec"]["egress"]
+    assert {"to": [{"ipBlock": {"cidr": "10.1.2.3/32"}}], "ports": [{"port": 11434, "protocol": "TCP"}]} in eg
+    assert {p["port"] for r in eg if r["to"][0].get("ipBlock", {}).get("cidr") == "10.9.0.0/16" for p in r["ports"]} == \
+        {8443, 9443}
+    for bad in ("10.1.2.3:11434", "10.1.2.3/32:", "10.1.2.3/32:x"):
+        with pytest.raises(SystemExit):
+            rp.parse(["--image", IMAGE, "--egress", bad])
+
+
 def test_the_image_has_users_for_every_possible_slot():
     src = (_ROOT / "docker" / "Dockerfile").read_text(encoding="utf-8")
     m = re.search(r"for i in \$\(seq 0 (\d+)\); do useradd --uid \$\(\((\d+) \+ i\)\)", src)

@@ -336,6 +336,18 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
             self.close_connection = True
+        except proxy.UpstreamClosed as exc:
+            # 上游中途断了(固定池化下槽位转保留时 opencode 被停掉,事件流就这样结束)。事件流写上结束块,
+            # 让浏览器干净地结束、按自己的节奏重连;普通响应不写 —— 写了会让截断的内容看起来是完整的
+            self.close_connection = True
+            if (resp.getheader("Content-Type") or "").startswith("text/event-stream"):
+                try:
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except OSError:
+                    pass
+            else:
+                self.app.log("转发给 %s 的响应在中途断了(上游):%s" % (who.user_id, exc))
         except (BrokenPipeError, ConnectionResetError):
             pass                                     # 用户关了页面,正常
         finally:

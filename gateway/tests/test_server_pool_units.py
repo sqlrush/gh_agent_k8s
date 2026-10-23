@@ -59,6 +59,24 @@ class _Placeholder(BaseHTTPRequestHandler):
         pass
 
 
+class _Cut(BaseHTTPRequestHandler):
+    """发了一段就断:模拟槽位转保留时 opencode 被停掉。/sse 是事件流,其余是普通的分块响应。"""
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream" if self.path.startswith("/sse") else "application/json")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        chunk = b"data: hello\n\n"
+        self.wfile.write(b"%x\r\n" % len(chunk) + chunk + b"\r\n")
+        self.wfile.flush()
+        self.connection.shutdown(2)         # 不写结束块就断
+
+    def log_message(self, *a):
+        pass
+
+
 class Router:
     """PoolRouter 的替身:按测试的安排给目标或抛异常,记下每次调用。"""
 
@@ -228,3 +246,17 @@ def test_pool_interactive_classifier():
     assert server.pool_interactive("GET", "/global/event/", {}) is False
     assert server.pool_interactive("GET", "/session/abc/message", {"Accept": "*/*"}) is True
     assert server.pool_interactive("POST", "/session", {}) is True
+
+
+def test_an_event_stream_cut_by_a_retain_ends_cleanly_but_a_cut_response_stays_truncated(gw):
+    base, router, *_ = gw
+    cut = _serve(_Cut)
+    try:
+        router.default = dataclasses.replace(router.default, port=cut.server_address[1])
+        code, _h, body = _req(base, "/sse")
+        assert code == 200 and "data: hello" in body, "事件流:写上结束块,浏览器干净地结束、自己重连"
+        with pytest.raises(Exception):
+            _req(base, "/plain")                # 普通响应:不能让截断的内容看起来完整
+    finally:
+        cut.shutdown()
+        cut.server_close()

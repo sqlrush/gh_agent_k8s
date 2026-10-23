@@ -100,6 +100,7 @@ class PoolRouter:
             deadline = self.clock() + self.wait_s
             snap = self.table.snapshot()
             last = "starting"
+            rechecked = False
             while True:
                 d = pa.decide(snap.pods, user, self.clock(), self.policy)
                 if d.kind == pa.FORWARD:
@@ -109,18 +110,29 @@ class PoolRouter:
                 elif not interactive:
                     raise NotActive(user)
                 elif d.kind == pa.FULL and d.early_retain is None:
-                    raise PoolFull(self.retry_after)
+                    if not rechecked:               # 判满员之前先现读一次:缓存的视图可能是几秒前的
+                        rechecked = True
+                        self.table.invalidate()
+                        snap = self.table.refresh()
+                        continue
+                    raise self._full_or_wait(snap)
                 else:
                     got, last = self._act(snap, user, d, deadline)
                     if got is not None:
                         return got
                 if self.clock() >= deadline:
                     if d.kind == pa.FULL:
-                        raise PoolFull(self.retry_after)
+                        raise self._full_or_wait(snap)
                     raise PoolWait(last or d.reason or d.kind, min(self.retry_after, 10))
                 self.sleep(0.5)
                 self.table.invalidate()             # 视图已过期(409 / 刚做了动作):强制重读
                 snap = self.table.refresh()
+
+    def _full_or_wait(self, snap) -> Exception:
+        """有 Pod 的管家暂时连不上时不说「满员」:那几个 Pod 里可能有空位,只是这会儿看不到(网关刚启动、管家在重启)。"""
+        if any(not p.reachable for p in snap.pods):
+            return PoolWait("steward_unreachable", min(self.retry_after, 10))
+        return PoolFull(self.retry_after)
 
     def _act(self, snap, user: str, d: pa.Decision, deadline: float) -> Tuple[Optional[Target], str]:
         try:
@@ -164,7 +176,11 @@ class PoolRouter:
             return None, "pod_gone"
         token = self.grmp_lookup(user) if need_token else ""
         fn = self.client.bind if verb == "bind" else self.client.resume
-        code, body = fn(pod, meta.ip, slot, user, token, view.in_use, meta.containers.get(slot, ""))
+        # 租期记录用现读的 containerID:视图可能是腾挪之前的(容器刚重启过),拿旧 ID 去绑,
+        # 管家记下的租期就是错的,下一次恢复会被当成「容器换过了」拒掉
+        fresh = self.table.fresh_meta(pod) if need_token else None
+        cid = (fresh or meta).containers.get(slot, "")
+        code, body = fn(pod, meta.ip, slot, user, token, view.in_use, cid)
         if not (code == 200 and body.get("idempotent")):
             self.table.invalidate()                 # 状态变了,或者视图过期了
         if code == 200:

@@ -121,6 +121,18 @@ def test_on_demand_owner_acquire_rotates_gen_too(tmp_path):
     assert (tmp_path / podctl.GEN_NAME).read_text() != first
 
 
+def test_sync_never_propagates_deletes_once_the_source_is_no_longer_valid(env):
+    """槽位在复制期间重启(盘被清空):删除传播之前再问一次,来源失效就不删 NAS 上的任何东西。"""
+    nas, state, me, sfd = env
+    (nas / "workspace").mkdir()
+    (nas / "workspace" / "history.md").write_text("all of it")
+    (state / "workspace").mkdir()                            # 新的 1 号进程建的空目录
+    moved = ps.sync(me, sfd, {}, modes=ps.NAS_MODES, still_valid=lambda: False)
+    assert (nas / "workspace" / "history.md").exists() and any("不传播删除" in e for e in moved.errors)
+    ps.sync(me, sfd, {}, modes=ps.NAS_MODES, still_valid=lambda: True)
+    assert not (nas / "workspace" / "history.md").exists(), "来源有效时照常传播删除"
+
+
 def test_selfcheck_restore_into_a_slot_disk_is_group_shared(env):
     """从 NAS 备份(0600)恢复出来的库要让槽位(另一个 uid、同组)读写得到。"""
     import sqlite3

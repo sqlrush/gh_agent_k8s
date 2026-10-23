@@ -81,6 +81,7 @@ class PoolTable:
         self.kube, self.client, self.selector, self.refresh_s = kube, client, selector, refresh_s
         self.log, self.clock = log, clock
         self._snap: Optional[Snapshot] = None
+        self._last: Optional[Snapshot] = None   # 作废了也留着:管家暂时连不上时沿用它看到的槽位
         self._gen = 0                           # 第几次真读;并发的刷新只读一次,但绝不返回比调用更早的视图
         self._lock = threading.Lock()
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="pooltable")
@@ -113,8 +114,11 @@ class PoolTable:
                     if not self._down_logged.get(m.name):
                         self._down_logged[m.name] = True
                         self.log("池化:%s 的管家暂时连不上,这一轮不往它分配(%s)" % (m.name, exc))
-                    pods.append(pa.PodView(m.name, (), reachable=False))
-                    meta[m.name] = m
+                    # 沿用上一次看到的槽位(标成不可分配):在用的人照常转发 —— 管家重启不该打断对话
+                    last = self._last
+                    prev = next((p for p in (last.pods if last else ()) if p.name == m.name), None)
+                    pods.append(pa.PodView(m.name, prev.slots if prev else (), reachable=False))
+                    meta[m.name] = last.meta.get(m.name, m) if last else m
                     continue
                 raw = [s for s in st.get("slots") or [] if isinstance(s, dict) and isinstance(s.get("slot"), int)]
                 slots = tuple(slot_view(m.name, s, m.started.get(s["slot"], 0.0)) for s in raw)
@@ -122,7 +126,7 @@ class PoolTable:
                          for s in raw if isinstance(s.get("ports"), dict)}
                 meta[m.name] = PodMeta(m.name, m.ip, m.containers, m.started, ports)
                 pods.append(pa.PodView(m.name, slots, reachable=True))
-            self._snap = Snapshot(self.clock(), tuple(pods), meta)
+            self._snap = self._last = Snapshot(self.clock(), tuple(pods), meta)
             self._gen += 1
             return self._snap
 

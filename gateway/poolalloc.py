@@ -192,13 +192,15 @@ def _early_retain_candidate(pods: Sequence[PodView], now: float, policy: Policy)
 # --- 分配 -----------------------------------------------------------------------------------------
 
 def decide(pods: Sequence[PodView], user: str, now: float, policy: Policy = Policy()) -> Decision:
-    mine = _mine(pods, user)
-    active = [s for s in mine if s.state == ACTIVE]
+    # 在用 / 正在变的看全部 Pod:管家暂时连不上的 Pod 里,槽位照样在跑(网关直连槽位,不经管家)
+    anywhere = [s for p in pods for s in p.slots if s.user == user]
+    active = [s for s in anywhere if s.state == ACTIVE]
     if active:
         return Decision(FORWARD, target=active[0].ref)
-    moving = [s for s in mine if s.state in TRANSIENT]
+    moving = [s for s in anywhere if s.state in TRANSIENT]
     if moving:
         return Decision(WAIT, target=moving[0].ref, reason=moving[0].state)
+    mine = _mine(pods, user)
     kept = sorted((s for s in mine if s.state == RETAINED and not s.stale),
                   key=lambda s: (not s.dirty, -s.retained_at))
     if kept:

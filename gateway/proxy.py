@@ -67,6 +67,11 @@ CONNECT_RETRIES = 4
 CONNECT_BACKOFF = 1.0
 
 
+class UpstreamClosed(Exception):
+    """上游在流的中途断开(opencode 被停掉 / 重启 / 槽位转保留)。与「客户端走了」分开:
+    事件流还能给客户端一个干净的结尾,普通响应则要让客户端看出它被截断了。"""
+
+
 class Upstream:
     """一次转发。connect_timeout 有值,**读响应不设超时**(SSE 永不结束)。"""
 
@@ -125,7 +130,10 @@ def pump(resp: http.client.HTTPResponse, write: Callable[[bytes], None],
     """
     total = 0
     while True:
-        chunk = resp.read1(CHUNK)
+        try:
+            chunk = resp.read1(CHUNK)
+        except (OSError, http.client.HTTPException) as exc:
+            raise UpstreamClosed(str(exc)) from exc
         if not chunk:
             break
         write(chunk)

@@ -1,15 +1,15 @@
-"""池化布局的状态搬运——副容器用(方案 §4、§8、§9)。
+"""池化布局的状态搬运——固定池化的管家用(NAS 的 users/ ↔ 槽位的状态盘)。
 
-副容器挂着全部用户目录(`/pool/users`)与本沙箱的 state 卷(`/pool/state`)。两块盘都按**不可信**处理:
-  · state 卷从 opencode 启动那一刻起由主容器写,而主容器里的模型能执行命令;
-  · NAS 上的本人目录在按需模式下由主容器直接读写,可能预先埋了链接。
+管家挂着全部用户目录(`/pool/users`)与各槽位的状态盘(`/pool/slots/<i>/state`)。两块盘都按**不可信**处理:
+  · 状态盘从 opencode 启动那一刻起由槽位写,而槽位里的模型能执行命令;
+  · NAS 上的本人目录在按需模式下由用户的 Pod 直接读写,可能预先埋了链接。
 所以这里对两边的一切读写都经 `fdtree`(逐级不跟随、打开后确认普通文件),**绑定之后不用 SQLite 打开
-state 卷上的任何文件**:库的一致性快照由主容器生成在 `.pool/snap/`,这里只把快照当普通文件搬。
+state 卷上的任何文件**:库的一致性快照由槽位生成在 `.pool/snap/`,这里只把快照当普通文件搬。
 
 沿用现有模式(statesync)的规则:dirty 标记、非正常退出先给 NAS 留快照、没载入成功不传播删除、
 库自检与从备份恢复、`.owner` 独占(30 秒刷新、90 秒过期)。
 
-调用方(poolctl)负责打开并持有三个根描述符:`users/` 根、本人目录、state 卷根。
+调用方(固定池化的管家,poolslot)负责打开并持有三个根描述符:`users/` 根、本人目录、槽位的状态盘根。
 """
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ import podctl
 import statesync
 
 # 池化下本地化的子目录。比现有模式多两项:gdaa/sessions(登录句柄)与 reports(大盘的数据)——
-# 主容器看不到 NAS,它们只能先载入本地。gdaa 下其余内容(config.yaml 每次绑定重新生成;
+# 槽位看不到 NAS,它们只能先载入本地。gdaa 下其余内容(config.yaml 每次绑定重新生成;
 # credentials/ 与 key 容器版用不到)不载入、不回写,NAS 上原样保留(方案 §8)。
 POOL_LOCALIZED: Tuple[str, ...] = ("xdg-data", "xdg-state", "workspace", "gdaa/sessions", "reports")
 POOL_DIR = ".pool"                      # state 卷上两个容器之间的工作区,不回写 NAS
-SNAP_DIR = POOL_DIR + "/snap"           # 主容器生成的库快照:<子目录>/<相对路径>
+SNAP_DIR = POOL_DIR + "/snap"           # 槽位生成的库快照:<子目录>/<相对路径>
 RESTORE_DIR = POOL_DIR + "/restore"     # 自检时从 NAS 备份拷过来待检的副本
 MAIN_DB = "xdg-data/opencode/opencode.db"
 BACKUP_DIR = "backup"
@@ -130,7 +130,7 @@ def open_user(users_fd: int, user_id: str) -> int:
     def _explain(fd: int, what: str) -> PoolError:
         st = os.fstat(fd)
         return PoolError("users_not_writable",
-                         "%s 不可写:属主 uid=%d gid=%d、权限 %o,副容器以 uid=%d 运行。"
+                         "%s 不可写:属主 uid=%d gid=%d、权限 %o,管家以 uid=%d 运行。"
                          "请按部署手册在 NFS 服务器上对 users/ 执行 chown -R 1000:1000"
                          % (what, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), os.getuid()))
     try:
@@ -162,7 +162,7 @@ def _owner(user_fd: int) -> dict:
     try:
         raw = fdtree.read_small(user_fd, OWNER, limit=4096)
     except fdtree.UnsafePath:
-        return {}               # 预先埋的链接 / 怪文件不是任何沙箱写的标记:当成没有,写时替换掉它
+        return {}               # 预先埋的链接 / 怪文件不是任何 Pod / 槽位写的标记:当成没有,写时替换掉它
     if not raw:
         return {}
     try:
@@ -197,7 +197,7 @@ def owner_acquire(user_fd: int, pod: str, now: Optional[float] = None,
 
 
 def owner_refresh(user_fd: int, pod: str, now: Optional[float] = None) -> bool:
-    """还是自己持有才刷新;被别人接管了(本副容器停了 90 秒以上)返回 False——调用方必须停止回写。"""
+    """还是自己持有才刷新;被别人接管了(本管家停了 90 秒以上)返回 False——调用方必须停止回写。"""
     if _owner(user_fd).get("pod") != pod:
         return False
     _write_owner(user_fd, pod, time.time() if now is None else now)
@@ -359,7 +359,7 @@ def selfcheck(state_dir: pathlib.Path, user_fd: int, state_fd: int,
     """返回 ok / absent / restored / reset。modes 是 state 卷一侧的权限(固定池化传 SLOT_MODES:
     从备份恢复出来的库要让槽位读写得到;NAS 上的备份是 0600)。
 
-    **只在 opencode 启动之前调用**:那时主容器还没执行过任何用户命令,state 卷可信,可以用 SQLite 按路径打开。
+    **只在 opencode 启动之前调用**:那时槽位还没执行过任何用户命令,state 卷可信,可以用 SQLite 按路径打开。
     NAS 上的备份不可信(可能是预先埋的链接),先按描述符拷进 state 卷再查,查过的才用。
     """
     db = state_dir / MAIN_DB
@@ -409,17 +409,21 @@ Ident = Tuple[int, int, int]
 
 
 def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: bool = True,
-         modes: Modes = LEGACY_MODES) -> Moved:
-    """state 卷 → NAS。普通文件按 fdtree 增量搬;库**只搬主容器生成的快照**(.pool/snap/),
+         modes: Modes = LEGACY_MODES, still_valid: Optional[Callable[[], bool]] = None) -> Moved:
+    """state 卷 → NAS。普通文件按 fdtree 增量搬;库**只搬槽位生成的快照**(.pool/snap/),
     state 卷上活着的库文件一概不碰。snap_seen 记各个快照上次搬过时的身份(inode、纳秒修改时间、大小),
-    没变就不搬(M1 在副容器这一侧的样子)。
+    没变就不搬(M1 在管家这一侧的样子)。
 
     某个子目录在 state 卷上整个不见了(或被换成链接)时**不对它传播删除**:那更像是误删,
     NAS 上那份是这个人全部的历史。
 
     **state 卷上还在的库,不管这一轮有没有快照,都算「还在」**:库不经普通复制,只搬快照;
-    要是保留集合里只有快照,主容器还没生成快照(或 20 秒内没响应)的那一轮,删除传播就会把
+    要是保留集合里只有快照,槽位还没生成快照(或 20 秒内没响应)的那一轮,删除传播就会把
     NAS 上这个人的 opencode.db 当成「已删」删掉。只有本地真没了这个库,NAS 上的才删。
+
+    still_valid:每次传播删除之前问一次「来源还是那块盘吗」。固定池化的槽位重启时新的 1 号进程会清盘、
+    重建空的顶层目录 —— 目录都在、里面是空的,按上面的规则删除传播会把 NAS 上这个人的历史全部删掉。
+    返回假就不再传播删除(这一轮复制过去的照常留着)。
     """
     t0 = time.monotonic()
     moved = Moved()
@@ -438,6 +442,9 @@ def sync(user_fd: int, state_fd: int, snap_seen: Dict[str, Ident], may_delete: b
             continue
         seen |= live_dbs
         _sync_snapshots(user_fd, state_fd, sub, snap_seen, seen, moved, modes)
+        if may_delete and still_valid is not None and not still_valid():
+            moved.errors.append("来源的盘已不是原来那块(槽位重启过),不传播删除")
+            may_delete = False
         if may_delete:
             try:
                 dst = fdtree.open_path(user_fd, sub, create=True, mode=modes.dir)
@@ -501,7 +508,7 @@ def _sync_snapshots(user_fd: int, state_fd: int, sub: str, snap_seen: Dict[str, 
 
 def backup(user_fd: int, state_fd: int, keep: int = 3, now: Optional[float] = None,
            modes: Modes = LEGACY_MODES) -> Optional[str]:
-    """退出备份:把主容器的最终快照拷成 NAS 上的 backup/opencode.db.<UTC 时间戳>,保留最近 keep 份。没有快照 → None。"""
+    """退出备份:把槽位的最终快照拷成 NAS 上的 backup/opencode.db.<UTC 时间戳>,保留最近 keep 份。没有快照 → None。"""
     parent, _sep, base = MAIN_DB.rpartition("/")
     try:
         sdir = fdtree.open_path(state_fd, SNAP_DIR + "/" + parent, create=False)

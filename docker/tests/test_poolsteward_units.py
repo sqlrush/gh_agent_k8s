@@ -378,6 +378,41 @@ def test_a_reserved_slot_is_evicted_and_handed_to_the_waiting_user_only(pod):
     assert pod.st.status()["slots"][0]["reserved_for"] is None, "等的人绑上了,预留清掉"
 
 
+def test_two_gateways_verifying_the_same_slot_do_not_clobber_a_bind_in_between(bare, monkeypatch):
+    """两个网关副本的清扫同时核验同一个槽位:后到的那个拿到锁时状态已经变了(先到的核验完、有人绑上了),必须 409。"""
+    st, _v, _l = bare
+    s = st.slots[0]
+    s._set(state=poolslot.EVICTING, evict={"boot": "old", "container_id": "c-old", "at": time.time()})
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_handshake(seconds=None):
+        entered.set()
+        release.wait(5)
+        return None                         # 先到的这一次核验不过(回 no_hello),但它占着锁
+    monkeypatch.setattr(s, "handshake", slow_handshake)
+    out = {}
+    t1 = threading.Thread(target=lambda: out.setdefault("first", s.verify("c-new")))
+    t1.start()
+    assert entered.wait(5)
+    t2 = threading.Thread(target=lambda: out.setdefault("second", s.verify("c-new")))
+    t2.start()
+    time.sleep(0.2)                         # 第二个已经过了锁外的检查,在等锁
+    s._set(state=poolslot.BINDING, user="u7777", evict=None)    # 这期间有人绑上了
+    release.set()
+    t1.join(5)
+    t2.join(5)
+    assert out["second"] == (409, {"reason": "state", "state": poolslot.BINDING})
+    assert s.state == poolslot.BINDING and s.user == "u7777", "绑定中的记录不能被核验冲掉"
+
+
+def test_bind_keeps_the_container_id_the_steward_verified(pod):
+    """网关的视图可能是腾挪之前的:绑定时它带来的容器 ID 不能盖掉管家核验时记下的那个。"""
+    s = pod.st.slots[0]
+    s._set(container_id="c-verified")
+    code, _b = pod.st.bind({"slot": 0, "user_id": "u1234", "expect_in_use": 0, "container_id": "c-stale-view"})
+    assert code == 200 and s.rec["container_id"] == "c-verified"
+
+
 def test_verify_before_the_restart_is_refused(pod):
     pod.slots[0].auto_restart = False
     assert pod.st.evict({"slot": 0, "container_id": "c-0-0"})[0] == 202
@@ -416,6 +451,24 @@ def test_a_restarted_active_slot_is_treated_as_lost_and_goes_to_eviction(pod):
     assert _wait(lambda: s.state == poolslot.EVICTING), pod.logs[-10:]
     assert s.rec["error"] == "restarted" and pod.owner() == {}, "独占要放掉,他才能到别处重新载入"
     assert pod.st.verify({"slot": 0, "container_id": pod.slots[0].container_id})[0] == 200
+
+
+def test_a_slot_restarted_under_an_active_user_never_wipes_their_nas_history(pod):
+    """槽位被强杀重启:新的 1 号进程清了盘、建了空的顶层目录。紧接着的定期回写要是照常做(带删除传播),
+    NAS 上这个人的历史就被删光了。必须先认出「换了 boot」,不回写、按丢失处理。"""
+    pod.bind()
+    s = pod.st.slots[0]
+    (pod.slot_dir(0) / "state" / "workspace" / "notes.md").write_text("要留着", encoding="utf-8")
+    s.sync_once()                                            # 先正常回写一次:NAS 上有库与 notes.md
+    nas = pod.users / "u1234"
+    assert (nas / "workspace" / "notes.md").exists() and (nas / "xdg-data" / "opencode" / "opencode.db").exists()
+    pod.slots[0].restart()
+    with s.op:                                               # 抢在监视线程之前,直接来一轮定期回写
+        out = s.sync_once()
+    assert out.get("restarted"), out
+    assert (nas / "workspace" / "notes.md").read_text(encoding="utf-8") == "要留着"
+    assert _rows(nas / "xdg-data" / "opencode" / "opencode.db") >= 1, "NAS 上的库不能被删"
+    assert s.state == poolslot.EVICTING and pod.owner() == {}
 
 
 def test_a_restarted_free_slot_is_accepted_after_checking_the_wipe(pod):
@@ -503,6 +556,9 @@ def bare(tmp_path):
     st = poolsteward.Steward(cfg, log=logs.append, verdict=lambda port, uid: verdicts.get(port, "ok"))
     for s in st.slots:
         s._set(state=poolslot.FREE, boot="b%d" % s.i, quiet=True)
+        (tmp_path / "slots" / str(s.i) / "state" / ".pool").mkdir()          # 槽位活着(启动时写过回执)但不响应
+        (tmp_path / "slots" / str(s.i) / "state" / ".pool" / "ack.json").write_text(
+            json.dumps({"boot": "b%d" % s.i}), encoding="utf-8")
     yield st, verdicts, logs
     st.close()
 

@@ -323,3 +323,15 @@ def test_random_pools_never_break_the_invariants(seed):
             assert s.state in (pa.EVICTING, pa.DISABLED)
     refs = [a.ref for a in pa.plan(pods, NOW, POLICY)]
     assert len(refs) == len(set(refs)), "同一个槽位一轮只做一件事"
+
+
+def test_a_user_active_in_a_pod_whose_steward_is_unreachable_is_still_forwarded():
+    """管家重启不该打断对话:网关直连槽位,不经管家。"""
+    pods = [pod("p0", "A:u1", "F", reachable=False), pod("p1", "F", "F")]
+    assert decide(pods, "u1") == pa.Decision(pa.FORWARD, target=("p0", 0))
+
+
+def test_retained_in_an_unreachable_pod_is_not_resumed_there():
+    pods = [pod("p0", "R:u1", "F", reachable=False), pod("p1", "F", "F")]
+    d = decide(pods, "u1")
+    assert d.kind == pa.BIND and d.target[0] == "p1"

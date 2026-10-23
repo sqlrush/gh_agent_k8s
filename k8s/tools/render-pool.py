@@ -229,7 +229,9 @@ def policies(a) -> List[dict]:
                                 {"to": [{"ipBlock": {"cidr": a.grmp_cidr}}],
                                  "ports": [{"port": a.grmp_port, "protocol": "TCP"}]},
                                 {"to": [{"ipBlock": {"cidr": a.model_cidr}}],
-                                 "ports": [{"port": p, "protocol": "TCP"} for p in a.model_ports]}]}}
+                                 "ports": [{"port": p, "protocol": "TCP"} for p in a.model_ports]}]
+                     + [{"to": [{"ipBlock": {"cidr": cidr}}], "ports": [{"port": p, "protocol": "TCP"} for p in ports]}
+                        for cidr, ports in a.egress]}}
     to_pool = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
                "metadata": {"name": "gateway-to-pool", "namespace": a.namespace},
                "spec": {"podSelector": {"matchLabels": {"app": "agent-gateway"}}, "policyTypes": ["Egress"],
@@ -261,6 +263,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--grmp-port", type=int, default=8080)
     p.add_argument("--model-cidr", default="10.0.0.0/8")
     p.add_argument("--model-ports", default="443,80")
+    p.add_argument("--egress", action="append", default=[], metavar="CIDR:PORT[,PORT]",
+                   help="额外的出站目标(可重复),如 embedding 服务 10.1.2.3/32:11434")
     p.add_argument("--test-override", action="append", default=[], metavar="KEY=VALUE",
                    help="只给本地测试集群:管家的环境变量(缩短时长);渲染结果带测试标签")
     return p
@@ -283,6 +287,16 @@ def parse(argv: List[str]):
         a.model_ports = [int(x) for x in a.model_ports.split(",") if x.strip()]
     except ValueError:
         p.error("--model-ports 要写成逗号分隔的端口号")
+    raw_egress, a.egress = a.egress, []
+    for item in raw_egress:
+        cidr, sep, ports = item.rpartition(":")
+        try:
+            plist = [int(x) for x in ports.split(",") if x.strip()]
+        except ValueError:
+            plist = []
+        if not sep or "/" not in cidr or not plist:
+            p.error("--egress 要写成 网段:端口[,端口],如 10.1.2.3/32:11434:%r" % item)
+        a.egress.append((cidr, plist))
     a.overrides = {}
     for item in a.test_override:
         k, sep, v = item.partition("=")

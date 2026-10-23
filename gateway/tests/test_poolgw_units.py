@@ -123,6 +123,7 @@ class FakeCluster:
         self.owner[user] = "%s/%d" % (pod, slot)
         s.state, s.user, s.bound_at, s.last_active = pa.ACTIVE, user, self.now, self.now
         s.password, s.reports_token = "pw-%s-%d" % (user, len(self.calls)), "rt-%s" % user
+        s.lease = cid                      # 管家记下的租期(容器 ID)
         s.reserved_for, s.reserved_until = None, 0.0
         return self._creds(s)
 
@@ -138,6 +139,8 @@ class FakeCluster:
             return 409, {"reason": "state"}
         if s.stale:
             return 409, {"reason": "stale"}
+        if cid and getattr(s, "lease", "") and cid != s.lease:
+            return 409, {"reason": "restarted"}     # 与管家一样:容器 ID 对不上就不恢复
         self.owner[user] = "%s/%d" % (pod, slot)
         s.state, s.bound_at, s.last_active = pa.ACTIVE, self.now, self.now
         s.password = "pw-%s-%d" % (user, len(self.calls))
@@ -323,6 +326,21 @@ def test_full_pool_early_retains_reserves_and_hands_the_slot_over(cl):
     assert cl.pods["pool-1"][0].user == "newbie"
 
 
+def test_a_slot_handed_over_after_an_eviction_can_be_resumed_later(cl):
+    """先腾挪再绑定:绑定要带腾挪之后的容器 ID,否则管家记下的租期是旧的,下次恢复会被当成「容器换过了」。"""
+    _t, router, *_ = _stack(cl)
+    for n in range(4):
+        router.target("u%d" % n)
+    idle = cl.pods["pool-1"][0]
+    idle.last_active = idle.bound_at = cl.now - 4000
+    t = router.target("newbie")
+    assert cl.pods[t.pod][t.slot].lease == "docker://%s-%d-2" % (t.pod, t.slot), "租期是重启后的容器"
+    cl.retain(t.pod, "", t.slot, "newbie")
+    router.forget("newbie")
+    t2 = router.target("newbie")
+    assert (t2.pod, t2.slot) == (t.pod, t.slot) and cl.verbs("resume")[-1][3] == "newbie"
+
+
 def test_full_pool_without_anyone_idle_is_full(cl):
     _t, router, *_ = _stack(cl)
     for n in range(4):
@@ -330,6 +348,33 @@ def test_full_pool_without_anyone_idle_is_full(cl):
     with pytest.raises(poolrouter.PoolFull) as exc:
         router.target("newbie")
     assert exc.value.retry_after == 30
+
+
+def test_a_stale_view_that_looks_full_is_rechecked_before_saying_full(cl):
+    """网关刚起来时管家都还连不上:缓存的视图里一个能用的槽位都没有。不能凭它就说满员。"""
+    table, router, *_ = _stack(cl)
+    table.refresh_s = 3600
+    cl.down.update(cl.pods)
+    table.refresh()                                         # 缓存下一份「全都连不上」的视图
+    cl.down.clear()
+    t = router.target("u1")                                 # 现读之后有空位
+    assert t.pod in cl.pods
+
+
+def test_unreachable_stewards_mean_wait_not_full(cl):
+    _t, router, *_ = _stack(cl)
+    for n in range(2):
+        router.target("u%d" % n)                            # pool-0、pool-1 各一人
+    for pod, user in (("pool-1", "u8"), ("pool-0", "u9")):   # 另两位刚有过操作:没有可提前转保留的人
+        s = cl.pods[pod][1]
+        s.state, s.user, s.last_active = pa.ACTIVE, user, cl.now
+    with pytest.raises(poolrouter.PoolFull):
+        router.target("newbie")                             # 真满了
+    cl.pods["pool-1"][1].state, cl.pods["pool-1"][1].user = pa.FREE, None
+    cl.down.add("pool-1")                                   # pool-1 有空位,但它的管家这会儿连不上
+    with pytest.raises(poolrouter.PoolWait) as exc:
+        router.target("newbie")
+    assert exc.value.reason == "steward_unreachable" and exc.value.retry_after == 10
 
 
 def test_owner_held_outside_the_pool_waits(cl):
@@ -466,3 +511,17 @@ def test_client_rejects_answers_without_the_steward_signature(real_steward):
         other.status("pool-0", "127.0.0.1")
     with pytest.raises(StewardError):
         poolclient.StewardClient(b"c" * 32, port=1).status("pool-0", "127.0.0.1")
+
+
+def test_an_unreachable_steward_keeps_its_last_slots_and_active_users_keep_working(cl):
+    table, router, *_ = _stack(cl)
+    t = router.target("u1")
+    table.refresh()                     # 例行的刷新(清扫、别的请求都会刷)
+    cl.down.add(t.pod)
+    snap = table.refresh()
+    p = next(x for x in snap.pods if x.name == t.pod)
+    assert not p.reachable and any(s.user == "u1" for s in p.slots), "沿用上一次看到的槽位"
+    n = len(cl.calls)
+    assert router.target("u1") == t and len(cl.calls) == n, "缓存的凭证照常用,不经管家"
+    with pytest.raises(poolrouter.NotActive):
+        router.target("u2", interactive=False)

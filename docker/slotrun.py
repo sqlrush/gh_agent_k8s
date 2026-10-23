@@ -106,6 +106,7 @@ class SlotSupervisor(poolrun.Supervisor):
         self.scfg = scfg
         self.boot_id = secrets.token_hex(8)
         self.placeholders: Dict[int, socket.socket] = {}
+        self._ph_warned: set = set()
         self.hello_done = ""
         self._next_busy = 0.0
         d = scfg.data
@@ -179,8 +180,13 @@ class SlotSupervisor(poolrun.Supervisor):
                 s.setblocking(False)
             except OSError as exc:
                 s.close()
-                self.log("占不住端口 %d(%s)—— 可能有别的进程在监听,管家会按 uid 核对" % (port, exc))
+                if port not in self._ph_warned:     # 每轮都会再试,只在第一次失败时说
+                    self._ph_warned.add(port)
+                    self.log("占不住端口 %d(%s)—— 可能有别的进程在监听,管家会按 uid 核对;之后每轮再试" % (port, exc))
                 continue
+            if port in self._ph_warned:
+                self._ph_warned.discard(port)
+                self.log("端口 %d 已经占回来了" % port)
             self.placeholders[port] = s
 
     def _close_placeholders(self) -> None:
@@ -220,6 +226,8 @@ class SlotSupervisor(poolrun.Supervisor):
     def tick(self, now: Optional[float] = None) -> bool:
         now = time.monotonic() if now is None else now
         self._reap_orphans()
+        if self.oc is None and not self.term:
+            self._open_placeholders()       # 启动时被同 Pod 的别人抢了先:对方被腾挪走之后要能占回来
         self._serve_placeholders()
         self._answer_hello()
         desired = self._ctl_for_me(poolrun.RUN_FILE)   # 不是给本次启动的指令(上一个人的残留)一律不理

@@ -319,6 +319,20 @@ def test_placeholders_hold_both_ports_whenever_opencode_is_not_running(rig):
     assert _bind_fails(rig.cfg.port) and _bind_fails(rig.cfg.reports_port), "保留态端口要重新占住"
 
 
+def test_a_port_taken_at_boot_is_taken_back_once_the_squatter_is_gone(rig):
+    """槽位重启的空档里同 Pod 的别人先占了端口:1 号进程每轮再试,对方被腾挪走之后占回来。"""
+    squat = socket.socket()
+    squat.bind(("0.0.0.0", rig.cfg.port))
+    squat.listen(1)
+    rig.start()
+    assert rig.cfg.port not in rig.sup.placeholders and rig.cfg.reports_port in rig.sup.placeholders
+    rig.sup.tick()
+    assert sum("占不住端口" in m for m in rig.logs) == 1, "每轮都再试,但只在第一次失败时说"
+    squat.close()
+    rig.sup.tick()
+    assert rig.cfg.port in rig.sup.placeholders and any("占回来" in m for m in rig.logs)
+
+
 def test_a_crashed_opencode_gets_the_placeholder_back_until_restart(rig):
     rig.start()
     rig.run()

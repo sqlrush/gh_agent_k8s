@@ -177,6 +177,11 @@ class Slot:
     def ack(self) -> dict:
         return self._read_pool(ACK_FILE)
 
+    def _same_boot(self) -> bool:
+        """槽位还是记录里那个 1 号进程吗。读不到回执也算「不是」:清盘时 .pool/ 会先被删掉。
+        回写之前、传播删除之前都要问 —— 重启过的槽位盘是空的,照它回写会把 NAS 上的历史删光。"""
+        return bool(self.rec["boot"]) and self.ack().get("boot") == self.rec["boot"]
+
     @staticmethod
     def _wait(cond: Callable[[], bool], seconds: float, step: float = 0.1) -> bool:
         deadline = time.monotonic() + seconds
@@ -255,7 +260,8 @@ class Slot:
             gen = poolsync.gen_rotate(ufd)
             self.ufd = ufd
             self.snap_seen = {}
-            self._set(state=BINDING, user=user, gen=gen, container_id=container_id or self.rec["container_id"],
+            # 核验时记下的 containerID 是管家自己确认过的,优先于这次请求带来的(网关的视图可能过期)
+            self._set(state=BINDING, user=user, gen=gen, container_id=self.rec["container_id"] or container_id,
                       dirty=False, stale=False, error="", bound_at=None, retained_at=None, since=None, quiet=False,
                       reserved_for=None, reserved_until=0.0)
         return None
@@ -340,7 +346,11 @@ class Slot:
                 ack.update(a)
                 return True
             return False
-        confirmed = self._wait(final, self.s.stop_wait_seconds, step=0.2)
+        confirmed = self._wait(lambda: final() or not self._same_boot(), self.s.stop_wait_seconds, step=0.2)
+        if not self._same_boot():
+            # 等它停下的时候槽位重启了:盘已清空,最近一个同步周期之后的改动丢了。不能当「写回不干净」持有独占
+            self._on_new_boot(str(self.ack().get("boot") or ""))
+            return 500, {"reason": "restarted", "state": self.state}
         moved, name = self._sync_all(final=True)
         clean = confirmed and not moved.errors
         if clean:
@@ -365,8 +375,11 @@ class Slot:
         name = None
         if self.ufd is None:
             return poolsync.Moved(errors=["没有打开本人的 NAS 目录"]), None
+        if not self._same_boot():
+            return poolsync.Moved(errors=["槽位重启过(盘已清空),不回写"]), None
         try:
-            moved = poolsync.sync(self.ufd, self.state_fd, self.snap_seen, may_delete=True, modes=poolsync.NAS_MODES)
+            moved = poolsync.sync(self.ufd, self.state_fd, self.snap_seen, may_delete=True, modes=poolsync.NAS_MODES,
+                                  still_valid=self._same_boot)
             if final:
                 name = poolsync.backup(self.ufd, self.state_fd, modes=poolsync.NAS_MODES)
         except Exception as exc:                # noqa: BLE001  写回失败只记下来,不能让收尾中断
@@ -483,6 +496,9 @@ class Slot:
             if not container_id or container_id == ev.get("container_id"):
                 return 409, {"reason": "not_restarted", "state": self.state}
         with self.op:
+            # 再核对一次:两个网关副本会同时来核验同一个槽位,先到的那个可能已经核验完、甚至有人绑上了
+            if self.state not in (EVICTING, DISABLED) or (self.rec.get("evict") or {}) != ev:
+                return 409, {"reason": "state", "state": self.state}
             ack = self.handshake()
             if ack is None:
                 return 409, {"reason": "no_hello", "state": self.state}
@@ -558,6 +574,9 @@ class Slot:
         try:
             now = time.monotonic()
             st, dirty = self.state, self.rec["dirty"]
+            if st in (ACTIVE, RETAINED) and self.rec["boot"] and not self._same_boot():
+                self._on_new_boot(str(self.ack().get("boot") or ""))     # 监视线程拿不到锁时这里接住
+                return
             if (st == ACTIVE or (st == RETAINED and dirty)) and now >= self.next_owner:
                 self.next_owner = now + self.s.owner_refresh_seconds
                 if not self._refresh_owner():
@@ -610,7 +629,10 @@ class Slot:
         def snapped() -> bool:
             a = self.ack()
             return a.get("boot") == boot and isinstance(a.get("snap_seq"), int) and a["snap_seq"] >= seq
-        confirmed = self._wait(snapped, self.s.snap_wait_seconds, step=0.2)
+        confirmed = self._wait(lambda: snapped() or not self._same_boot(), self.s.snap_wait_seconds, step=0.2)
+        if not self._same_boot():
+            self._on_new_boot(str(self.ack().get("boot") or ""))
+            return {"errors": 1, "restarted": True}
         moved, _name = self._sync_all(final=False)
         self.last_sync = dict(moved.to_json(), snapshot_confirmed=confirmed)
         if moved.errors:

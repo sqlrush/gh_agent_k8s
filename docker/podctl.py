@@ -98,11 +98,18 @@ def input_modalities(env: Mapping[str, str]) -> Optional[list]:
 # 复合命令(管道、&&、$())逐条核对,`*` 能匹配 `/` 与空格,所以:先全拒,再放行,最后把放行里的漏洞拒回去。
 ROLE_RUNTIME, ROLE_KB_IMPORT = "runtime", "kb-import"
 _READ_ONLY_COMMANDS = ("cat", "grep", "head", "tail", "ls", "wc", "sort", "uniq", "cut", "date", "echo", "pwd",
-                       "ps", "df", "du", "free")
-_BASH_DENY_AFTER = (
-    "*>*",              # 重定向写文件:`cat > x.py` 写出脚本再借技能路径执行
+                       "ps", "df", "du", "free", "find", "cd", "stat", "file", "tree", "realpath", "basename",
+                       "dirname", "which", "diff", "true")
+# 无害的重定向后缀:丢弃输出或把错误并进标准输出。模型几乎每条命令都爱加 `2>/dev/null` / `2>&1`,
+# 一律拒掉时它会白撞一次再去掉重试(2026-10-24 测试环境导入工单时连撞三次)。只给放行过的命令补这几种结尾;
+# 一条命令里有两个以上 `>` 一律拒(`cat > x.py 2>/dev/null` 这类借安全结尾夹带写文件的)。
+_SAFE_REDIRECTS = ("2>/dev/null", "2> /dev/null", "2>&1", ">/dev/null", "> /dev/null")
+_BASH_DENY_FINAL = (
+    "*>*>*",            # 两个以上重定向:借安全结尾夹带写文件
     "*/../../*",        # 借技能目录跳出去执行别处的文件(技能之间的同级引用只有一层 ../)
-    "*/proc/*", "*environ*",            # 读别的进程 / 自己的环境
+    "*/proc/*", "*environ*",            # 读别的进程 / 自己的环境(带了安全结尾也拒)
+    # find 能执行命令、删文件、把结果写进文件
+    "find *-exec*", "find *-execdir*", "find *-ok*", "find *-delete*", "find *-fprint*", "find *-fls*",
     # export / declare 写了也拦不住:opencode 只给语法树里的「命令」节点生成匹配项,声明命令不核对
     # (scripts/check-opencode-permissions.py 实测)。环境里不放凭据(凭据代理)才是兜底。
     "env", "env *", "printenv", "printenv *", "set", "set *", "export", "export *", "declare *",
@@ -120,14 +127,14 @@ def opencode_permissions(env: Mapping[str, str]) -> dict:
     if role not in (ROLE_RUNTIME, ROLE_KB_IMPORT):
         raise ConfigError("AGENT_ROLE=%r 不认识,只能是 %s / %s" % (role, ROLE_RUNTIME, ROLE_KB_IMPORT))
     skills = (env.get("XDG_CONFIG_HOME") or "/data/config").rstrip("/") + "/opencode/skills"
+    # 顺序就是规则:先全拒 → 放行技能脚本与只读命令 → 拒掉一切重定向 → 给放行过的命令补安全结尾 → 最后再拒漏洞。
+    allowed = ["%s %s/gaussdb-*" % (py, skills) for py in ("python3", "python")]
+    allowed += [p for cmd in _READ_ONLY_COMMANDS for p in (cmd, cmd + " *")]
     bash: Dict[str, str] = {"*": "deny"}
-    for py in ("python3", "python"):
-        bash["%s %s/gaussdb-*" % (py, skills)] = "allow"
-    for cmd in _READ_ONLY_COMMANDS:
-        bash[cmd] = "allow"
-        bash[cmd + " *"] = "allow"
-    for pat in _BASH_DENY_AFTER:
-        bash[pat] = "deny"
+    bash.update((p, "allow") for p in allowed)
+    bash["*>*"] = "deny"                                # 重定向写文件:`cat > x.py` 写出脚本再借技能路径执行
+    bash.update((p + suffix, "allow") for p in allowed if p.endswith("*") for suffix in _SAFE_REDIRECTS)
+    bash.update((p, "deny") for p in _BASH_DENY_FINAL)
     return {
         "edit": "deny" if role == ROLE_RUNTIME else "allow",
         "webfetch": "deny", "websearch": "deny",               # 数据不出域

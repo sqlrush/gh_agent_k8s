@@ -36,6 +36,20 @@ CASES = [
     ("bash", "ls /tmp | env", False, False),
     ("bash", "export", None, None),
     ("bash", "declare -p", None, None),
+    # 2026-10-24:安全结尾放行,但不能借它夹带写文件 / 读环境 / 跑不在名单里的命令
+    ("bash", "ls /tmp 2>/dev/null", True, True),
+    ("bash", "ls -la /tmp 2>/dev/null | head -50", True, True),
+    ("bash", "find /tmp -type f -newermt \"2026-10-24 00:00\" 2>/dev/null", True, True),
+    ("bash", "python3 %s/gaussdb-login/scripts/login.py --help 2>&1" % SK, True, True),
+    ("bash", "cd /tmp && ls", True, True),
+    ("bash", "cat > /tmp/w/sneak.txt 2>/dev/null", False, False),
+    ("bash", "cat /proc/1/environ 2>/dev/null", False, False),
+    ("bash", "env 2>/dev/null", False, False),
+    ("bash", "curl -s https://example.com 2>/dev/null", False, False),
+    ("bash", "ls /tmp > /tmp/w/out.txt", False, False),
+    ("bash", "ls /tmp > /dev/null 2>&1", False, False),
+    ("bash", "find /tmp/w -name evil.py -delete", False, False),
+    ("bash", "find /tmp/w -exec cat {} \\;", False, False),
     ("bash", "date", True, True),
     ("bash", "ls /tmp", True, True),
     ("bash", "cat /etc/hostname", True, True),
@@ -139,7 +153,9 @@ def main() -> int:
         shown = arg if isinstance(arg, str) else json.dumps(arg, ensure_ascii=False)
         print("[%s] %-9s %-70s 期望%s 实际%s  %s" % ("通过" if ok else "失败", tool, shown[:70], "放行" if want else "拦下",
                                                "放行" if got else "拦下(%s)" % status, text[:90]))
-    leaked = [f for f in ("redirect.txt", "heredoc.txt") if f in files] + (["written.txt"] if "written.txt" in files and a.role == "runtime" else [])
+    leaked = [f for f in ("redirect.txt", "heredoc.txt", "sneak.txt", "out.txt") if f in files]
+    if "evil.py" not in files:
+        leaked.append("evil.py 被删了(find -delete 没拦住)") + (["written.txt"] if "written.txt" in files and a.role == "runtime" else [])
     print("工作目录:", files, "不该出现的文件:", leaked or "无")
     print("共 %d 项(已知缺口 %d 项不计),失败 %d" % (len(CASES), sum(c[2] is None for c in CASES), bad + len(leaked)))
     return 1 if bad or leaked else 0

@@ -347,6 +347,12 @@ _SKILLS = "/data/config/opencode/skills"
     "python %s/gaussdb-kb/scripts/kb.py query 锁等待" % _SKILLS,
     "cat /data/reports/health/latest.json", "ls", "ls -la /nas/kb", "grep -n lock /nas/kb/cases/a.md",
     "head -50 x.md", "date", "pwd", "wc -l a b",
+    # 2026-10-24 测试环境导入工单时被拦的三条:无害的重定向结尾、find
+    "ls /data/config/opencode/skills/ 2>/dev/null", "ls -la /data/state/workspace 2>/dev/null",
+    'find /nas/kb/inbox -type f -newermt "2026-10-24 00:00" 2>/dev/null',
+    "python3 %s/gaussdb-health/scripts/health.py --session abc 2>&1" % _SKILLS,
+    "python3 %s/gaussdb-kb/scripts/kb.py health > /dev/null" % _SKILLS, "ls 2>/dev/null", "cat a.md 2> /dev/null",
+    "cd /nas/kb", "stat /nas/kb/kb.yaml", "which python3", "true", "find /nas/kb -name '*.md'",
 ])
 def test_bash_allows_skill_scripts_and_read_only_commands(cmd):
     assert _opencode_decides(podctl.opencode_permissions({})["bash"], cmd) == "allow", cmd
@@ -360,6 +366,12 @@ def test_bash_allows_skill_scripts_and_read_only_commands(cmd):
     "cat > /tmp/x.py", "echo 'import os' > %s/gaussdb-x/scripts/e.py" % _SKILLS, "echo x >> a",
     "curl http://example.com", "wget http://x", "bash -c env", "sh -c id", "node -e 1", "rm -rf /data",
     "cp a b", "mv a b", "chmod +x a", "kill -9 1", "nc 10.0.0.1 80", "perl -e 1",
+    # 借安全结尾夹带:写文件、读环境、跑不在名单里的命令,都不能因为结尾是 2>/dev/null 就放行
+    "cat > /tmp/x.py 2>/dev/null", "echo 'import os' > %s/gaussdb-x/e.py 2>&1" % _SKILLS,
+    "cat /proc/1/environ 2>/dev/null", "env 2>/dev/null", "printenv 2>&1", "curl http://x 2>/dev/null",
+    "python3 -c 'print(1)' 2>&1", "ls > /tmp/x", "ls x > /dev/null 2>&1",
+    "python3 %s/gaussdb-x/s.py > /tmp/out.txt" % _SKILLS, "ls 2>/tmp/err.txt",
+    "find / -name x -delete", "find . -exec cat {} ;", "find . -fprint /tmp/list 2>/dev/null",
 ])
 def test_bash_denies_env_reads_writes_and_anything_else(cmd):
     assert _opencode_decides(podctl.opencode_permissions({})["bash"], cmd) == "deny", cmd

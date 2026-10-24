@@ -20,6 +20,9 @@
   POST /pool/touch   {activity: [[slot, user_id, ts], …]} 网关每 30 秒报一次交互活动
   POST /pool/disable {slot, reason}
   POST /pool/reserve {slot, user_id, seconds}             满员时为等待者预留腾出来的槽位(最长 600 秒)
+
+凭据代理(docker/credproxy.py):中间件令牌(按人,绑定 / 恢复时由网关加密交来)、SM2 私钥、模型 Key 只在管家这里,
+每个槽位一个 Unix 套接字转发 —— 槽位里没有任何凭据。
 """
 from __future__ import annotations
 
@@ -34,6 +37,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+import credproxy
 import fdtree
 import netcheck
 import poolauth
@@ -64,6 +68,7 @@ class Config:
     monitor_seconds: float = 2.0
     settings: Optional[poolslot.Settings] = None
     slot_ports: Callable[[int], Tuple[int, int]] = slotrun.slot_ports
+    slot_model_port: Callable[[int], int] = slotrun.slot_model_port
     slot_uid: Callable[[int], int] = lambda i: SLOT_UID_BASE + i
     proc_files: Sequence[str] = netcheck.PROC_FILES
 
@@ -103,8 +108,11 @@ def make_verdict(files: Sequence[str]) -> Callable[[int, int], str]:
 
 class Steward:
     def __init__(self, cfg: Config, log: Callable[[str], None] = print,
-                 verdict: Optional[Callable[[int, int], str]] = None):
+                 verdict: Optional[Callable[[int, int], str]] = None,
+                 upstreams: Optional[credproxy.Upstreams] = None):
         self.cfg, self.log = cfg, log
+        self.upstreams = upstreams          # 凭据代理的去处(中间件、模型);None = 不开(测试)
+        self._proxies: list = []
         self.settings = cfg.settings or poolslot.Settings(pod=cfg.pod)
         self.lock = threading.Lock()        # Pod 级:CAS 与状态认领
         self.verdict = verdict or make_verdict(cfg.proc_files)
@@ -116,15 +124,33 @@ class Steward:
         for i in range(cfg.slots):
             base = cfg.slots_dir / str(i)
             self.slots.append(poolslot.Slot(i, base / "ctl", base / "state", cfg.priv_dir, self.users_fd,
-                                            self.settings, cfg.slot_ports(i), cfg.slot_uid(i), self.verdict, log))
+                                            self.settings, cfg.slot_ports(i), cfg.slot_uid(i), self.verdict, log,
+                                            model_port=cfg.slot_model_port(i)))
         self._uid_to_slot = {cfg.slot_uid(i): i for i in range(cfg.slots)}
 
     # -- 启动与后台 -----------------------------------------------------------------------
 
     def start(self) -> None:
+        if self.upstreams is not None:
+            self.start_credproxies()
         for s in self.slots:
             threading.Thread(target=self._slot_loop, args=(s,), name="slot-%d" % s.i, daemon=True).start()
         threading.Thread(target=self._monitor_loop, name="monitor", daemon=True).start()
+
+    def start_credproxies(self) -> None:
+        """每个槽位两个凭据代理套接字(<槽位>/sock/,只挂给那个槽位):credproxy.sock 只转中间件,用本人令牌、
+        本人工号,槽位不在用时一律拒绝;model.sock 只转模型,加模型 Key,槽位的模型中继接它。
+        分开是因为模型端口在 localhost 上,同 Pod 的别的槽位连得到 —— 那条路上绝不能有中间件。"""
+        for s in self.slots:
+            d = self.cfg.slots_dir / str(s.i) / "sock"
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+                proxy = credproxy.Proxy(self.upstreams, s.credentials, log=self.log)
+                self._proxies.append(credproxy.serve_unix(d / credproxy.SOCKET_NAME, proxy))
+                self._proxies.append(credproxy.serve_unix(d / credproxy.MODEL_SOCKET_NAME, proxy,
+                                                          grmp=False, model=True))
+            except OSError as exc:
+                self.log("⚠ 槽位 %d 的凭据代理开不起来(%s):这个槽位调不了中间件与模型" % (s.i, exc))
 
     def _slot_loop(self, s: poolslot.Slot) -> None:
         try:
@@ -288,6 +314,9 @@ class Steward:
             t.join()
 
     def close(self) -> None:
+        for srv in self._proxies:
+            srv.shutdown()
+            srv.server_close()
         for s in self.slots:
             s.close()
         os.close(self.users_fd)
@@ -399,7 +428,16 @@ def serve(env: Mapping[str, str] = os.environ) -> int:
         print("配置错误: %s" % exc, flush=True)
         return 2
     os.umask(0o007)                         # 载入、库自检产生的文件要让槽位(同组)读写得到
-    st = Steward(cfg, log=lambda m: print(m, flush=True))
+    try:
+        ups = credproxy.Upstreams.from_env(env)
+    except credproxy.ConfigError as exc:
+        print("配置错误: %s" % exc, flush=True)
+        return 2
+    if not ups.model_base:
+        print("配置错误: 管家没有 MODEL_BASE_URL / MODEL_API_KEY —— 模型 Key 在管家这里(凭据代理),"
+              "槽位里没有;请检查清单里管家的 envFrom agent-config 与 Secret model-api", flush=True)
+        return 2
+    st = Steward(cfg, log=lambda m: print(m, flush=True), upstreams=ups)
     srv = bind_server(st)
     term = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_a: term.set())

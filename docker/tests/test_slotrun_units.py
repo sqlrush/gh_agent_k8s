@@ -12,6 +12,8 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -73,11 +75,14 @@ class Rig:
                              podctl_cmd=_podctl_cmd(),
                              port=_free_port(), reports_port=_free_port(), poll_s=0.05,
                              stop_timeout_s=5, health_every_s=0.2, env_file=self.data / "env.sh")
+        self.cp = pathlib.Path(tempfile.mkdtemp(dir="/tmp", prefix="sr"))   # macOS 套接字路径上限 104 字节
         self.scfg = slotrun.SlotConfig(slot=0, run=run, data=self.data, agent=self.agent,
-                                       wipe=(self.data, self.tmpdir, self.shm), busy_every_s=0.1)
+                                       wipe=(self.data, self.tmpdir, self.shm), busy_every_s=0.1,
+                                       credproxy_dir=self.cp, model_port=_free_port())
         self.env = dict(os.environ, FAKE_OUT=str(self.out), GRMP_API_HOST="10.0.0.1", GRMP_API_PORT="8080",
                         MODEL_BASE_URL="http://model", MODEL_API_KEY="k", MODEL_ID="m",
-                        GRMP_AUTH_TOKEN="pod-level-token", PYTHONPATH="/evil", SANDBOX_CONTROL_KEY="ck")
+                        GRMP_AUTH_TOKEN="pod-level-token", PYTHONPATH="/evil", SANDBOX_CONTROL_KEY="ck",
+                        GRMP_SM2_PRIVATE_KEY="ab" * 32)
         self.logs = []
         self.sup = None
 
@@ -140,6 +145,8 @@ class Rig:
             self.sup.term = True
             self.sup.tick()
             self.sup._close_placeholders()
+            if self.sup.relay is not None:
+                self.sup.relay.close()
 
 
 @pytest.fixture()
@@ -245,14 +252,57 @@ def test_hello_is_answered_with_the_nonce_and_boot(rig):
 # -- 凭证只认本次 run.json ----------------------------------------------------------------------
 
 def test_run_gets_only_the_per_user_credentials(rig):
+    """2026-10-23 凭据代理:中间件令牌、SM2 私钥、模型 Key 都不进槽位(哪怕指令里夹带了令牌),
+    opencode 只拿到本槽位的模型中继地址与管家的套接字路径。"""
     rig.start()
     rig.run(grmp_token="grmp-of-u1234")
     rig.until(rig.healthy)
     env = rig.fake_env()
-    assert env["GRMP_AUTH_TOKEN"] == "grmp-of-u1234" and env["REPORTS_TOKEN"] == RT
+    assert env["GRMP_AUTH_TOKEN"] is None and env["MODEL_API_KEY"] is None and env["GRMP_SM2_PRIVATE_KEY"] is None
+    assert env["MODEL_PROXY_URL"] == "http://127.0.0.1:%d/model" % rig.scfg.model_port
+    assert env["GRMP_PROXY_SOCKET"] == str(rig.cp / "credproxy.sock") and env["REPORTS_TOKEN"] == RT
     assert env["OPENCODE_SERVER_PASSWORD"] == PW1 and env["SANDBOX_CONTROL_KEY"] is None
     assert env["PYTHONPATH"] is None, "python 的注入口不继承"
     assert env["HOME"] == str(rig.data / "home") and env["OPENCODE_CONFIG"] == str(rig.data / "oc" / "opencode.json")
+
+
+def test_the_model_port_is_held_from_boot_and_relayed_to_the_stewards_proxy(rig):
+    """opencode 经 127.0.0.1:<模型端口> 访问模型:1 号进程从启动起就占着这个端口(同 Pod 的别人抢不走),
+    原样转到管家开给本槽位的模型套接字 —— Key 在那边加。"""
+    import http.server
+    import socketserver
+
+    class _U(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def address_string(self):
+            return "unix"
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = json.dumps({"path": self.path, "auth": self.headers.get("Authorization")}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = _U(str(rig.cp / "model.sock"), H)             # 管家开的模型套接字(只转模型;中间件的那个不经 TCP)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        rig.start()
+        assert _bind_fails(rig.scfg.model_port), "启动就占住模型端口"
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", rig.scfg.model_port, timeout=5)
+        c.request("POST", "/model/chat/completions", body=b"{}", headers={"Authorization": "Bearer credproxy"})
+        assert json.loads(c.getresponse().read()) == {"path": "/model/chat/completions", "auth": "Bearer credproxy"}
+        c.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_without_a_per_user_grmp_token_the_pod_level_one_is_not_used(rig):

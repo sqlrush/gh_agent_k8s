@@ -288,6 +288,90 @@ def test_render_gdaa_config_appkey_requires_private_key():
     assert "appkey_env" not in podctl.render_gdaa_config({"GRMP_API_HOST": "grmp.internal"})   # 没开签名不写这行
 
 
+def test_render_gdaa_config_behind_the_credproxy_needs_no_private_key():
+    """2026-10-23 凭据代理:私钥在代理那边,opencode 的容器里本来就没有。"""
+    env = {"GRMP_API_HOST": "grmp.internal", "GRMP_APPKEY": "gaussdb-agent",
+           "GRMP_PROXY_SOCKET": "/run/credproxy/credproxy.sock"}
+    assert "appkey_env: GRMP_APPKEY" in podctl.render_gdaa_config(env)
+
+
+# ---- 凭据代理与工具权限(2026-10-23) ------------------------------------------------
+
+def test_behind_the_credproxy_the_model_key_never_reaches_opencode_json():
+    env = {"MODEL_PROXY_URL": "http://127.0.0.1:4099/model", "MODEL_ID": "m",
+           "MODEL_BASE_URL": "http://llm.internal/v1", "MODEL_API_KEY": "real-key"}
+    cfg = podctl.render_opencode_config(env)
+    assert cfg["provider"]["model-service"]["options"] == {"baseURL": "http://127.0.0.1:4099/model",
+                                                           "apiKey": "credproxy"}
+    assert "real-key" not in json.dumps(cfg) and "llm.internal" not in json.dumps(cfg)
+    assert podctl.render_opencode_config({"MODEL_PROXY_URL": "http://p/model", "MODEL_ID": "m"})   # 只要 MODEL_ID
+    with pytest.raises(podctl.ConfigError) as exc:
+        podctl.render_opencode_config({"MODEL_PROXY_URL": "http://p/model"})
+    assert "MODEL_ID" in str(exc.value) and "MODEL_API_KEY" not in str(exc.value)
+
+
+def test_permissions_by_role():
+    run = podctl.opencode_permissions({})
+    kb = podctl.opencode_permissions({"AGENT_ROLE": "kb-import"})
+    assert run["edit"] == "deny" and kb["edit"] == "allow"          # kb-init 用 write 工具写草稿
+    for p in (run, kb):
+        assert p["webfetch"] == p["websearch"] == "deny"
+        assert p["skill"] == {"*": "deny", "gaussdb-*": "allow"}
+        assert p["external_directory"] == "allow" and p["read"] == "allow"
+        assert p["bash"] == run["bash"]
+    with pytest.raises(podctl.ConfigError):
+        podctl.opencode_permissions({"AGENT_ROLE": "admin"})
+    assert podctl.render_opencode_config(dict(_ENV, AGENT_ROLE="kb-import"))["permission"]["edit"] == "allow"
+
+
+def _opencode_decides(rules: dict, command: str) -> str:
+    """opencode 1.18.27 的口径:规则按写的顺序,最后一条匹配的生效;`*` 匹配任意字符(含 `/` 与空格),
+    `?` 一个字符,整条命令锚定;「x *」也匹配不带参数的「x」(所以白名单里两种都写了,这里照样算)。"""
+    import re
+    verdict = "ask"
+    for pat, action in rules.items():
+        rx = "".join(".*" if ch == "*" else "." if ch == "?" else re.escape(ch) for ch in pat)
+        if pat.endswith(" *"):
+            rx = rx[:-len(re.escape(" ") + ".*")] + "( .*)?"
+        if re.fullmatch(rx, command, re.S):
+            verdict = action
+    return verdict
+
+
+_SKILLS = "/data/config/opencode/skills"
+
+
+@pytest.mark.parametrize("cmd", [
+    "python3 %s/gaussdb-login/scripts/login.py --list" % _SKILLS,
+    "python3 %s/gaussdb-wdr/scripts/wdr.py --instance a --since 1h" % _SKILLS,
+    "python %s/gaussdb-kb/scripts/kb.py query 锁等待" % _SKILLS,
+    "cat /data/reports/health/latest.json", "ls", "ls -la /nas/kb", "grep -n lock /nas/kb/cases/a.md",
+    "head -50 x.md", "date", "pwd", "wc -l a b",
+])
+def test_bash_allows_skill_scripts_and_read_only_commands(cmd):
+    assert _opencode_decides(podctl.opencode_permissions({})["bash"], cmd) == "allow", cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "env", "printenv", "printenv GRMP_AUTH_TOKEN", "set", "export", "declare -p", "env | grep KEY",
+    "cat /proc/1/environ", "cat /proc/self/environ", "tr '\\0' '\\n' < /proc/1/environ", "grep -a TOKEN /proc/7/environ",
+    "python3 -c 'import os; print(os.environ)'", "python3 /tmp/x.py", "python3 -m http.server",
+    "python3 %s/gaussdb-x/../../../../tmp/evil.py" % _SKILLS, "python3 %s/../../../tmp/evil.py" % _SKILLS,
+    "cat > /tmp/x.py", "echo 'import os' > %s/gaussdb-x/scripts/e.py" % _SKILLS, "echo x >> a",
+    "curl http://example.com", "wget http://x", "bash -c env", "sh -c id", "node -e 1", "rm -rf /data",
+    "cp a b", "mv a b", "chmod +x a", "kill -9 1", "nc 10.0.0.1 80", "perl -e 1",
+])
+def test_bash_denies_env_reads_writes_and_anything_else(cmd):
+    assert _opencode_decides(podctl.opencode_permissions({})["bash"], cmd) == "deny", cmd
+
+
+def test_skill_path_follows_xdg_config_home():
+    rules = podctl.opencode_permissions({"XDG_CONFIG_HOME": "/pool/cfg/"})["bash"]
+    assert _opencode_decides(rules, "python3 /pool/cfg/opencode/skills/gaussdb-a/scripts/a.py") == "allow"
+    assert _opencode_decides(rules, "python3 %s/gaussdb-a/scripts/a.py" % _SKILLS) == "deny"
+    assert list(rules)[0] == "*"                       # 先全拒:最后一条匹配的生效
+
+
 # ---- 报告只读端口 ----------------------------------------------------------------
 
 import http.client

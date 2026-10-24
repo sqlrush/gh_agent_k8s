@@ -68,12 +68,10 @@ spec:
           env:
             - {name: GSDB_USER_ID, value: "${USER_ID}"}
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
-            - {name: GRMP_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: grmp-token-${USER_ID}, key: GRMP_AUTH_TOKEN}}}
             - {name: OPENCODE_SERVER_PASSWORD, valueFrom: {secretKeyRef: {name: pod-auth-${USER_ID}, key: OPENCODE_SERVER_PASSWORD}}}
-            - {name: MODEL_API_KEY, valueFrom: {secretKeyRef: {name: model-api, key: MODEL_API_KEY}}}
-            # 2026-09-18 中间件加固:SM2 私钥整个应用一把,由共享 Secret grmp-sm2 注入(Appkey 与签名旋钮在 agent-config 里)。
-            # optional:没建这个 Secret 时 Pod 照常起、请求不带签名——中间件还没开校验的环境用得上
-            - {name: GRMP_SM2_PRIVATE_KEY, valueFrom: {secretKeyRef: {name: grmp-sm2, key: GRMP_SM2_PRIVATE_KEY, optional: true}}}
+            # 凭据不在这个容器:模型经凭据代理(同 Pod 的 credproxy 容器),中间件经它的套接字
+            - {name: MODEL_PROXY_URL, value: "http://127.0.0.1:4099/model"}
+            - {name: GRMP_PROXY_SOCKET, value: /run/credproxy/credproxy.sock}
           envFrom:
             - configMapRef: {name: agent-config}
           volumeMounts:
@@ -81,6 +79,7 @@ spec:
             - {name: nas, mountPath: /nas/kb, subPath: kb, readOnly: true}
             - {name: data, mountPath: /data}
             - {name: tmp, mountPath: /tmp}
+            - {name: credsock, mountPath: /run/credproxy, readOnly: true}
           # opencode 开了基本认证后 /global/health 也要口令:探针在容器内带口令 curl,口令只在环境变量里,不进清单
           readinessProbe:
             exec: {command: ["sh", "-c", "curl -fsS -u \"opencode:$$OPENCODE_SERVER_PASSWORD\" http://127.0.0.1:4096/global/health"]}
@@ -95,6 +94,26 @@ spec:
           resources:
             requests: {cpu: 250m, memory: 512Mi}
             limits: {cpu: "2", memory: 2Gi}
+        # 凭据代理(2026-10-23):中间件令牌、SM2 私钥、模型 Key 只在这个容器里,opencode 那个容器(模型在那里执行命令)
+        # 一样都没有。技能脚本经 /run/credproxy/credproxy.sock 调中间件,opencode 经 127.0.0.1:4099 调模型,
+        # 凭据由它在转发时加上(docker/credproxy.py)。它只跑我方代码,模型碰不到。
+        - name: credproxy
+          image: ${IMAGE}
+          imagePullPolicy: ${IMAGE_PULL_POLICY}
+          command: ["python3", "-u", "/opt/agent/podctl.py", "serve-credproxy"]
+          securityContext: {readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          env:
+            - {name: GSDB_USER_ID, value: "${USER_ID}"}
+            - {name: GRMP_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: grmp-token-${USER_ID}, key: GRMP_AUTH_TOKEN}}}
+            - {name: MODEL_API_KEY, valueFrom: {secretKeyRef: {name: model-api, key: MODEL_API_KEY}}}
+            - {name: GRMP_SM2_PRIVATE_KEY, valueFrom: {secretKeyRef: {name: grmp-sm2, key: GRMP_SM2_PRIVATE_KEY, optional: true}}}
+          envFrom:
+            - configMapRef: {name: agent-config}
+          volumeMounts:
+            - {name: credsock, mountPath: /run/credproxy}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
       volumes:
         - {name: nas, persistentVolumeClaim: {claimName: nas}}
         # /data 现在还装**本地态**(/data/state:opencode.db、git 快照、workspace),
@@ -105,6 +124,7 @@ spec:
         #     等于丢掉最后一个同步周期的对话。宁可占磁盘。
         - {name: data, emptyDir: {sizeLimit: 10Gi}}
         - {name: tmp, emptyDir: {sizeLimit: 1Gi}}
+        - {name: credsock, emptyDir: {sizeLimit: 1Mi}}     # 凭据代理的套接字
 ---
 apiVersion: v1
 kind: Service

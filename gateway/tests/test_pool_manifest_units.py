@@ -100,19 +100,23 @@ def test_only_the_steward_sees_users_and_holds_the_control_key(spec):
         nas = [m for m in c["volumeMounts"] if m["name"] == "nas"]
         assert nas == [{"name": "nas", "mountPath": "/nas/kb", "subPath": "kb", "readOnly": True}], c["name"]
         text = yaml.safe_dump(c)
-        for word in ("sandbox-control", "SANDBOX_CONTROL_KEY", "GRMP_AUTH_TOKEN", "grmp-token",
-                     "OPENCODE_SERVER_PASSWORD", "/pool"):
-            assert word not in text, "%s 里不能有 %s(令牌按人经管家下发)" % (c["name"], word)
+        for word in ("sandbox-control", "SANDBOX_CONTROL_KEY", "GRMP_AUTH_TOKEN", "grmp-token", "MODEL_API_KEY",
+                     "model-api", "GRMP_SM2_PRIVATE_KEY", "grmp-sm2", "OPENCODE_SERVER_PASSWORD", "/pool"):
+            assert word not in text, "%s 里不能有 %s(凭据都在管家的凭据代理里)" % (c["name"], word)
+    for name, ref in (("MODEL_API_KEY", {"name": "model-api", "key": "MODEL_API_KEY"}),
+                      ("GRMP_SM2_PRIVATE_KEY", {"name": "grmp-sm2", "key": "GRMP_SM2_PRIVATE_KEY", "optional": True})):
+        assert _env(st)[name]["valueFrom"]["secretKeyRef"] == ref, "凭据代理在管家:%s" % name
 
 
 def test_slots_mount_only_their_own_disks_and_ctl_read_only(spec):
     for i, c in enumerate(_slots(spec)):
         mine = {m["name"] for m in c["volumeMounts"]} - {"nas"}
-        assert mine == {"s%d-%s" % (i, k) for k in ("data", "state", "ctl", "tmp", "shm")}, c["name"]
-        ctl = next(m for m in c["volumeMounts"] if m["name"] == "s%d-ctl" % i)
-        assert ctl["readOnly"] is True, "指令目录在槽位里必须只读"
+        assert mine == {"s%d-%s" % (i, k) for k in ("data", "state", "ctl", "tmp", "shm", "sock")}, c["name"]
+        for k in ("ctl", "sock"):
+            m = next(m for m in c["volumeMounts"] if m["name"] == "s%d-%s" % (i, k))
+            assert m["readOnly"] is True, "指令目录与凭据代理套接字目录在槽位里必须只读"
     st = {m["name"] for m in _steward(spec)["volumeMounts"]}
-    assert {"s%d-state" % i for i in range(8)} | {"s%d-ctl" % i for i in range(8)} <= st
+    assert {"s%d-%s" % (i, k) for i in range(8) for k in ("state", "ctl", "sock")} <= st
     assert not any(re.match(r"s\d+-(data|tmp|shm)$", n) for n in st), "管家不需要槽位的配置盘、tmp 与 shm"
 
 
@@ -153,7 +157,8 @@ def test_production_render_has_no_test_switches(docs):
     for d in docs:
         assert rp.TEST_LABEL not in (d["metadata"].get("labels") or {})
     st = _env(_steward(_kind(docs, "StatefulSet")["spec"]["template"]["spec"]))
-    assert set(st) == {"POOL_MODE", "POD_NAME", "SLOTS_PER_POD", "SANDBOX_CONTROL_KEY"}
+    assert set(st) == {"POOL_MODE", "POD_NAME", "SLOTS_PER_POD", "SANDBOX_CONTROL_KEY", "MODEL_API_KEY",
+                       "GRMP_SM2_PRIVATE_KEY"}
 
 
 def test_test_overrides_are_labelled():

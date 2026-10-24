@@ -16,7 +16,7 @@ import shutil
 import sqlite3
 import sys
 import time
-from typing import List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional
 
 OWNER_NAME = ".owner"
 # 版本令牌:任何模式下取得独占标记都换一个新的随机值(固定池化靠它判断保留在槽位里的副本还能不能用)
@@ -92,8 +92,55 @@ def input_modalities(env: Mapping[str, str]) -> Optional[list]:
     return list(dict.fromkeys(["text"] + items))      # text 总要有;去重保序
 
 
+# 工具权限(2026-10-23 落到 opencode 配置里)。技能包的 AGENTS.md 开头也写了一组 permission,但它是作为全局规则
+# (提示词)装进去的,opencode 不执行那里的权限 —— 「不能改文件、不能联网、只能调预置技能」原来只靠提示词。
+# 写进 opencode.json 才是 opencode 真执行的(1.18.27 实测这些键都认)。bash 规则**最后一条匹配的生效**,
+# 复合命令(管道、&&、$())逐条核对,`*` 能匹配 `/` 与空格,所以:先全拒,再放行,最后把放行里的漏洞拒回去。
+ROLE_RUNTIME, ROLE_KB_IMPORT = "runtime", "kb-import"
+_READ_ONLY_COMMANDS = ("cat", "grep", "head", "tail", "ls", "wc", "sort", "uniq", "cut", "date", "echo", "pwd",
+                       "ps", "df", "du", "free")
+_BASH_DENY_AFTER = (
+    "*>*",              # 重定向写文件:`cat > x.py` 写出脚本再借技能路径执行
+    "*/../../*",        # 借技能目录跳出去执行别处的文件(技能之间的同级引用只有一层 ../)
+    "*/proc/*", "*environ*",            # 读别的进程 / 自己的环境
+    "env", "env *", "printenv", "printenv *", "set", "set *", "export", "export *", "declare *",
+)
+
+
+def opencode_permissions(env: Mapping[str, str]) -> dict:
+    """按容器角色给 opencode 的工具权限。AGENT_ROLE 由镜像定(kb-import 镜像里是 kb-import)。
+
+    诊断容器:不能编辑文件;导入容器:kb-init 要用 write 工具写草稿(draft/NNN.json),编辑放行(只有知识库管理员进得来)。
+    两者都不能联网、只能用 gaussdb-* 技能;bash 只放行技能脚本与几个只读命令。凭据本来就不在这个容器里
+    (凭据代理,docker/credproxy.py),这一层是纵深防御。
+    """
+    role = (env.get("AGENT_ROLE") or ROLE_RUNTIME).strip()
+    if role not in (ROLE_RUNTIME, ROLE_KB_IMPORT):
+        raise ConfigError("AGENT_ROLE=%r 不认识,只能是 %s / %s" % (role, ROLE_RUNTIME, ROLE_KB_IMPORT))
+    skills = (env.get("XDG_CONFIG_HOME") or "/data/config").rstrip("/") + "/opencode/skills"
+    bash: Dict[str, str] = {"*": "deny"}
+    for py in ("python3", "python"):
+        bash["%s %s/gaussdb-*" % (py, skills)] = "allow"
+    for cmd in _READ_ONLY_COMMANDS:
+        bash[cmd] = "allow"
+        bash[cmd + " *"] = "allow"
+    for pat in _BASH_DENY_AFTER:
+        bash[pat] = "deny"
+    return {
+        "edit": "deny" if role == ROLE_RUNTIME else "allow",
+        "webfetch": "deny", "websearch": "deny",               # 数据不出域
+        "skill": {"*": "deny", "gaussdb-*": "allow"},
+        "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
+        "external_directory": "allow",          # 知识库 /nas/kb 在项目目录之外,模型要能读规则原文
+        "bash": bash,
+    }
+
+
 def render_opencode_config(env: Mapping[str, str]) -> dict:
-    missing = [k for k in ("MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_ID") if not env.get(k)]
+    """opencode.json。设了 MODEL_PROXY_URL(凭据代理)时模型 Key 不进这个文件 —— 它在模型能读到的容器里。"""
+    proxy = (env.get("MODEL_PROXY_URL") or "").strip()
+    need = ("MODEL_ID",) if proxy else ("MODEL_BASE_URL", "MODEL_API_KEY", "MODEL_ID")
+    missing = [k for k in need if not env.get(k)]
     if missing:
         raise ConfigError("缺少环境变量:%s(模型服务地址、密钥、模型 id 由平台注入)" % "、".join(missing))
     name = env.get("MODEL_PROVIDER_NAME") or PROVIDER_DEFAULT
@@ -102,16 +149,18 @@ def render_opencode_config(env: Mapping[str, str]) -> dict:
     mods = input_modalities(env)
     if mods:
         model_def["modalities"] = {"input": mods, "output": ["text"]}
+    options = ({"baseURL": proxy, "apiKey": "credproxy"} if proxy          # 占位:真 Key 由代理加
+               else {"baseURL": env["MODEL_BASE_URL"], "apiKey": env["MODEL_API_KEY"]})
     return {
         "$schema": "https://opencode.ai/config.json",
         "share": "disabled",                              # 绝不把对话分享到 opencode.ai
         "autoupdate": False,                              # 内网,且版本由镜像钉死
-        "permission": {"external_directory": "allow"},    # 知识库 /nas/kb 在项目目录之外,模型要能读规则原文
+        "permission": opencode_permissions(env),
         "provider": {
             name: {
                 "npm": "@ai-sdk/openai-compatible",
                 "name": name,
-                "options": {"baseURL": env["MODEL_BASE_URL"], "apiKey": env["MODEL_API_KEY"]},
+                "options": options,
                 "models": {model: model_def},
             }
         },
@@ -155,8 +204,9 @@ def render_gdaa_config(env: Mapping[str, str]) -> str:
     port = int(env.get("GRMP_API_PORT") or 8080)
     # 2026-09-18 中间件加固:配了 Appkey 就必须有 SM2 私钥,启动时就拒——拖到第一次请求会表现成
     # 中间件鉴权失败,排查方向被带到中间件那边。旋钮(GRMP_SIGN_*)由 skill 直接读环境变量,这里不落盘。
+    # 走凭据代理(GRMP_PROXY_SOCKET)时私钥在代理那边,本容器本来就没有,由代理核对。
     appkey = env.get("GRMP_APPKEY", "")
-    if appkey and not env.get("GRMP_SM2_PRIVATE_KEY"):
+    if appkey and not env.get("GRMP_SM2_PRIVATE_KEY") and not env.get("GRMP_PROXY_SOCKET"):
         raise ConfigError("配了 GRMP_APPKEY=%s 却没有 GRMP_SM2_PRIVATE_KEY(SM2 私钥由平台以 Secret grmp-sm2 注入)" % appkey)
     text = ("# 由 podctl 在 Pod 启动时按环境变量生成;不要手工改,重启即覆盖。\n"
             "connection_mode: api\n"
@@ -480,6 +530,8 @@ def _parser() -> argparse.ArgumentParser:
     # 固定池化(2026-10-23):槽位容器的 1 号进程(先清盘再等管家的指令)与管家的控制接口,参数来自环境变量
     sub.add_parser("pool-slot")
     sub.add_parser("pool-steward")
+    # 凭据代理(2026-10-23):按需模式 Pod 的伴生容器,中间件令牌、SM2 私钥、模型 Key 只在它那里
+    sub.add_parser("serve-credproxy")
     p = sub.add_parser("serve-reports")
     p.add_argument("--dir", required=True)
     p.add_argument("--port", type=int, default=4097)
@@ -519,6 +571,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif a.cmd == "pool-slot":
             import slotrun
             return slotrun.main()
+        elif a.cmd == "serve-credproxy":
+            import credproxy
+            return credproxy.main()
         elif a.cmd == "pool-steward":
             import poolsteward
             return poolsteward.serve()

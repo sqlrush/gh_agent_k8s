@@ -64,16 +64,19 @@ def _blank(boot: str = "", container_id: str = "") -> dict:
     return {"state": BOOTING, "user": None, "since": None, "password": None, "reports_token": None,
             "boot": boot, "container_id": container_id, "gen": "", "fingerprint": None, "dirty": False,
             "stale": False, "bound_at": None, "retained_at": None, "last_active": None, "evict": None,
-            "error": "", "snap_seq": 0, "quiet": False, "reserved_for": None, "reserved_until": 0.0}
+            "error": "", "snap_seq": 0, "quiet": False, "reserved_for": None, "reserved_until": 0.0,
+            "grmp_token": ""}       # 本人的中间件令牌:只在管家这里(凭据代理用),不进槽位、不进 status
 
 
 class Slot:
     def __init__(self, index: int, ctl_dir: pathlib.Path, state_dir: pathlib.Path, priv_dir: pathlib.Path,
                  users_fd: int, settings: Settings, ports: Tuple[int, int], uid: int,
-                 verdict: Callable[[int, int], str], log: Callable[[str], None] = print):
+                 verdict: Callable[[int, int], str], log: Callable[[str], None] = print, model_port: int = 0):
         self.i = index
         self.ctl_dir, self.state_dir, self.priv = ctl_dir, state_dir, priv_dir / ("slot-%d.json" % index)
         self.users_fd, self.s, self.ports, self.uid = users_fd, settings, ports, uid
+        # 要核对监听者的端口:对话、报告,加上模型中继(槽位重启的空档里被同 Pod 的别人抢到,opencode 会把对话发给它)
+        self.watch: Tuple[int, ...] = tuple(ports) + ((model_port,) if model_port else ())
         self.verdict, self.log = verdict, log
         self.holder = "%s/%d" % (settings.pod, index)
         self.lock = threading.RLock()       # rec 的读写与持久化(短)
@@ -149,13 +152,18 @@ class Slot:
             os.close(fd)
         os.replace(tmp, path)
 
-    def _write_run(self, state: str, grmp_token: str = "") -> None:
+    def _write_run(self, state: str) -> None:
         r = self.rec
         body = {"state": state, "since": r["since"], "user_id": r["user"], "password": r["password"],
                 "reports_token": r["reports_token"], "boot": r["boot"]}
-        if grmp_token:
-            body["grmp_token"] = grmp_token
         self._write_ctl(RUN_FILE, body)
+
+    def credentials(self) -> Optional[Tuple[str, str]]:
+        """给凭据代理:(工号, 本人的中间件令牌)。只有在用的槽位才有 —— 保留 / 空闲 / 清理中的一律不转发。"""
+        r = self.rec
+        if r["state"] != ACTIVE or not r["user"]:
+            return None
+        return r["user"], r.get("grmp_token") or ""
 
     def _read_pool(self, name: str) -> dict:
         """槽位写的 .pool/ 下的小文件。**不可信**:按描述符读、限大小,读不出来就当没有。"""
@@ -220,7 +228,7 @@ class Slot:
     # -- 就绪 -----------------------------------------------------------------------------
 
     def _listener_ok(self) -> bool:
-        return all(self.verdict(p, self.uid) in ("ok", "unavailable") for p in self.ports)
+        return all(self.verdict(p, self.uid) in ("ok", "unavailable") for p in self.watch)
 
     def _http_ok(self, port: int, header: str) -> bool:
         path = "/global/health" if port == self.ports[0] else "/whoami.json"
@@ -233,7 +241,7 @@ class Slot:
             return False
 
     def ready(self) -> bool:
-        """opencode 与报告服务都应答,且两个端口上的监听者都是本槽位的 uid(不是同 Pod 的冒充者)。"""
+        """opencode 与报告服务都应答,且各端口(含模型中继)上的监听者都是本槽位的 uid(不是同 Pod 的冒充者)。"""
         r = self.rec
         basic = "Basic " + base64.b64encode(("opencode:%s" % r["password"]).encode()).decode()
         return (self._http_ok(self.ports[0], basic) and self._http_ok(self.ports[1], "Bearer " + r["reports_token"])
@@ -286,8 +294,10 @@ class Slot:
             return 200, dict(self.creds(), loaded=loaded)
 
     def _start_run(self, grmp_token: str) -> None:
-        self._set(password=secrets.token_urlsafe(24), reports_token=secrets.token_urlsafe(24), since=time.time())
-        self._write_run("run", grmp_token)
+        # 令牌留在管家(私有目录 0600,管家重启后接着用);槽位拿到的只有口令与报告令牌
+        self._set(password=secrets.token_urlsafe(24), reports_token=secrets.token_urlsafe(24), since=time.time(),
+                  grmp_token=grmp_token)
+        self._write_run("run")
 
     def _activate(self) -> None:
         now = time.time()
@@ -296,7 +306,7 @@ class Slot:
         self._set(state=ACTIVE, bound_at=now, last_active=now, error="")
 
     def _not_ready_reason(self) -> str:
-        bad = [p for p in self.ports if self.verdict(p, self.uid) not in ("ok", "unavailable", "down")]
+        bad = [p for p in self.watch if self.verdict(p, self.uid) not in ("ok", "unavailable", "down")]
         if bad:
             return "port_squatted:" + ",".join("%d=%s" % (p, self.verdict(p, self.uid)) for p in bad)
         return "opencode_not_ready"
@@ -365,7 +375,7 @@ class Slot:
         if not clean:
             why = "stop_not_confirmed" if not confirmed else "; ".join(moved.errors[:3])
             self.log("槽位 %d 转保留不干净(%s):继续持有 %s 的独占,稍后重试写回" % (self.i, why, self.user))
-        self._set(state=RETAINED, retained_at=time.time(), dirty=not clean, quiet=confirmed,
+        self._set(state=RETAINED, retained_at=time.time(), dirty=not clean, quiet=confirmed, grmp_token="",
                   error=error or ("" if clean else "not_synced"))
         self.busy = False
         return 200, {"slot": self.i, "state": RETAINED, "user_id": self.user, "dirty": not clean,
@@ -470,7 +480,7 @@ class Slot:
             self.ufd = None
         self.busy = False
         self._set(state=EVICTING, evict={"boot": self.rec["boot"], "container_id": container_id or "",
-                                         "at": time.time()}, error=error)
+                                         "at": time.time()}, error=error, grmp_token="")
         try:
             self._write_ctl(RUN_FILE, {"state": "exit", "boot": self.rec["boot"]})
         except OSError as exc:
@@ -618,7 +628,7 @@ class Slot:
         if self.ufd is not None:
             os.close(self.ufd)
             self.ufd = None
-        self._set(state=RETAINED, stale=True, dirty=False, error="owner_lost", retained_at=time.time())
+        self._set(state=RETAINED, stale=True, dirty=False, error="owner_lost", retained_at=time.time(), grmp_token="")
 
     def sync_once(self) -> dict:
         seq = int(self.rec["snap_seq"] or 0) + 1
@@ -670,7 +680,7 @@ class Slot:
                 self.busy_at = float(a.get("busy_at") or 0)
             except (TypeError, ValueError):
                 self.busy_at = 0.0
-        vs = [self.verdict(p, self.uid) for p in self.ports]
+        vs = [self.verdict(p, self.uid) for p in self.watch]
         foreign = [int(v.split(":", 1)[1]) for v in vs if v.startswith("foreign:")]
         listener = "foreign:%d" % foreign[0] if foreign else ("ok" if all(v in ("ok", "unavailable") for v in vs)
                                                               else "down")

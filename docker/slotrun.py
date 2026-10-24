@@ -16,7 +16,8 @@
   · **载入后接管属主**:管家载入的文件属主是 uid 1000,技能 chmod 自己的目录会 EPERM;起 opencode 之前
     复制成自己的(fdtree.adopt,库文件只需组读写、不复制)。
   · **回写前规整权限**:给自己名下的文件加组读(fdtree.grant_group),管家才读得到。
-  · **按人的凭证**:GRMP 令牌、对话口令、报告令牌都只来自本次 run.json,每次绑定 / 恢复都不同。
+  · **按人的凭证**:对话口令、报告令牌只来自本次 run.json,每次绑定 / 恢复都不同;中间件令牌、SM2 私钥、模型 Key
+    根本不进槽位 —— 在管家的凭据代理里(docker/credproxy.py),本槽位的模型端口由 1 号进程中继过去。
 
 本进程手里没有比本人更大的权限:没有控制密钥、看不到别人的目录。模型与它同 uid,能改回执、能给它发
 SIGTERM —— 都只伤到本人;管家判断「腾挪完成」靠的是 k8s 给的 containerID 变化,不靠这里写的任何文件。
@@ -35,6 +36,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, Mapping, Optional, Tuple
 
+import credproxy
 import fdtree
 import podctl
 import poolrun
@@ -52,13 +54,19 @@ BUSY_EVERY_S = 5.0
 _NONCE_MAX = 128
 _PLACEHOLDER_REPLY = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
                       b"Content-Length: 30\r\nConnection: close\r\n\r\n{\"reason\": \"slot_not_running\"}")
-_SCRUB_ENV = ("GRMP_AUTH_TOKEN", "OPENCODE_SERVER_PASSWORD", "REPORTS_TOKEN", "SANDBOX_CONTROL_KEY",
-              "POOL_CONTROL_KEY", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PYTHONUSERBASE")
+# 凭据(中间件令牌、SM2 私钥、模型 Key)一律不进槽位:它们在管家那里,经凭据代理加到请求上(docker/credproxy.py)
+_SCRUB_ENV = ("GRMP_AUTH_TOKEN", "GRMP_SM2_PRIVATE_KEY", "MODEL_API_KEY", "OPENCODE_SERVER_PASSWORD", "REPORTS_TOKEN",
+              "SANDBOX_CONTROL_KEY", "POOL_CONTROL_KEY", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PYTHONUSERBASE")
 
 
 def slot_ports(slot: int) -> Tuple[int, int]:
     """槽位 i 的对话端口与报告端口(4100+10i、4101+10i)。管家与网关按同一公式算。"""
     return PORT_BASE + PORT_STEP * slot, PORT_BASE + PORT_STEP * slot + 1
+
+
+def slot_model_port(slot: int) -> int:
+    """槽位 i 的模型中继端口(127.0.0.1:4102+10i):opencode 经它访问模型,1 号进程转给管家的凭据代理。"""
+    return PORT_BASE + PORT_STEP * slot + 2
 
 
 @dataclass
@@ -69,6 +77,8 @@ class SlotConfig:
     agent: pathlib.Path = pathlib.Path("/opt/agent")
     wipe: Tuple[pathlib.Path, ...] = (pathlib.Path("/data"), pathlib.Path("/tmp"), pathlib.Path("/dev/shm"))
     busy_every_s: float = BUSY_EVERY_S
+    credproxy_dir: pathlib.Path = pathlib.Path("/run/credproxy")    # 管家开的凭据代理套接字(只挂给本槽位)
+    model_port: int = 0                                             # 0 = 按槽位号算
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "SlotConfig":
@@ -112,8 +122,12 @@ class SlotSupervisor(poolrun.Supervisor):
         d = scfg.data
         for k in _SCRUB_ENV:
             self.base_env.pop(k, None)  # 凭证只来自本次 run.json;python 的注入口一律不继承
+        self.model_port = scfg.model_port or slot_model_port(scfg.slot)
+        self.relay = None
         self.base_env.update({"XDG_CONFIG_HOME": str(d / "config"), "XDG_CACHE_HOME": str(d / "cache"),
-                              "HOME": str(d / "home"), "OPENCODE_CONFIG": str(d / "oc" / "opencode.json")})
+                              "HOME": str(d / "home"), "OPENCODE_CONFIG": str(d / "oc" / "opencode.json"),
+                              "MODEL_PROXY_URL": "http://127.0.0.1:%d%s" % (self.model_port, credproxy.MODEL_PREFIX),
+                              credproxy.GRMP_SOCKET_ENV: str(scfg.credproxy_dir / credproxy.SOCKET_NAME)})
         self.ack.update({"boot": self.boot_id, "slot": scfg.slot, "busy": False, "busy_at": 0.0, "hello": ""})
 
     # -- 启动:清盘 → 配置 → 顶层目录 → boot.json → 占端口 --------------------------------
@@ -162,6 +176,7 @@ class SlotSupervisor(poolrun.Supervisor):
         _write_shared(self.cfg.state / BOOT_FILE, report)
         self._write_ack()
         self._open_placeholders()
+        self._open_relay()
         self.log("槽位 %d 启动:清盘删除 %d 项、错误 %d 项,boot %s,等待管家的指令"
                  % (self.scfg.slot, wiped.deleted, len(wiped.errors), self.boot_id))
         return report
@@ -188,6 +203,19 @@ class SlotSupervisor(poolrun.Supervisor):
                 self._ph_warned.discard(port)
                 self.log("端口 %d 已经占回来了" % port)
             self.placeholders[port] = s
+
+    def _open_relay(self) -> None:
+        """模型中继:从启动起就占着本槽位的模型端口(同 Pod 的别的槽位抢不走),转到管家开的模型套接字
+        (只转模型;中间件的套接字不经任何 TCP 端口)。"""
+        if self.relay is not None:
+            return
+        try:
+            self.relay = credproxy.relay(self.model_port,
+                                         str(self.scfg.credproxy_dir / credproxy.MODEL_SOCKET_NAME), log=self.log)
+        except OSError as exc:
+            if "relay" not in self._ph_warned:
+                self._ph_warned.add("relay")
+                self.log("模型中继占不住端口 %d(%s);之后每轮再试" % (self.model_port, exc))
 
     def _close_placeholders(self) -> None:
         for s in self.placeholders.values():
@@ -228,6 +256,7 @@ class SlotSupervisor(poolrun.Supervisor):
         self._reap_orphans()
         if self.oc is None and not self.term:
             self._open_placeholders()       # 启动时被同 Pod 的别人抢了先:对方被腾挪走之后要能占回来
+        self._open_relay()
         self._serve_placeholders()
         self._answer_hello()
         desired = self._ctl_for_me(poolrun.RUN_FILE)   # 不是给本次启动的指令(上一个人的残留)一律不理
@@ -273,10 +302,8 @@ class SlotSupervisor(poolrun.Supervisor):
     # -- 起停 -----------------------------------------------------------------------------
 
     def _env_for(self, desired: dict) -> Dict[str, str]:
+        """本人的中间件令牌不在这里:它在管家的凭据代理里,技能脚本经套接字调用,本容器里拿不到。"""
         env = super()._env_for(desired)
-        tok = desired.get("grmp_token")
-        if isinstance(tok, str) and tok:
-            env["GRMP_AUTH_TOKEN"] = tok
         env["REPORTS_TOKEN"] = str(desired.get("reports_token") or "")
         return env
 

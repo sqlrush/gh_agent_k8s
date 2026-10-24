@@ -236,15 +236,15 @@ def _images(mgr, kind):
 
 
 def test_user_pod_image_has_no_prefix_by_default():
-    assert _images(_mgr(FakeKube()), "runtime") == ["gaussdb-agent-runtime:t1"]
+    assert _images(_mgr(FakeKube()), "runtime") == ["gaussdb-agent-runtime:t1"] * 2   # opencode 与凭据代理同一个镜像
 
 
 def test_user_pod_image_carries_the_registry_prefix():
     """**原来没有这一项。** 镜像推在内网仓库时,不带前缀的名字会被节点当成 docker.io 上的镜像去拉,
     用户一登录就 ImagePullBackOff(504)。手册里对 k8s/templates/ 的 sed 改不到它:模板里是 ${IMAGE}。"""
     mgr = _mgr(FakeKube(), image_registry="registry.example/gaussdb-agent/")
-    assert _images(mgr, "runtime") == ["registry.example/gaussdb-agent/gaussdb-agent-runtime:t1"]
-    assert _images(mgr, "kb-import") == ["registry.example/gaussdb-agent/gaussdb-agent-kb-import:t1"]
+    assert _images(mgr, "runtime") == ["registry.example/gaussdb-agent/gaussdb-agent-runtime:t1"] * 2
+    assert _images(mgr, "kb-import") == ["registry.example/gaussdb-agent/gaussdb-agent-kb-import:t1"] * 2
 
 
 # --- 知识库管理员名单:ConfigMap agent-roles ------------------------------------

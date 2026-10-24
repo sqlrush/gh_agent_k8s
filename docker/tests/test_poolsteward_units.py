@@ -8,12 +8,15 @@
 """
 import base64
 import http.client
+import http.server
 import json
 import os
 import pathlib
 import socket
+import socketserver
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -23,6 +26,7 @@ import pytest
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "docker"))
 
+import credproxy  # noqa: E402
 import fdtree  # noqa: E402
 import poolauth  # noqa: E402
 import poolrun  # noqa: E402
@@ -73,6 +77,7 @@ class SlotRuntime:
     def __init__(self, pod: "Pod", i: int):
         self.pod, self.i = pod, i
         self.restarts = 0
+        self.model_port = _free_port()      # 生产里是 4102+10i;同一测试进程里换一个空闲的
         self.auto_restart = True
         self.sup = None
         self.thread = None
@@ -90,19 +95,21 @@ class SlotRuntime:
                              port=p.ports[self.i][0], reports_port=p.ports[self.i][1], poll_s=0.05,
                              stop_timeout_s=5, health_every_s=1, env_file=p.slot_dir(self.i) / "data" / "env.sh")
         scfg = slotrun.SlotConfig(slot=self.i, run=run, data=p.slot_dir(self.i) / "data", agent=p.agent,
-                                  wipe=(p.slot_dir(self.i) / "data",), busy_every_s=0.2)
+                                  wipe=(p.slot_dir(self.i) / "data",), busy_every_s=0.2,
+                                  credproxy_dir=p.slot_dir(self.i) / "sock", model_port=self.model_port)
         env = dict(os.environ, FAKE_OUT=str(p.tmp / ("fake-%d" % self.i)), GRMP_API_HOST="10.0.0.1",
                    MODEL_BASE_URL="http://model", MODEL_API_KEY="k", MODEL_ID="m")
         self.sup = slotrun.SlotSupervisor(scfg, env=env, log=p.logs.append)
         self.sup.boot()
         self.running = True
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-        self.thread.start()
+        t = threading.Thread(target=self._loop, daemon=True)
+        t.start()                           # 先起再挂上:收尾时 stop() 可能正好来 join(自动重启的竞态)
+        self.thread = t
 
     def _loop(self):
         while self.running:
             if not self.sup.tick():
-                self.sup._close_placeholders()
+                self._release()
                 self.running = False
                 if self.auto_restart and not self.pod.closed:
                     self.restart()
@@ -116,9 +123,15 @@ class SlotRuntime:
             self.thread.join(5)
             self.sup._terminate(self.sup.oc)
             self.sup._stop_reports()
-            self.sup._close_placeholders()
+            self._release()
         self.restarts += 1
         self._start()
+
+    def _release(self):
+        self.sup._close_placeholders()
+        if self.sup.relay is not None:
+            self.sup.relay.close()
+            self.sup.relay = None
 
     def stop(self):
         self.running = False
@@ -127,19 +140,20 @@ class SlotRuntime:
         if self.sup is not None:
             self.sup._terminate(self.sup.oc)
             self.sup._stop_reports()
-            self.sup._close_placeholders()
+            self._release()
 
 
 class Pod:
-    def __init__(self, tmp: pathlib.Path, n: int = 2, verdict=None, **settings):
+    def __init__(self, tmp: pathlib.Path, n: int = 2, verdict=None, upstreams=None, **settings):
         self.tmp, self.n, self.closed = tmp, n, False
+        self.upstreams = upstreams
         self.users, self.priv, self.kb, self.agent = tmp / "users", tmp / "priv", tmp / "kb", tmp / "agent"
         for p in (self.users, self.priv, self.kb, self.agent / "config" / "opencode"):
             p.mkdir(parents=True)
         (self.agent / "config" / "opencode" / "AGENTS.md").write_text("rules", encoding="utf-8")
         self.ports = {i: (_free_port(), _free_port()) for i in range(n)}
         for i in range(n):
-            for sub in ("ctl", "state", "data"):
+            for sub in ("ctl", "state", "data", "sock"):
                 (self.slot_dir(i) / sub).mkdir(parents=True)
         self.logs = []
         self.slots = [SlotRuntime(self, i) for i in range(n)]
@@ -159,8 +173,9 @@ class Pod:
             self.st.stop.set()
         cfg = poolsteward.Config(key=KEY, pod=POD, slots=self.n, users_dir=self.users, slots_dir=self.tmp / "slots",
                                  priv_dir=self.priv, port=_free_port(), monitor_seconds=0.1, settings=self.settings,
-                                 slot_ports=lambda i: self.ports[i], slot_uid=lambda i: os.getuid())
-        self.st = poolsteward.Steward(cfg, log=self.logs.append, verdict=self.verdict)
+                                 slot_ports=lambda i: self.ports[i], slot_uid=lambda i: os.getuid(),
+                                 slot_model_port=lambda i: self.slots[i].model_port)
+        self.st = poolsteward.Steward(cfg, log=self.logs.append, verdict=self.verdict, upstreams=self.upstreams)
         if start:
             self.st.start()
         return self.st
@@ -196,6 +211,9 @@ class Pod:
         self.closed = True
         if self.st is not None:
             self.st.stop.set()
+            for srv in self.st._proxies:
+                srv.shutdown()
+                srv.server_close()
         for s in self.slots:
             s.stop()
 
@@ -220,6 +238,63 @@ def pod(tmp_path, monkeypatch):
     p.close()
 
 
+class _TCP(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+
+
+@pytest.fixture()
+def grmp_upstream():
+    """假中间件:记下收到的请求头与报文。"""
+    seen = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            seen.append(({k.lower(): v for k, v in self.headers.items()}, json.loads(body)))
+            out = b'{"code": "0"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    srv = _TCP(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield srv.server_address[1], seen
+    srv.shutdown()
+    srv.server_close()
+
+
+@pytest.fixture()
+def proxied_pod(monkeypatch, grmp_upstream):
+    """带凭据代理的 Pod。目录放 /tmp 下:macOS 套接字路径上限 104 字节。"""
+    monkeypatch.setattr(slotrun.SlotSupervisor, "_kill_others", lambda self: None)
+    monkeypatch.setattr(slotrun.SlotSupervisor, "_reap_orphans", lambda self: None)
+    port, seen = grmp_upstream
+    ups = credproxy.Upstreams.from_env({"GRMP_API_HOST": "127.0.0.1", "GRMP_API_PORT": str(port),
+                                        "GRMP_USER_ID_HEADER": "X-User-Id", "MODEL_BASE_URL": "http://127.0.0.1:9/v1",
+                                        "MODEL_API_KEY": "mk", "AGENT_SKILLS_DIR": str(_ROOT / "agent")})
+    p = Pod(pathlib.Path(tempfile.mkdtemp(dir="/tmp", prefix="ps")), upstreams=ups)
+    p.all_free()
+    yield p, seen
+    p.close()
+
+
+def _grmp_via(sock: pathlib.Path):
+    c = http.client.HTTPConnection("x", timeout=10)
+    c.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.sock.connect(str(sock))
+    try:
+        c.request("POST", credproxy.GRMP_PREFIX + "/common-operations", body=b'{"dataIp": "10.0.0.9"}',
+                  headers={"Content-Type": "application/json", "X-User-Id": "u9999"})
+        r = c.getresponse()
+        return r.status, json.loads(r.read())
+    finally:
+        c.close()
+
+
 # -- 新 Pod ----------------------------------------------------------------------------------
 
 def test_fresh_pod_slots_handshake_into_free(pod):
@@ -240,7 +315,9 @@ def test_bind_starts_the_users_opencode_with_per_user_credentials(pod):
     req.add_header("Authorization", "Bearer " + rt)
     assert json.loads(urllib.request.urlopen(req, timeout=2).read()) == {"user_id": "u1234"}
     env = json.loads((pod.tmp / "fake-0" / "env.json").read_text(encoding="utf-8"))
-    assert env["GRMP_AUTH_TOKEN"] == "grmp-of-u1234" and env["GSDB_USER_ID"] == "u1234"
+    assert env["GRMP_AUTH_TOKEN"] is None and env["MODEL_API_KEY"] is None and env["GSDB_USER_ID"] == "u1234"
+    assert pod.st.slots[0].credentials() == ("u1234", "grmp-of-u1234"), "令牌留在管家,给凭据代理用"
+    assert "grmp-of-u1234" not in (pod.slot_dir(0) / "ctl" / "run.json").read_text(encoding="utf-8")
     assert pod.owner()["pod"] == "%s/0" % POD, "独占标记按「pod/槽位」整串记"
     fd = pod.user_fd()
     assert poolsync.gen_read(fd) == pod.st.slots[0].rec["gen"] and poolsync.is_dirty(fd)
@@ -551,7 +628,8 @@ def bare(tmp_path):
     cfg = poolsteward.Config(key=KEY, pod=POD, slots=3, users_dir=users, slots_dir=tmp_path / "slots", priv_dir=priv,
                              port=_free_port(), settings=poolslot.Settings(pod=POD, hello_seconds=0.2,
                                                                            ready_seconds=0.5, stop_wait_seconds=0.3),
-                             slot_ports=lambda i: (6100 + 10 * i, 6101 + 10 * i), slot_uid=lambda i: 5000 + i)
+                             slot_ports=lambda i: (6100 + 10 * i, 6101 + 10 * i), slot_uid=lambda i: 5000 + i,
+                             slot_model_port=lambda i: 6102 + 10 * i)
     logs = []
     st = poolsteward.Steward(cfg, log=logs.append, verdict=lambda port, uid: verdicts.get(port, "ok"))
     for s in st.slots:
@@ -573,6 +651,17 @@ def test_a_foreign_listener_is_flagged_and_traced_to_the_offending_slot(bare):
     verdicts.clear()
     st.monitor_once()
     assert st.status()["slots"][0]["listener"] == "ok" and not st.status()["slots"][2]["offender"]
+
+
+def test_the_model_relay_port_is_watched_like_the_others(bare):
+    """槽位重启的空档里同 Pod 的别人先占了我的模型端口:opencode 会把对话发给它。和对话端口一样核对、定位、拒绝绑定。"""
+    st, verdicts, _logs = bare
+    verdicts[6102] = "foreign:5002"
+    st.monitor_once()
+    out = st.status()["slots"]
+    assert out[0]["listener"] == "foreign:5002" and out[2]["offender"]
+    code, body = st.bind({"slot": 0, "user_id": "u1234", "expect_in_use": 0, "container_id": "c"})
+    assert code in (502, 504) and st.slots[0].state == poolslot.RETAINED, body
 
 
 def test_bind_onto_a_squatted_port_fails_and_is_retained_not_served(bare):
@@ -703,12 +792,42 @@ def test_steward_port_squatted_by_a_slot_evicts_that_slot(bare, monkeypatch):
     assert run == {"state": "exit", "boot": "b1"}, "按可信的 boot 发 exit"
 
 
+def test_each_slots_credproxy_forwards_only_for_its_own_user_while_in_use(proxied_pod):
+    """2026-10-23:中间件令牌在管家这里。槽位 i 的套接字只按槽位 i 当前在用的人转发 —— 空闲 / 保留时一律拒绝,
+    别的槽位的套接字也拿不到这个人的令牌;工号由代理按绑定写入,请求里自带的不算。"""
+    pod, seen = proxied_pod
+    sock = [pod.slot_dir(i) / "sock" / credproxy.SOCKET_NAME for i in range(2)]
+    assert _grmp_via(sock[0])[0] == 403, "没人在用:不转发"
+    code, body = pod.bind(grmp="grmp-of-u1234")
+    assert code == 200, body
+    assert _grmp_via(sock[0])[0] == 200
+    h, payload = seen[-1]
+    assert h["auth"] == "grmp-of-u1234" and h["x-user-id"] == "u1234" and payload == {"dataIp": "10.0.0.9"}
+    assert _grmp_via(sock[1])[0] == 403, "同 Pod 的别的槽位拿不到这个人的令牌"
+    model_sock = pod.slot_dir(0) / "sock" / credproxy.MODEL_SOCKET_NAME
+    assert _grmp_via(model_sock)[0] == 404, "模型套接字(能被 localhost 上的中继连到)绝不转中间件"
+    c = http.client.HTTPConnection("127.0.0.1", pod.slots[0].model_port, timeout=10)   # 别的槽位也连得上这个端口
+    c.request("POST", credproxy.GRMP_PREFIX + "/common-operations", body=b"{}")
+    assert c.getresponse().status == 404, "经模型中继借不到这个人的中间件身份"
+    c.close()
+    assert "grmp-of-u1234" not in json.dumps(pod.st.status())
+    code, _b = pod.st.retain({"slot": 0, "user_id": "u1234"})
+    assert code == 200
+    assert _grmp_via(sock[0])[0] == 403, "转保留之后不再转发"
+    assert pod.st.slots[0].rec["grmp_token"] == "", "转保留时令牌一并清掉,回来恢复时网关再交一次"
+    n = len(seen)
+    assert pod.resume()[0] == 200
+    assert _grmp_via(sock[0])[0] == 503 and len(seen) == n, "恢复时没交令牌:报清楚,不拿空令牌去调"
+
+
 def test_ctl_files_are_group_readable_and_status_never_has_secrets(bare):
     st, _v, _l = bare
     s = st.slots[0]
     s._set(state=poolslot.ACTIVE, user="u1234", password="pw-secret-123456789", reports_token="rt-secret-12345678",
            since=1.0)
-    s._write_run("run", "grmp-secret")
+    s._set(grmp_token="grmp-secret")
+    s._write_run("run")
+    assert "grmp-secret" not in (s.ctl_dir / "run.json").read_text(encoding="utf-8")
     assert oct((s.ctl_dir / "run.json").stat().st_mode & 0o777) == oct(poolslot.CTL_MODE)
     text = json.dumps(st.status())
     assert "pw-secret" not in text and "rt-secret" not in text and "grmp-secret" not in text

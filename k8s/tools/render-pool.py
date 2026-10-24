@@ -14,7 +14,7 @@ kustomize 生成不了「按参数重复的容器」。只用标准库(平台的
   · 不共享进程空间;所有容器只读根、禁止提权、去掉全部特权、seccomp RuntimeDefault;不挂 ServiceAccount 令牌;
   · updateStrategy OnDelete(改清单不会自动滚掉正在用的 Pod)、podManagementPolicy Parallel、PDB 最多 1 个不可用;
   · headless Service 带 publishNotReadyAddresses(某个槽位重启时整个 Pod 会 NotReady,P0 摸底 S2);网关直连 Pod IP;
-  · 槽位的环境里没有任何 GRMP 令牌与控制密钥:令牌按人经管家下发。
+  · 槽位里没有任何凭据(中间件令牌、SM2 私钥、模型 Key、控制密钥):凭据在管家的凭据代理里,每个槽位一个套接字。
 
 --test-override KEY=VALUE 只给本地测试集群缩短时长,渲染结果会带标签 gaussdb-agent/test-overrides,
 守卫测试保证正式清单(不带这个参数)里没有它。
@@ -110,11 +110,10 @@ def _slot(i: int, a) -> dict:
         "imagePullPolicy": a.image_pull_policy,
         "securityContext": dict(LOCKED, runAsUser=SLOT_UID_BASE + i, runAsGroup=1000),
         "ports": [{"containerPort": oc, "name": "oc-%d" % i}, {"containerPort": rep, "name": "rep-%d" % i}],
+        # 槽位里**没有任何凭据**:中间件令牌、SM2 私钥、模型 Key 都在管家的凭据代理里(docker/credproxy.py)
         "env": [
             {"name": "POOL_MODE", "value": "slot"},      # entrypoint 第一条命令就 exec 槽位守护进程(先清盘)
             {"name": "SLOT_INDEX", "value": str(i)},
-            _secret_env("MODEL_API_KEY", "model-api", "MODEL_API_KEY"),
-            _secret_env("GRMP_SM2_PRIVATE_KEY", "grmp-sm2", "GRMP_SM2_PRIVATE_KEY", optional=True),
         ],
         "envFrom": [{"configMapRef": {"name": "agent-config"}}],
         "volumeMounts": [
@@ -124,6 +123,7 @@ def _slot(i: int, a) -> dict:
             {"name": "s%d-ctl" % i, "mountPath": "/run/sandbox", "readOnly": True},     # 指令目录:模型改不了
             {"name": "s%d-tmp" % i, "mountPath": "/tmp"},
             {"name": "s%d-shm" % i, "mountPath": "/dev/shm"},
+            {"name": "s%d-sock" % i, "mountPath": "/run/credproxy", "readOnly": True},    # 管家的凭据代理套接字
         ],
         # 不配探针:opencode 只在在用时跑,存活由槽位守护进程查;管家监视回执与监听者
         "resources": {"requests": {"cpu": a.slot_cpu_request, "memory": a.slot_memory_request},
@@ -137,6 +137,9 @@ def _steward(a) -> dict:
         {"name": "POD_NAME", "valueFrom": {"fieldRef": {"fieldPath": "metadata.name"}}},   # 独占标记的持有者
         {"name": "SLOTS_PER_POD", "value": str(a.slots_per_pod)},
         _secret_env("SANDBOX_CONTROL_KEY", "sandbox-control", "KEY"),                     # 只在这里
+        # 凭据代理:模型 Key 与 SM2 私钥只在管家;中间件令牌按人,绑定时由网关加密交来
+        _secret_env("MODEL_API_KEY", "model-api", "MODEL_API_KEY"),
+        _secret_env("GRMP_SM2_PRIVATE_KEY", "grmp-sm2", "GRMP_SM2_PRIVATE_KEY", optional=True),
     ]
     env += [{"name": k, "value": v} for k, v in sorted(a.overrides.items())]
     mounts = [{"name": "nas", "mountPath": "/pool/users", "subPath": a.users_subpath},
@@ -144,7 +147,8 @@ def _steward(a) -> dict:
               {"name": "steward-tmp", "mountPath": "/tmp"}]
     for i in range(a.slots_per_pod):
         mounts += [{"name": "s%d-state" % i, "mountPath": "/pool/slots/%d/state" % i},
-                   {"name": "s%d-ctl" % i, "mountPath": "/pool/slots/%d/ctl" % i}]
+                   {"name": "s%d-ctl" % i, "mountPath": "/pool/slots/%d/ctl" % i},
+                   {"name": "s%d-sock" % i, "mountPath": "/pool/slots/%d/sock" % i}]
     probe = {"httpGet": {"path": "/healthz", "port": STEWARD_PORT}}
     return {
         "name": "steward",
@@ -153,6 +157,7 @@ def _steward(a) -> dict:
         "securityContext": dict(LOCKED, runAsUser=1000, runAsGroup=1000),
         "ports": [{"containerPort": STEWARD_PORT, "name": "control"}],
         "env": env,
+        "envFrom": [{"configMapRef": {"name": "agent-config"}}],     # 模型地址、中间件地址与签名 / 工号旋钮
         "volumeMounts": mounts,
         "readinessProbe": dict(probe, periodSeconds=2),
         "livenessProbe": dict(probe, initialDelaySeconds=30, periodSeconds=20, failureThreshold=3),
@@ -171,7 +176,8 @@ def _volumes(a) -> List[dict]:
                  {"name": "s%d-state" % i, "emptyDir": {"sizeLimit": a.slot_state_size}},
                  {"name": "s%d-ctl" % i, "emptyDir": {"sizeLimit": "1Mi"}},
                  {"name": "s%d-tmp" % i, "emptyDir": {"sizeLimit": "1Gi"}},
-                 {"name": "s%d-shm" % i, "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}}]
+                 {"name": "s%d-shm" % i, "emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}},
+                 {"name": "s%d-sock" % i, "emptyDir": {"sizeLimit": "1Mi"}}]
     return vols
 
 

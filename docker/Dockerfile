@@ -42,7 +42,7 @@ COPY agent/ /opt/agent/src/
 RUN cd /opt/agent/src && bash install-opencode.sh --dest /opt/agent/config/opencode/skills --no-backup \
         --agents-md /opt/agent/config/opencode/AGENTS.md >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; } \
     && grep -E "installed" /tmp/install.log | tail -1 && rm -rf /opt/agent/src /tmp/install.log
-COPY docker/podctl.py docker/statesync.py docker/fdtree.py docker/poolsync.py docker/poolrun.py docker/slotrun.py docker/poolslot.py docker/poolsteward.py docker/poolauth.py docker/netcheck.py docker/kbcatalog.py docker/entrypoint.sh /opt/agent/
+COPY docker/podctl.py docker/statesync.py docker/fdtree.py docker/poolsync.py docker/poolrun.py docker/slotrun.py docker/poolslot.py docker/poolsteward.py docker/poolauth.py docker/netcheck.py docker/credproxy.py docker/kbcatalog.py docker/entrypoint.sh /opt/agent/
 RUN chmod 0755 /opt/agent/entrypoint.sh && chown -R agent:agent /opt/agent && mkdir -p /data /nas && chown agent:agent /data
 # 固定池化的槽位以 uid 2000+i 运行(与管家 agent 同组):给它们 passwd 条目,git / getpwuid 才不报「不认识的用户」
 RUN for i in $(seq 0 15); do useradd --uid $((2000 + i)) --gid agent --no-create-home --home-dir /data/home \
@@ -87,6 +87,8 @@ COPY --from=imgdeps /opt/imgdeps/ /usr/local/lib/python3.12/site-packages/
 RUN python3 -c "import PIL.Image, pillow_heif; pillow_heif.register_heif_opener(); print('pillow', PIL.__version__, 'pillow-heif', pillow_heif.__version__)"
 USER agent
 ENV GSDB_KB_INBOX=/nas/kb/inbox/uploads
+# opencode 工具权限按角色给(docker/podctl.py:opencode_permissions):导入容器里 kb-init 要用 write 工具写草稿
+ENV AGENT_ROLE=kb-import
 LABEL org.opencontainers.image.title="gaussdb-agent-kb-import" \
       org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \
       org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import + gaussdb-kb-init (HEIC/TIFF -> JPEG for image reading); kb/ mounted read-write; no GRMP token"

@@ -199,6 +199,17 @@ def test_prerequisites_pass_when_the_token_exists():
     _mgr(k).require_prerequisites("u1234", kb_admin=False)      # 不抛就是通过
 
 
+def test_pool_mode_builds_only_the_import_container():
+    """固定池化:诊断容器来自池子。给管理员建导入容器时不能顺手建 runtime-<工号> ——
+    按需 Pod 会抢走这个人的独占标记,池子就再也分不到槽位(2026-10-24 测试环境实测)。"""
+    k = FakeKube()
+    mgr = _mgr(k, runtime_on_demand=False)
+    assert mgr.kinds_for(kb_admin=True) == [pods.KIND_KB_IMPORT] and mgr.kinds_for(kb_admin=False) == []
+    mgr.require_prerequisites("u2001", kb_admin=True)          # 不建 runtime,就不要求 GRMP 令牌
+    mgr.ensure("u2001", kb_admin=True)
+    assert sorted(name for kind, name, _ in k.applied if kind == "deployments") == ["kb-import-u2001"]
+
+
 def test_kb_admin_only_user_needs_no_grmp_token():
     """kb-import 不调中间件,所以没有令牌也能开 —— 但 kinds_for 里总有 runtime,
     所以这条实际上等价于「只要建 runtime 就必须有令牌」。这里钉住语义别被改坏。"""

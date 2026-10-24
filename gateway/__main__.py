@@ -65,7 +65,8 @@ def main(argv=None) -> int:
 
     mgr = pods.Manager(kube, namespace=cfg.namespace, image_tag=cfg.image_tag,
                        pull_policy=cfg.pull_policy, templates=templates,
-                       activity_interval_s=cfg.activity_interval_s, image_registry=cfg.image_registry)
+                       activity_interval_s=cfg.activity_interval_s, image_registry=cfg.image_registry,
+                       runtime_on_demand=cfg.runtime_mode != gwconfig.RUNTIME_POOL)
     app = server.App(cfg, mgr)
     sweeper = None
     if cfg.runtime_mode == gwconfig.RUNTIME_POOL:

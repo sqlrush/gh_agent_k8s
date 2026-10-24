@@ -72,8 +72,11 @@ class PodState:
 class Manager:
     def __init__(self, kube, namespace: str, image_tag: str, pull_policy: str,
                  templates: pathlib.Path, activity_interval_s: int = 60, image_registry: str = "",
-                 log: Callable[[str], None] = print):
+                 log: Callable[[str], None] = print, runtime_on_demand: bool = True):
         self.kube = kube
+        # 固定池化下诊断容器来自池子,按需只建知识库管理员的导入容器。2026-10-24 测试环境:池化模式里
+        # 给管理员重建导入容器时顺手 apply 了 runtime-<工号>,按需 Pod 抢走独占标记,池子分不到槽位,诊断入口一直「正在准备」。
+        self.runtime_on_demand = runtime_on_demand
         self.namespace = namespace
         self.image_tag = image_tag
         self.image_registry = image_registry.rstrip("/")
@@ -145,7 +148,7 @@ class Manager:
         return "%s/%s" % (self.image_registry, name) if self.image_registry else name
 
     def kinds_for(self, kb_admin: bool) -> List[str]:
-        return [KIND_RUNTIME] + ([KIND_KB_IMPORT] if kb_admin else [])
+        return ([KIND_RUNTIME] if self.runtime_on_demand else []) + ([KIND_KB_IMPORT] if kb_admin else [])
 
     def require_prerequisites(self, user_id: str, kb_admin: bool) -> None:
         """建 Pod 之前先确认平台该准备的东西在不在,**不在就当场说清楚是什么不在**。

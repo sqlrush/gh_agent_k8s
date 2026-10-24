@@ -10,7 +10,9 @@ import re
 
 import yaml
 
-KB_SUBDIRS = ("errata", "rules", "guides", "archive", "sources", "inbox")
+KB_SUBDIRS = ("errata", "rules", "guides", "archive", "sources", "inbox",
+              # 2026-10-24 八类知识:六类类型化条目各一个目录;topics/ 放 L1;evidence/ 放照片、日志等原始证据(L3)
+              "wiki", "product", "runbooks", "defects", "baselines", "profiles", "topics", "evidence")
 RULE_ID_RE = re.compile(r"^GS-[A-Z]{2,4}-\d{3}$")
 SEVERITIES = frozenset({"error", "warn", "info"})
 CHECK_KINDS = frozenset({"deterministic", "advisory"})
@@ -29,7 +31,10 @@ RULE_DIRS = ("archive", "rules")
 SEARCH_HIT_CAP = 200
 
 # The skills' grep range — archive/ is deliberately not in it.
-SEARCHABLE = (("errata", (".md",)), ("rules", (".yaml", ".yml")), ("guides", (".md",)))
+SEARCHABLE = (("errata", (".md",)), ("rules", (".yaml", ".yml")), ("guides", (".md",)),
+              # 2026-10-24 六类类型化条目(手册 / 缺陷 / 基线 / 产品文档 / Wiki / 画像)
+              ("runbooks", (".md",)), ("defects", (".md",)), ("baselines", (".md",)),
+              ("product", (".md",)), ("wiki", (".md",)), ("profiles", (".md",)))
 
 
 def read_text_file(path: pathlib.Path) -> str:

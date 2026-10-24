@@ -20,7 +20,9 @@ for _anc in _HERE.parents:                       # common/(仓库根,或装好�
         break
 
 import kb_cite  # noqa: E402  —— 在 sys.path 刚放好时就绑定,调用方之后怎么改 sys.path 都不影响
+import kb_read  # noqa: E402  —— 分层读取:overview / topic / show / evidence / template
 from common import reports  # noqa: E402
+from common.kb import catalog as kbcat  # noqa: E402
 from common.kb import config as kbconfig  # noqa: E402
 from common.kb import indexer, query as kbquery, render  # noqa: E402
 from common.kb.rulesfile import SEARCH_HIT_CAP, SEARCHABLE, iter_files, read_text_file  # noqa: E402
@@ -32,9 +34,10 @@ class KbError(Exception):
 
 # 导入侧的子命令在本环境(runtime 镜像)物理不存在。保留命令名做桩:模型按记忆调用时得到「去哪、找谁」,
 # 而不是 argparse 的 invalid choice——那句话对模型没有指导意义,它会开始猜别的命令或自己动手写目录。
-IMPORT_ONLY = ("ingest", "index", "validate", "propose", "review", "apply", "setup", "feedback", "eval", "contract")
+IMPORT_ONLY = ("ingest", "index", "validate", "propose", "review", "apply", "setup", "feedback", "eval", "contract",
+               "add", "attach", "retype", "migrate", "profile", "taxonomy")
 IMPORT_ONLY_MSG = ("本环境不含知识库导入功能(gaussdb-kb-import),请联系知识库管理员在导入环境操作。"
-                   "本环境可用:query / health / search / cite-check。")
+                   "本环境可用:query / health / search / cite-check / overview / topic / show / evidence。")
 
 
 def cmd_import_only(args: argparse.Namespace) -> int:
@@ -134,9 +137,9 @@ def cmd_query(args: argparse.Namespace) -> int:
     kb = kbconfig.resolve_kb_dir(args.kb)
     if args.from_findings:
         findings = _load_findings(pathlib.Path(args.from_findings))
-        result = kbquery.from_findings(findings, kb_dir=kb)
+        result = kbquery.from_findings(findings, kb_dir=kb, alias=getattr(args, "alias", "") or "")
     else:
-        result = kbquery.from_text(args.q, kb_dir=kb)
+        result = kbquery.from_text(args.q, kb_dir=kb, alias=getattr(args, "alias", "") or "")
     if args.json:
         print(json.dumps(kbquery.result_to_dict(result), ensure_ascii=False, indent=2))
     else:
@@ -190,6 +193,7 @@ def health_dict(kb: pathlib.Path, status, file_warnings: list, readonly: bool) -
         "index_state": indexer.read_state(kb) or {},
         "pending": _pending(kb),
         "misses": [{"code": code, "n": n} for code, n in _misses_top(kb)],
+        "types": kbcat.coverage(kb),
     }
 
 
@@ -225,6 +229,10 @@ def cmd_health(args: argparse.Namespace) -> int:
         if state:
             print(f"上次索引  : {state.get('indexed_at', '?')} · 文档新写 {state.get('docs_indexed', '?')} · "
                   f"覆盖 {state.get('chunk_embedded', '?')}/{state.get('chunk_total', '?')} · 图 {state.get('graph', '?')}")
+        if d.get("types"):
+            print("知识类型  : " + " · ".join(f"{name} {d['types'].get(k, 0)}" for k, name in kbcat.COVERAGE_ROWS
+                                              if k != "guide" or d["types"].get(k)))
+            print(f"下一步    : {'(请知识库管理员)' if readonly else ''}{kbcat.next_step(d['types'])}")
         print("待处理    : " + ("; ".join(d["pending"]) if d["pending"] else "无"))
         if d["misses"]:
             print("缺口清单  : 近期查不到条款/案例的发现 Top —— " +
@@ -245,7 +253,8 @@ def cmd_health(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kb.py",
-        description="GaussDB 客户知识库(查询):检索 · 大盘 · 引用核对。导入与索引在 gaussdb-kb-import。",
+        description="GaussDB 客户知识库(查询):检索 · 分层读取(L0 overview / L1 topic / L2 show / L3 evidence)· 大盘 · 引用核对。"
+                    "导入与索引在 gaussdb-kb-import。",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -253,6 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kb")
     p.add_argument("--q", help="问题文本")
     p.add_argument("--from-findings", help="skill 输出的 findings json 文件")
+    p.add_argument("--alias", help="当前连接别名(如 og5):按它匹配环境画像,判断条目适不适用本实例")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_query)
 
@@ -269,6 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_search)
 
     kb_cite.add_subcommands(sub)
+    kb_read.add_subcommands(sub)
 
     for name in IMPORT_ONLY:
         p = sub.add_parser(name, help="(本环境不可用,见 gaussdb-kb-import)")
@@ -284,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (KbError, kb_cite.CiteCmdError, kbconfig.KbConfigError) as exc:
+    except (KbError, kb_cite.CiteCmdError, kb_read.ReadCmdError, kbconfig.KbConfigError) as exc:
         print(f"错误:{exc}", file=sys.stderr)
         return 1
 

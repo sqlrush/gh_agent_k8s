@@ -43,10 +43,12 @@ def test_import_skill_has_no_read_only_duplicates():
 
 def test_query_skill_scripts_contain_no_import_code():
     names = {p.name for p in _Q.glob("*.py")}
-    assert names == {"kb.py", "kb_cite.py"}
+    assert names == {"kb.py", "kb_cite.py", "kb_read.py"}       # kb_read:分层读取(2026-10-24)
     for p in _Q.glob("*.py"):
         text = p.read_text(encoding="utf-8")
         assert "kb_cases" not in text and "def cmd_apply" not in text and "def cmd_ingest" not in text, p.name
+    read = (_Q / "kb_read.py").read_text(encoding="utf-8")
+    assert "write_text" not in read and "unlink" not in read and "kblock" not in read, "分层读取只读,不写知识库"
 
 
 def _kb(tmp_path: pathlib.Path) -> pathlib.Path:

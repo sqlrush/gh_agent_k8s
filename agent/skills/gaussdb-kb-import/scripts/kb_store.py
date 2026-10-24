@@ -207,6 +207,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             got: List[str] = []
             for it in res.items:      # 分类型各取前 k:条款和案例不互相挤占名额
                 got += [r.id for r in it.clauses][:k] + [r.id for r in it.cases][:k] + [r.id for r in it.raws][:k]
+                got += [r.id for r in it.typed]           # 六类类型化条目:每类本来就只出 top_typed 条
             ok = any(e in got for e in expect) if expect else not got
             total += 1
             hit += int(ok)

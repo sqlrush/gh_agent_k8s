@@ -76,15 +76,26 @@ export function topsql(m) {
     const f = tuned(slow) && (tuned(slow).findings || [])[0];
     lines.push(`单次最慢的是 ${sqlChip(slow.sql_id)}：平均 <b>${esc(fmtMs(slow.avg_ms))}</b>${f ? `，已调优：${esc(cn(f.detail))}` : `，调用 ${esc(fmtInt(slow.calls))} 次`}。`);
   }
+  // 等待占比高的(口径见 pages/topsql.js selfSec):是被挡住的,不是自己慢 —— 指去看锁阻塞,调它帮不上忙
+  const heavy = m.rows.filter(T.waitHeavy), waitPct = (r) => Math.round(T.waitRatio(r) * 100);
+  if (heavy.length) {
+    lines.push(`${heavy.slice(0, 3).map((r) => `${sqlChip(r.sql_id)}（等待 ${waitPct(r)}%）`).join('、')}${heavy.length > 3 ? ` 等 ${heavy.length} 条` : ''}`
+      + `的耗时 ${T.WAIT_DOMINANT * 100}% 以上不是 CPU / 数据 IO，<b>主要在等</b>（等锁、等轻量锁、排队等 CPU 都算在内）：`
+      + `是被挡住的，不是自己慢，先看锁阻塞${T.SELF_KEYS.includes(m.by) ? '' : '；不含等待的排名看「自身耗时」页签'}。`);
+  }
   lines.push(m.span ? `口径是 <b>${esc(m.win || '这段时间')}</b> 窗口内的增量，不是累计值；新出现的语句整条计入。`
     : '口径是累计统计视图，不是时间窗口；看某段时间的负载用 <a href="/dash/wdr">WDR 分析</a>。');
+  // 主要在等的语句不给「调优」,给「被谁挡住」
+  const lock = (r) => [`${r.sql_id} 被谁挡住`, T.lockPrompt(r, m)];
   const chips = [];
-  if (b0) chips.push([`调优 ${b0.sql_id}`, T.tunePrompt(b0, m)]);
+  if (b0) chips.push(T.waitHeavy(b0) ? lock(b0) : [`调优 ${b0.sql_id}`, T.tunePrompt(b0, m)]);
+  if (heavy[0] && heavy[0] !== b0) chips.push(lock(heavy[0]));
   if (sys(top)) chips.push(['系统 SQL 为什么占这么多', `请分析${T.tSrc(m)}里系统语句 ${top.sql_id} 为什么占上榜耗时 ${pct(top)}%,是否需要调整监控采集频率。`]);
-  if (slow && slow !== b0) chips.push([`${slow.sql_id} 怎么优化`, T.tunePrompt(slow, m)]);
+  if (slow && slow !== b0 && slow !== heavy[0]) chips.push(T.waitHeavy(slow) ? lock(slow) : [`${slow.sql_id} 怎么优化`, T.tunePrompt(slow, m)]);
   chips.push(['先调哪一条', T.tDigPrompt(m)]);
   return { src: m.span ? `依据 ${m.win || stamp(m.entry.at)} 时段增量 · 按${T.byLabel(m.by)}排序` : `依据 ${stamp(m.entry.at)} 取数 · 按${T.byLabel(m.by)}排序`, ask: '问问这份榜单，比如：先调哪一条？', chips: chips.slice(0, 4), lines,
-    head: sys(top) && b0 ? `耗时第一的是系统 SQL，业务语句先看 ${esc(b0.sql_id)}` : `${esc(top.sql_id)} 占上榜耗时 ${pct(top)}%，最值得先看` };
+    head: sys(top) && b0 ? `耗时第一的是系统 SQL，业务语句先看 ${esc(b0.sql_id)}`
+      : T.waitHeavy(top) ? `${esc(top.sql_id)} 占上榜耗时 ${pct(top)}%，但它主要在等，先看锁阻塞` : `${esc(top.sql_id)} 占上榜耗时 ${pct(top)}%，最值得先看` };
 }
 
 /* ------------------------------------------------------------ WDR */

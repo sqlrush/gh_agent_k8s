@@ -10,14 +10,38 @@ import { instName } from '../lib/ui.js';
 import { filterIndex, windowLabel, windowPromptLabel } from '../lib/range.js';
 import { atText, prevNote } from '../lib/prompts.js';
 
-export const BY = [['time', '总耗时', 'total_sec'], ['avg', '平均耗时', 'avg_ms'], ['calls', '调用次数', 'calls'], ['reads', '逻辑读', 'total_sec'], ['rows', '返回行', 'rows']];
+// 第三项是表头上标排序箭头的那一列;self_sec 是页面算出来的列(自身耗时,见下面 selfSec)
+export const BY = [['time', '总耗时', 'total_sec'], ['avg', '平均耗时', 'avg_ms'], ['calls', '调用次数', 'calls'], ['reads', '逻辑读', 'total_sec'], ['rows', '返回行', 'rows'],
+  ['self', '自身耗时', 'self_sec'], ['self_avg', '平均自身耗时', 'self_sec']];
 export const byLabel = (by) => (BY.find(([b]) => b === by) || [, by])[1];
+export const SELF_KEYS = ['self', 'self_avg'];
+
+// 自身耗时与等待占比(gh_skill 60615b4,gaussdb-topsql/scripts/waits.py 同一口径):
+// 2026-10-24 faultlab 在 og5 上测出,总耗时榜首是等锁的 UPDATE(CPU 0)—— 榜单答的是「谁等得最久」,用户问的是
+// 「谁最拖慢系统」。语句统计里没有锁等待列,于是用同源可减的「自身耗时 = CPU + 数据 IO」,等待占比 = 1 − 自身 / 总耗时;
+// 等待里有等锁、等轻量锁、排队等 CPU,分不出是哪一种。累计榜每行带 cpu_sec / io_sec,时段 / 增量榜带 self_sec;
+// 老报告(白名单还没更新、基线是升级前的)没有这些列 → null,**不是 0**(当 0 会把每条都标成「全在等」)。
+export const WAIT_DOMINANT = 0.8;     // 与 waits.WAIT_DOMINANT 同一个数:到这儿就说「这一条主要在等」
+export const SELF_NOTE = '自身耗时 = CPU + 数据 IO，不含等锁、等轻量锁、排队等 CPU 这些等待';
+const num0 = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(+v) ? null : +v);
+export function selfSec(r) {
+  const cpu = num0(r.cpu_sec), io = num0(r.io_sec), s = num0(r.self_sec);
+  return cpu !== null && io !== null ? Math.max(0, cpu + io) : s !== null ? Math.max(0, s) : null;
+}
+export function waitRatio(r) {
+  const s = selfSec(r), t = num0(r.total_sec);
+  return s === null || !(t > 0) ? null : Math.min(1, Math.max(0, 1 - s / t));
+}
+export const waitHeavy = (r) => (waitRatio(r) ?? 0) >= WAIT_DOMINANT;
+/** 这份榜有没有自身耗时可看(任一行有就算):没有就不画「等待占比」这一列。 */
+export const hasSelf = (rows) => (rows || []).some((r) => selfSec(r) !== null);
 const BY_STORE = 'dash.topsql.by';
 export function readBy() { try { return localStorage.getItem(BY_STORE) || ''; } catch (_) { return ''; } }
 export function writeBy(b) { try { localStorage.setItem(BY_STORE, b); } catch (_) { /* 忽略 */ } }
 
 // 20260922T140300Z.avg.json(累计榜)/ 20261018T124105Z.time.span.json(时段榜)/ ….time.delta.json(增量榜)
-const FILE = /^\d{8}T\d{6}Z\.([a-z]+)(?:\.(span|delta))?\.json$/;
+// 维度名可以带下划线(self_avg)
+const FILE = /^\d{8}T\d{6}Z\.([a-z_]+)(?:\.(span|delta))?\.json$/;
 
 /** 同一维度、同一种榜(累计 / 时段 / 增量):文件取不到时只退到这一类里离它最近的一份。 */
 const sameKind = (e, want) => {
@@ -46,6 +70,9 @@ export const tSrc = (m) => (!tWhen(m) ? 'Top SQL' : m.span ? `${tWhen(m)} 的 To
 export const tunePrompt = (r, m) => `请调优 sql_id 为 ${r.sql_id} 的语句(${tWhen(m) ? `${tSrc(m)}上` : ''}调用 ${r.calls} 次,平均 ${fmtMs(r.avg_ms)}):${brief(r.query, 200)}`;
 /** 页头「在会话里深挖」与解读卡「先调哪一条」:同一句;带排序维度(按平均耗时排的榜和按总耗时排的不是一回事)。 */
 export const tDigPrompt = (m) => `请基于${tSrc(m)}(按${byLabel(m.by)})分析哪些语句最值得优化,给出优先级。`;
+/** 等待占比高的那一条:它是被挡住的,不是自己慢 —— 去看是谁挡的(gaussdb-lockwait)。同样带时间与排序维度。 */
+export const lockPrompt = (r, m) => `请查${tSrc(m)}(按${byLabel(m.by)})里 sql_id 为 ${r.sql_id} 的语句被谁挡住了:`
+  + `它的耗时有 ${Math.round((waitRatio(r) ?? 0) * 100)}% 不是 CPU / 数据 IO,主要在等(等锁、等轻量锁、排队等 CPU 都算在内)。`;
 /** 「重新取数」:时段榜重取同一个窗口;累计榜重新取一次,交代上一份的时间供对比。都按当前页签的维度取。 */
 export const tRedoPrompt = (m) => (m.span ? `请重新取一次 ${tWhen(m) || '这段时间'} 的 Top SQL(按${byLabel(m.by)})。`
   : `请重新取一次当前库的 Top SQL(按${byLabel(m.by)})。${prevNote(m.entry && m.entry.at)}`);

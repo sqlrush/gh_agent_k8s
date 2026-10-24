@@ -106,7 +106,7 @@ a:hover { color: var(--primary-hover); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 6px 16px rgba(36, 98, 232, 0.28); }
 .btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
 .seg { display: inline-flex; background: var(--fill-2); border-radius: 10px; padding: 3px; gap: 2px; }
-.seg button { border: 0; background: transparent; height: 28px; padding: 0 12px; border-radius: 7px; font-size: 13px; color: var(--t2); cursor: pointer; }
+.seg button { border: 0; background: transparent; height: 28px; padding: 0 12px; border-radius: 7px; font-size: 13px; color: var(--t2); cursor: pointer; white-space: nowrap; }   /* Top SQL 七个页签挤在一起时不折成「总耗/时」 */
 .seg button.on { background: var(--panel); color: var(--primary); box-shadow: var(--shadow-1); font-weight: 500; }
 .seg button:disabled { color: var(--t4); cursor: not-allowed; }
 

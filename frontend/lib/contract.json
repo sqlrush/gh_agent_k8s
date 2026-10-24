@@ -33,7 +33,10 @@
     "rows[].calls",
     "rows[].total_sec",
     "rows[].avg_ms",
-    "rows[].rows"
+    "rows[].rows",
+    "rows[].cpu_sec?",
+    "rows[].io_sec?",
+    "rows[].self_sec?"
   ],
   "wdr": [
     "conn",

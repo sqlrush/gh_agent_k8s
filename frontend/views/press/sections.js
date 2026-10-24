@@ -43,14 +43,17 @@ function secTop(tm) {
   if (tm.missing) return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', '', none(`「${T.byLabel(tm.by)}」这个维度还没取过。大盘只刊登在会话里真正取过的维度。`, `请按${T.byLabel(tm.by)}取一次 Top SQL。`, `在会话里按${T.byLabel(tm.by)}取一次`), `<span class="byx">${by}</span>`);
   const rows = tm.rows, ins = insight.topsql(tm), b = insight.bizTop(tm), label = T.byLabel(tm.by);
   const tg = (r) => { const x = tm.tune[r.sql_id]; return T.isSkipped(x) ? '系统 SQL' : x ? '已调优' : '未调优'; };
-  const table = `<table class="ptable"><thead><tr><th>#</th><th>sql_id</th><th>语句</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th><th>调优</th></tr></thead><tbody>${rows.slice(0, 20).map((r, i) => `<tr data-sql="${esc(r.sql_id)}"><td class="t3 num">${i + 1}</td><td><b>${esc(r.sql_id)}</b></td><td class="q mono" title="${esc(T.fullQuery(r.query))}">${esc(r.query)}</td><td class="r num">${fmtInt(r.calls)}</td><td class="r num">${fmtSec(r.total_sec)}</td><td class="r num">${fmtMs(r.avg_ms)}</td><td class="r num">${fmtInt(r.rows)}</td><td>${tg(r)}</td></tr>`).join('')}</tbody></table>`;
+  // 等待占比(口径见 pages/topsql.js selfSec):报告里有自身耗时才排这一列,老报告不排、不写 0;主要在等的加粗
+  const withSelf = T.hasSelf(rows);
+  const wcell = (r) => { const w = T.waitRatio(r); return w === null ? '—' : T.waitHeavy(r) ? `<b>${Math.round(w * 100)}%</b>` : `${Math.round(w * 100)}%`; };
+  const table = `<table class="ptable"><thead><tr><th>#</th><th>sql_id</th><th>语句</th><th class="r">调用</th><th class="r">总耗时</th><th class="r">平均</th><th class="r">返回行</th>${withSelf ? '<th class="r">等待占比</th>' : ''}<th>调优</th></tr></thead><tbody>${rows.slice(0, 20).map((r, i) => `<tr data-sql="${esc(r.sql_id)}"><td class="t3 num">${i + 1}</td><td><b>${esc(r.sql_id)}</b></td><td class="q mono" title="${esc(T.fullQuery(r.query))}">${esc(r.query)}</td><td class="r num">${fmtInt(r.calls)}</td><td class="r num">${fmtSec(r.total_sec)}</td><td class="r num">${fmtMs(r.avg_ms)}</td><td class="r num">${fmtInt(r.rows)}</td>${withSelf ? `<td class="r num">${wcell(r)}</td>` : ''}<td>${tg(r)}</td></tr>`).join('')}</tbody></table>`;
   const notes = `<ol class="notes">${rows.slice(0, 10).map((r) => { const x = tm.tune[r.sql_id], f = x && x.evidence && (x.evidence.findings || [])[0];
     return `<li data-sql="${esc(r.sql_id)}"><b>${esc(r.sql_id)}</b>　${T.isSkipped(x) ? `系统 SQL，只引用 ${esc((x.system_objects || []).join('、'))}，按策略不调优。` : f ? `${esc(cn(f.detail || ''))}。${f.advice ? `建议：${esc(cn(f.advice))}。` : ''}` : x ? '已调优。' : '还没有调优过。'}</li>`; }).join('')}</ol>`;
   return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', tm.span ? `${esc(tm.name)} · ${esc(tm.win || stamp(tm.entry.at))} 窗口内增量，按${esc(label)}排序` : `${esc(tm.name)} · ${esc(stamp(tm.entry.at))} 取数 · 累计统计视图，按${esc(label)}排序`,
     `${missedBanner(tm)}<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <figure class="fig">${P.shares(rows, tm.tune, T.isSkipped, b && b.sql_id)}<figcaption>图　上榜语句占上榜总耗时的比例（报告只有 Top N，没有全量合计）。斜纹为系统 SQL；红色为业务语句里耗时最高的一条。${tm.by === 'reads' ? esc(T.READS_NOTE) + '。' : ''}</figcaption></figure></div>
       <aside class="rcol"><div class="box"><h4>调优札记</h4>${notes}</div></aside></div>
-      <h3 class="sh3">${rows.length > 20 ? `榜单前 20 条（共 ${rows.length} 条）` : '完整榜单'}　<span>按${esc(label)}排序；语句满 ${T.QUERY_CAP} 字的是取数时截断的，悬停看原文</span></h3>${table}
+      <h3 class="sh3">${rows.length > 20 ? `榜单前 20 条（共 ${rows.length} 条）` : '完整榜单'}　<span>按${esc(label)}排序；语句满 ${T.QUERY_CAP} 字的是取数时截断的，悬停看原文${rows.some(T.waitHeavy) ? `；等待占比 ${T.WAIT_DOMINANT * 100}% 以上的加粗：主要在等（锁等），看锁阻塞` : ''}</span></h3>${table}
       ${rows.length > 20 ? `<p class="fine"><a href="/dash/topsql?style=normal">其余 ${rows.length - 20} 条见普通风格的 Top SQL 页 →</a></p>` : ''}`, `<span class="byx">${by}</span>`);
 }
 

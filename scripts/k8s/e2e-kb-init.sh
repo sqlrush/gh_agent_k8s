@@ -6,7 +6,7 @@
 set -u
 U=${1:-u2001}; C=${CONTEXT:-orbstack}; NS=gaussdb-agent; PORT=${PORT:-14098}
 HERE=$(cd "$(dirname "$0")/../.." && pwd)
-NAS=${NAS:-/tmp/agent-nas-k8s}
+NAS=${NAS:-/Users/Shared/agent-nas-k8s}
 K(){ kubectl --context "$C" -n "$NS" "$@"; }
 pass=0; fail=0
 ok(){ pass=$((pass+1)); echo "[PASS] $1"; }

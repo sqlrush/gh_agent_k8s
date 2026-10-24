@@ -11,7 +11,7 @@
 set -euo pipefail
 NS=gaussdb-agent; CTX=${CTX:-orbstack}; U=${U:-u9400}; PORT=${PORT:-18089}; SSO=${SSO:-18090}
 IP1=${IP1:-10.0.0.9}; IP2=${IP2:-10.0.0.12}; DB=${DB:-postgres}
-NAS_ROOT=${NAS_ROOT:-/tmp/agent-nas-k8s}
+NAS_ROOT=${NAS_ROOT:-/Users/Shared/agent-nas-k8s}
 HERE=$(cd "$(dirname "$0")/../.." && pwd)
 K="kubectl --context $CTX -n $NS"
 WORK=$(mktemp -d /tmp/e2e-dash-full.XXXXXX)

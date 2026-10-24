@@ -16,7 +16,7 @@ C=${CONTEXT:-orbstack}; NS=gaussdb-agent
 TAG=${TAG:-agent-v0.7-oc1.18.27}
 USER_NORMAL=${USER_NORMAL:-u9001}; PORT_NORMAL=${PORT_NORMAL:-14096}
 USER_ADMIN=${USER_ADMIN:-u9002};   PORT_ADMIN=${PORT_ADMIN:-14098}
-NAS=${NAS:-/tmp/agent-nas-k8s}
+NAS=${NAS:-/Users/Shared/agent-nas-k8s}
 PY=${PY:-$HOME/p2venv/bin/python3}
 KEYFILE=$HOME/.config/opencode/opencode.deepseek.jsonc
 LOGDIR=$HOME/kf-verify; mkdir -p "$LOGDIR"

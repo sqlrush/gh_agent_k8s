@@ -3,7 +3,7 @@
 # 前提:k8s/local 已 apply;provision.py 已建 u1001 / u1002(普通用户)与 u2001(知识库管理员);
 #       转发器 scripts/tcp-forward.py 8781 8779 在跑;~/kf-verify/kf_session_e2e.sh 存在(第 6 项复制进 Pod)。
 set -u
-C=${CONTEXT:-orbstack}; NS=gaussdb-agent; NAS=${NAS:-/tmp/agent-nas-k8s}
+C=${CONTEXT:-orbstack}; NS=gaussdb-agent; NAS=${NAS:-/Users/Shared/agent-nas-k8s}
 HERE=$(cd "$(dirname "$0")/../.." && pwd)
 K(){ kubectl --context "$C" -n "$NS" "$@"; }
 S=/opt/agent/config/opencode/skills

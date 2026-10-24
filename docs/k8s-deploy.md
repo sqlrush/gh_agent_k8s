@@ -71,11 +71,13 @@ scripts/build-images.sh dev
 kubectl --context orbstack apply -k k8s/local            # base + hostPath PV + 本地 agent-config + 放行宿主网关的策略
 kubectl --context orbstack -n gaussdb-agent create secret generic model-api --from-literal=MODEL_API_KEY=local-dummy
 bash scripts/k8s/local-grmp-signing.sh                    # 起开签名校验的 mock 8782、8781 转发过去、Secret grmp-sm2(测试密钥对);mock 只绑 127.0.0.1
-mkdir -p /tmp/agent-nas-k8s/users/u1001 /tmp/agent-nas-k8s/users/u1002 /tmp/agent-nas-k8s/users/u2001 /tmp/agent-nas-k8s/admins/u2001
-cp -R ~/kb-verify/modes/kb /tmp/agent-nas-k8s/kb && chmod -R a+rwX /tmp/agent-nas-k8s
+mkdir -p /Users/Shared/agent-nas-k8s/users/u1001 /Users/Shared/agent-nas-k8s/users/u1002 /Users/Shared/agent-nas-k8s/users/u2001 /Users/Shared/agent-nas-k8s/admins/u2001
+cp -R ~/kb-verify/modes/kb /Users/Shared/agent-nas-k8s/kb && chmod -R a+rwX /Users/Shared/agent-nas-k8s
 for u in u1001 u1002 u2001; do python3 scripts/k8s/provision.py $u --auto-role; done
 bash scripts/k8s/verify-cluster.sh                       # 13 项
 ```
+
+> 本地 NAS 目录**不要放在 `/tmp` 下**：macOS 每天 0 点删掉 `/tmp` 里三种时间都超过 3 天的文件，报告、闲置账号的历史会整批消失（2026-10-24 测试环境就是这样丢的）。`/Users/Shared` 不被清理。
 
 验证覆盖：A/B 隔离、删 Pod 重建后状态都在、管理员写入 → runtime 立刻可查、runtime 对 kb 只读、写坏 db 后从备份恢复、会话 e2e 20 例在 Pod 内、NetworkPolicy 生效（OrbStack 的 CNI 会强制执行）。
 

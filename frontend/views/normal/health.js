@@ -7,7 +7,8 @@ import { setModel } from '../../lib/store.js';
 import { dial, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { title, metricName, keyFig, fPrompt, countsOf, naLegend, hDigPrompt, hRedoPrompt, hAbout } from '../../pages/health.js';
-import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker, rangeHero } from './common.js';
+import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker, rangeHero, goneHero } from './common.js';
+import { missedBanner } from '../../lib/missed.js';
 
 function hero(m) {
   const cnt = {};
@@ -51,7 +52,7 @@ function findingsTable(m) {
 export function render(root, m, ctx) {
   const head = (st, act, desc) => pageHead('健康检查', st, act, desc);
   if (!m.ok) {
-    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : emptyHero(ctx.key ? '这个实例还没有健康检查报告' : '还没有健康检查报告', '在会话里做一次巡检，报告会自动出现在这里。', '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
+    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : m.reason === 'gone' ? goneHero(m, '请对当前库做一次健康检查。', '在会话里跑一次健康检查') : emptyHero(ctx.key ? '这个实例还没有健康检查报告' : '还没有健康检查报告', '在会话里做一次巡检，报告会自动出现在这里。', '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
     return;
   }
   setModel('health', m);
@@ -72,7 +73,7 @@ export function render(root, m, ctx) {
   root.innerHTML = head((m.span ? '<span class="tag blue">时段体检</span> ' : '') + tag(m.level) + naTag,
     runPicker('health', m.entry, m.span ? '时段体检' : '巡检') + `<button class="btn"${dig(hRedoPrompt(m), '健康检查')}>${I.redo}重新巡检</button>` + primary(hDigPrompt(m), '在会话里深挖', '健康检查'),
     desc)
-    + hero(m)
+    + missedBanner(m) + hero(m)
     + `<div class="bento">${tile({ span: 'b8', title: `需要处理的发现<span class="cnt">${m.findings.length}</span>`, desc: '脚本按阈值判定，模型不改级别；指标上停留可看证据', body: findingsTable(m), flush: !!m.findings.length })}
       ${tile({ span: 'b4', title: m.span ? '时段体检记录' : '巡检节奏', desc: `最近 ${Math.min(20, m.idx.length)} 次，点格子切换报告`, body: rhythm('health', m.idx, m.entry && m.entry.file) })}
       ${tile({ span: 'b9', title: '维度状态', desc: `共 ${m.dims.length} 个维度，点击查看明细`, body: tiles })}

@@ -10,6 +10,7 @@ import { treemap, scatter } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { BY, byLabel, tunePrompt, tDigPrompt, tRedoPrompt, tAbout, isSkipped, READS_NOTE } from '../../pages/topsql.js';
 import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, rangeHero } from './common.js';
+import { missedBanner, goneText, reportLabel } from '../../lib/missed.js';
 
 /** 五个排序页签都能点:取过的切过去(data-by),没取过的写「未取」,点了也切过去并给「去会话里取」。 */
 const byTabs = (m) => (m.span ? `<button class="btn" data-by="${esc(m.by)}">看累计榜</button>` : `<div class="seg">${BY.map(([b, l]) => `<button data-by="${b}" class="${b === m.by ? 'on' : ''}"${m.per[b] ? '' : tipAttr(`还没按「${esc(l)}」取过<div class="d">点一下看怎么取</div>`)}>${esc(l)}${m.per[b] ? '' : '<small class="t3"> 未取</small>'}</button>`).join('')}</div>`);
@@ -17,6 +18,14 @@ const byTabs = (m) => (m.span ? `<button class="btn" data-by="${esc(m.by)}">看�
 export function render(root, m, ctx) {
   const target = m.name || (ctx.target && ctx.target.label) || '';
   const head = (act, desc) => pageHead('Top SQL', '', act, desc);
+  if (!m.ok && m.reason === 'gone') {
+    // 这一页签的报告文件一份都取不到(lib/data.js fetchFirst):页签照常能切;有时段 / 增量榜就指一条路,不自动顶替
+    const label = byLabel(m.by);
+    const alt = m.alt ? `<button class="btn" data-pick="topsql|${esc(m.alt.file)}">${I.cal}看最近一份时段榜（${esc(reportLabel(m.alt))}）</button>` : '';
+    root.innerHTML = head('', [['实例', esc(target)]])
+      + `<div class="bento">${tile({ title: 'SQL 榜单', tools: byTabs(m), body: `<div class="empty-state" style="padding:40px">${glyph(2)}<h4>「${esc(label)}」的报告文件读取不到</h4><p>${esc(goneText(m))}</p>${primary(`请按${label}取一次 Top SQL。`, `在会话里按${label}取一次`, 'Top SQL')}${alt}</div>` })}</div>`;
+    return;
+  }
   if (!m.ok) {
     root.innerHTML = head('', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : emptyHero(ctx.key ? '这个实例还没有 Top SQL 报告' : '还没有 Top SQL 报告', '在会话里取一次，结果会自动出现在这里。', '请列出当前库的 Top SQL(按总耗时)。', '在会话里取一次 Top SQL'));
     return;
@@ -50,7 +59,7 @@ export function render(root, m, ctx) {
   // 实际评估的是哪一段、为什么(技能写的 span_note):用户问的时间段与实际窗口可能不一样,页面上也要看得到
   const note = m.span && m.rep.span_note ? tile({ title: '评估窗口', desc: '你要看的时间段与实际评估的窗口', body: `<p>${esc(cn(m.rep.span_note))}</p>` }) : '';
   root.innerHTML = pageHead('Top SQL', m.span ? '<span class="tag blue">时段榜</span>' : '', `<button class="btn"${dig(tRedoPrompt(m), 'Top SQL')}>${I.redo}重新取数</button>` + primary(tDigPrompt(m), '在会话里深挖', 'Top SQL'), desc)
-    + `<section class="hero"><div class="hero-grid tm">${tm}${insightCard({ ...insight.topsql(m), ctx: tAbout(m) })}</div>${heroStats(stats)}</section>`
+    + missedBanner(m) + `<section class="hero"><div class="hero-grid tm">${tm}${insightCard({ ...insight.topsql(m), ctx: tAbout(m) })}</div>${heroStats(stats)}</section>`
     + `<div class="bento">${note}${tile({ title: 'SQL 榜单', desc: `按${esc(label)}排序，点 sql_id 查看语句与调优结论${m.by === 'reads' ? `；${esc(READS_NOTE)}` : ''}`, body: table, tools: byTabs(m), flush: true })}
       ${tile({ span: 'b7', title: '调用次数 × 平均耗时', desc: '找又多又慢的语句', body: scatter(rows, m.tune, isSkipped, 700) })}
       ${tile({ span: 'b5', title: '调优进度', desc: `${nTuned} 条已调优，${nNone} 条未调优`, body: progress })}</div>`;

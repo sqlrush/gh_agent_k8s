@@ -2,7 +2,7 @@
 // 上一窗口 = index 里的前一份,有则 KPI 带对比,没有就写「没有可对比的窗口」,不造假。
 // 七个维度名与列名取自 gaussdb-wdr 的 model.py / collectors.py(契约守卫逐个核对,见下方 DIMS 与 KPIS)。
 
-import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
+import { fetchLatest, fetchIndex, fetchReport, fetchFirst, chainFrom } from '../lib/data.js';
 import { fmtInt, num, split } from '../lib/fmt.js';
 import { instName } from '../lib/ui.js';
 import { loadInRange } from '../lib/range.js';
@@ -74,20 +74,30 @@ export const wDigPrompt = (m) => `请分析${wWhen(m)}的 DB Time 构成,说明�
 /** 解读卡提问框与 ⌘J / ⌘K 自由提问的前缀。 */
 export const wAbout = (m) => `关于实例 ${m.name} 的${wWhen(m)}:`;
 
-/** 取一份报告(file 为空取最新)与它的上一窗口并建模。 */
+/** 取一份报告(file 为空取最新)与它的上一窗口并建模。
+ *  索引里登记着、文件却取不到 → 退到上一份(任一窗口都算同一类),模型带 missed;一份都取不到 → reason 'gone'。 */
 export async function load(key, file, range) {
   if (!key) return { ok: false, reason: 'none' };
-  let rep, idx;
+  let rep, idx, missed = [];
+  const picked = !!file;
   if (range) {                     // 时间段按快照窗口筛(lib/range.js),上一窗口也只在时间段内找
     const got = await loadInRange('wdr', key, file, range);
     if (!got.ok) return got;
-    ({ rep, idx } = got);
+    ({ rep, idx, missed } = got);
     file = got.file;
   } else {
     const [r, index] = await Promise.all([file ? fetchReport('wdr', key, file) : fetchLatest('wdr', key), fetchIndex('wdr', key)]);
-    if (!r.ok) return { ok: false, reason: r.status === 404 ? 'none' : 'error', error: r.error };
-    rep = r;
     idx = index.ok && Array.isArray(index.data) ? index.data : [];
+    rep = r;
+    // 指定的那份文件不在(被清理过)→ 往前退;latest.json 每次存档都重写,它在就用它
+    const chain = !r.ok && r.status === 404 ? chainFrom(idx, file) : [];
+    if (!r.ok && !chain.length) return { ok: false, reason: r.status === 404 ? 'none' : 'error', error: r.error };
+    if (!r.ok) {
+      const got = file ? await fetchFirst('wdr', key, chain.slice(1), chain.slice(0, 1)) : await fetchFirst('wdr', key, chain);
+      if (!got.ok) return got;
+      ({ rep, missed } = got);
+      file = got.entry.file;
+    }
   }
   const d = rep.data;
   const pos = file ? idx.findIndex((e) => e.file === file) : idx.length - 1;
@@ -104,7 +114,7 @@ export async function load(key, file, range) {
   const native = d.native || {};
   // 只有原生报告在本实例的报告目录里才给下载链接:显式 --save-html 到 /tmp 的老报告,给链接就是 404
   const nativeName = native.saved_path && String(native.saved_path).includes(`/wdr/${key}/`) ? String(native.saved_path).split('/').pop() : '';
-  return { ok: true, key, d, idx, pos, entry: idx[pos] || null, w: d.window || {}, p: prevRep && prevRep.ok ? prevRep.data : null, sameSkipped,
+  return { ok: true, key, d, idx, pos, entry: idx[pos] || null, w: d.window || {}, p: prevRep && prevRep.ok ? prevRep.data : null, sameSkipped, missed, picked,
     sqlTexts: d.sql_texts || {},   // sql_id → 完整 SQL,给 SQL 抽屉用(采集时留的全文)
     findings: [...(d.findings || [])].sort((a, b) => (b.severity | 0) - (a.severity | 0)), native, nativeName,
     nativeUrl: nativeName ? `/reports/wdr/${encodeURIComponent(key)}/${encodeURIComponent(nativeName)}` : '' };

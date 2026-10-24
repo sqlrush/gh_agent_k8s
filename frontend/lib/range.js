@@ -8,7 +8,7 @@
 // 昨天 10:46–11:06)。窗口来自索引里的 window(common/reports.py 抄进去的),没有它时退回存档时间。
 // 窗口时间是数据库所在时区,浏览器与数据库不在同一时区时会有偏差。
 
-import { fetchIndex, fetchReport } from './data.js';
+import { fetchIndex, fetchFirst, chainFrom } from './data.js';
 
 const STORE = 'dash.range';
 const LOCAL = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
@@ -108,14 +108,15 @@ export function fromQuery(q) {
   return valid(r) ? r : null;
 }
 
-/** 时间段内的那一份:file 在时间段内就用它,否则取时间段内最新的一份。时间段内一份都没有 → reason 'range'。 */
-export async function loadInRange(skill, key, file, r) {
+/** 时间段内的那一份:file 在时间段内就用它,否则取时间段内最新的一份。时间段内一份都没有 → reason 'range'。
+ *  那份的文件不在了(404)就退到时间段内同一类(same)的上一份,退过的记在 missed 里(见 data.js fetchFirst)。 */
+export async function loadInRange(skill, key, file, r, same) {
   const index = await fetchIndex(skill, key);
   if (!index.ok) return { ok: false, reason: index.status === 404 ? 'none' : 'error', error: index.error };
   const idx = filterIndex(skill, Array.isArray(index.data) ? index.data : [], r);
   if (!idx.length) return { ok: false, reason: 'range' };
   const f = file && idx.some((e) => e.file === file) ? file : idx[idx.length - 1].file;
-  const rep = await fetchReport(skill, key, f);
-  if (!rep.ok) return { ok: false, reason: 'error', error: rep.error };
-  return { ok: true, rep, idx, file: f };
+  const got = await fetchFirst(skill, key, chainFrom(idx, f, same));
+  if (!got.ok) return got;
+  return { ok: true, rep: got.rep, idx, file: got.entry.file, missed: got.missed };
 }

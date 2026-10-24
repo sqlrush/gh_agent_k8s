@@ -453,6 +453,7 @@ a:hover { color: var(--primary-hover); }
 .hero .title .t3 { margin-left: auto; font-size: 12px; }
 .scroll.boxed { border: 1px solid var(--line); border-radius: 12px; }
 .alert + .alert { margin-top: 8px; }
+.alert.missed { margin: 0 0 16px; }   /* 退到上一份报告时页头下的那一条(lib/missed.js) */
 .ev svg { width: 12px; height: 12px; }
 .glyph.pending { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--t4); }
 .dim { font: inherit; color: inherit; width: 100%; }

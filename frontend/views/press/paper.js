@@ -12,13 +12,14 @@ import * as W from '../../pages/wdr.js';
 import * as K from '../../pages/kb.js';
 import { sections } from './sections.js';
 import { jump, kicker, paras } from './bits.js';
+import { missedBanner, goneText } from '../../lib/missed.js';
 
 /* ------------------------------------------------------------ 头条 */
 function lead(hm) {
   if (!hm.ok && hm.reason === 'range') return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">所选时间段内没有巡检报告</h2>
     <p class="deck">时间段只筛选已经跑过的报告，不会替你去取数。可以在报头的「时间段」里改选，或者看全部报告。</p><button class="btn" data-range-clear>看全部报告</button></article>`;
-  if (!hm.ok) return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">${hm.reason === 'error' ? '巡检报告读取失败' : '本期没有巡检报告'}</h2>
-    <p class="deck">${esc(hm.reason === 'error' ? hm.error || '' : '这个实例还没有健康检查报告。在会话里做一次巡检，下一期就会刊出。')}</p>${hm.reason === 'error' ? '' : primary('请对当前库做一次健康检查。', '在会话里跑一次健康检查', '健康检查')}</article>`;
+  if (!hm.ok) return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">${hm.reason === 'error' ? '巡检报告读取失败' : hm.reason === 'gone' ? '巡检报告的文件读取不到' : '本期没有巡检报告'}</h2>
+    <p class="deck">${esc(hm.reason === 'error' ? hm.error || '' : hm.reason === 'gone' ? goneText(hm) : '这个实例还没有健康检查报告。在会话里做一次巡检，下一期就会刊出。')}</p>${hm.reason === 'error' ? '' : primary('请对当前库做一次健康检查。', '在会话里跑一次健康检查', '健康检查')}</article>`;
   const ins = insight.health(hm), failed = hm.subs.filter((s) => !s.ok).map((s) => s.skill.replace('gaussdb-', ''));
   const d = hm.prev ? hm.findings.length - H.countsOf(hm.prev) : null;
   const deck = hm.level === null ? `${hm.name} 本期 ${hm.dims.length} 个维度全部采集失败${failed.length ? `，子技能 ${failed.join('、')} 也未执行成功` : ''}。`
@@ -32,7 +33,7 @@ function lead(hm) {
   // 走势至少要两份报告;这次什么都没采到时「0 条」没有意义,不画
   const showTrend = hm.idx.length >= 2 && hm.level !== null;
   return `<article class="lead">${kicker('头条 · 健康检查')}<h2 class="hl">${ins.head}</h2><p class="deck">${esc(pangu(deck))}</p>
-    <div class="byline">智能体 撰　·　${esc(stamp(hm.entry && hm.entry.at))}　·　级别由巡检脚本按阈值判定，模型不改</div>
+    <div class="byline">智能体 撰　·　${esc(stamp(hm.entry && hm.entry.at))}　·　级别由巡检脚本按阈值判定，模型不改</div>${missedBanner(hm)}
     ${showTrend ? `<figure class="fig">${P.trend('health', hm.idx, hm.entry && hm.entry.file, '条')}<figcaption>图　近 ${Math.min(30, hm.idx.length)} 次${hm.span ? '时段体检' : '巡检'}的越线发现条数。点一次巡检可翻到那一期。</figcaption></figure>` : ''}
     <div class="body cols2"><p class="dropcap">${esc(pangu(intro))}</p>${paras(ins.lines)}<p class="more">${jump('sec-health', '全部发现与各维度见 A2 版')}</p></div></article>`;
 }

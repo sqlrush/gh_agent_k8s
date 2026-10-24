@@ -7,7 +7,8 @@ import { setModel } from '../../lib/store.js';
 import { dumbbell, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { KPIS, kpiVal, cpuShare, showK, change, dimOf, wPrompt, wDigPrompt, wAbout, fmtDbt } from '../../pages/wdr.js';
-import { pageHead, tile, insightCard, emptyHero, errorHero, runPicker, rangeHero } from './common.js';
+import { pageHead, tile, insightCard, emptyHero, errorHero, runPicker, rangeHero, goneHero } from './common.js';
+import { missedBanner } from '../../lib/missed.js';
 
 /** 横向条形清单:dim 的每一行一根,valCol 是取值列。hero=true 时不写附加列(主视觉里放不下)。 */
 export function hb(dim, valCol, unit, hero) {
@@ -57,7 +58,7 @@ function hero(m) {
 export function render(root, m, ctx) {
   const head = (st, act, desc) => pageHead('WDR 分析', st, act, desc);
   if (!m.ok) {
-    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : emptyHero(ctx.key ? '这个实例还没有 WDR 报告' : '还没有 WDR 报告', '在会话里对一个快照窗口做分析，报告会自动出现在这里。', '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析'));
+    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : m.reason === 'gone' ? goneHero(m, '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析') : emptyHero(ctx.key ? '这个实例还没有 WDR 报告' : '还没有 WDR 报告', '在会话里对一个快照窗口做分析，报告会自动出现在这里。', '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析'));
     return;
   }
   if (m.w.wdr_enabled === false) {
@@ -75,7 +76,7 @@ export function render(root, m, ctx) {
   const target = m.name;
   root.innerHTML = head(tag(d.overall | 0), runPicker('wdr', m.entry, '窗口') + nat + primary(wDigPrompt(m), '在会话里深挖', 'WDR'),
     [['实例', esc(target)], ['窗口', `snap ${esc(w.begin_id)} 至 ${esc(w.end_id)}`], ['时间', `${esc(w.begin_ts || '')} 至 ${esc(String(w.end_ts || '').slice(11, 16))}，${esc(w.duration_min)} 分钟`], ['范围', `${esc(w.scope || '')} ${esc(w.node || '')}`], ['对比', p ? `snap ${esc(p.window.begin_id)} 至 ${esc(p.window.end_id)}` : m.sameSkipped ? '没有（之前分析的是同一个窗口）' : '没有上一窗口（第一份报告）']])
-    + hero(m)
+    + missedBanner(m) + hero(m)
     + `<div class="bento">${tile({ title: '窗口内 Top SQL', desc: esc(cn((ts && ts.headline) || '')), body: tsTable, flush: true })}
       ${tile({ span: 'b4', title: `结论<span class="cnt">${fs.length}</span>`, desc: '脚本按阈值判定', body: verdicts })}
       ${tile({ span: 'b4', title: '检查点与 Redo', body: ckBody })}

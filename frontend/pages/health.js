@@ -1,7 +1,7 @@
 // 健康检查:取数与建模。数据:/reports/health/<key>/latest.json(或 index 里指定的那一份)+ index.json。
 // 级别全部来自技能脚本的确定性判定,这里只整理,不改级别。两种风格的版式在 views/ 下,共用这里的模型。
 
-import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
+import { fetchLatest, fetchIndex, fetchReport, fetchFirst, chainFrom } from '../lib/data.js';
 import { esc, num, split, fmtMs, fmtSec, fmtInt, cn, stamp } from '../lib/fmt.js';
 import { lk, instName } from '../lib/ui.js';
 import { loadInRange, windowLabel, windowPromptLabel } from '../lib/range.js';
@@ -93,24 +93,27 @@ export const naLegend = (dims) => {
 /** 索引条目的称呼:时段体检写评估窗口(「时段 10-17 10:46 – 11:06」),此刻巡检写存档时间。 */
 export const entryLabel = (e) => (e && e.mode === 'span' && e.window ? `时段 ${windowLabel(e.window)}` : stamp(e && e.at));
 
+// 文件不在时往前退,只退到同一种口径的上一份(时段体检与此刻巡检不能互相顶替,见 lib/data.js fetchFirst)
+const sameMode = (e, want) => (e.mode || '') === (want.mode || '');
+
 /** 取一份报告并建模。file 为空取最新;key 为空或 404 返回 {ok:false, reason:'none'}。
- *  range(时间段)给了:只在时间段内的报告里取,走势与上期对比也只算时间段内的;一份都没有 → reason 'range'。 */
+ *  range(时间段)给了:只在时间段内的报告里取,走势与上期对比也只算时间段内的;一份都没有 → reason 'range'。
+ *  索引里登记着、文件却取不到 → 退到同一种口径的上一份,模型带 missed(取不到的条目);一份都取不到 → reason 'gone'。 */
 export async function load(key, file, range) {
   if (!key) return { ok: false, reason: 'none' };
   if (range) {
-    const got = await loadInRange('health', key, file, range);
-    return got.ok ? model(key, got.rep.data, got.idx, got.file) : got;
+    const got = await loadInRange('health', key, file, range, sameMode);
+    return got.ok ? { ...model(key, got.rep.data, got.idx, got.file), missed: got.missed, picked: !!file } : got;
   }
   const [got, index] = await Promise.all([file ? fetchReport('health', key, file) : fetchLatest('health', key), fetchIndex('health', key)]);
   const all = index.ok && Array.isArray(index.data) ? index.data : [];
-  let rep = got, f = file;
-  // 时段体检不写 latest.json(不顶掉此刻巡检):只跑过时段体检时 latest 是 404,退回索引里最新的一份
-  if (!rep.ok && rep.status === 404 && !file && all.length) {
-    f = all[all.length - 1].file;
-    rep = await fetchReport('health', key, f);
-  }
-  if (!rep.ok) return { ok: false, reason: rep.status === 404 ? 'none' : 'error', error: rep.error };
-  return model(key, rep.data, all, f);
+  if (got.ok) return { ...model(key, got.data, all, file), missed: [], picked: !!file };
+  // 时段体检不写 latest.json(不顶掉此刻巡检):只跑过时段体检时 latest 是 404,退回索引里最新的一份;
+  // 指定的那份 / 索引里最新的那份文件不在(被清理过)时,再往前退到同一种口径的上一份
+  const chain = got.status === 404 ? chainFrom(all, file, sameMode) : [];
+  if (!chain.length) return { ok: false, reason: got.status === 404 ? 'none' : 'error', error: got.error };
+  const r = file ? await fetchFirst('health', key, chain.slice(1), chain.slice(0, 1)) : await fetchFirst('health', key, chain);
+  return r.ok ? { ...model(key, r.rep.data, all, r.entry.file), missed: r.missed, picked: !!file } : r;
 }
 
 export function model(key, d, all, file) {

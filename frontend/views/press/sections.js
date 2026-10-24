@@ -10,14 +10,15 @@ import * as T from '../../pages/topsql.js';
 import * as W from '../../pages/wdr.js';
 import { missLabel } from '../../pages/kb.js';
 import { paras } from './bits.js';
+import { missedBanner, goneText } from '../../lib/missed.js';
 
 const sheet = (id, pg, title, sub, body, tools = '') => `<section class="sheet" id="${id}"><div class="sheet-h"><span class="pg">${pg}</span><b>${esc(title)}</b><span class="sub">${sub}</span><span class="tools">${tools}</span></div>${body}</section>`;
 const none = (text, prompt, label) => `<div class="sheet-empty"><p>${esc(text)}</p>${prompt ? primary(prompt, label) : ''}</div>`;
-const fail = (m) => (m.reason === 'error' ? `报告读取失败：${m.error || ''}` : m.reason === 'range' ? '所选时间段内没有这一类报告（在报头的「时间段」里改选或清除）。' : '');
+const fail = (m) => (m.reason === 'error' ? `报告读取失败：${m.error || ''}` : m.reason === 'range' ? '所选时间段内没有这一类报告（在报头的「时间段」里改选或清除）。' : m.reason === 'gone' ? goneText(m) : '');
 
 /* ------------------------------------------------------------ A2 要闻 · 健康检查 */
 function secHealth(hm) {
-  if (!hm.ok) return sheet('sec-health', 'A2', '要闻 · 健康检查', '', none(fail(hm) || '本期没有巡检报告。', fail(hm) ? '' : '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
+  if (!hm.ok) return sheet('sec-health', 'A2', '要闻 · 健康检查', '', none(fail(hm) || '本期没有巡检报告。', fail(hm) && hm.reason !== 'gone' ? '' : '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
   const open = (f) => { const d = hm.dims.find((x) => x.dimension === f.dimension); return d ? ` data-dim="${d.i}"` : ` data-xdim="${esc(f.dimension)}"`; };
   const table = hm.findings.length ? `<table class="ptable"><thead><tr><th>级别</th><th>维度</th><th>指标</th><th class="r">读数</th><th class="r">阈值</th><th class="r">倍数</th><th>证据</th></tr></thead><tbody>${hm.findings.map((f) => { const x = insight.times(f);
     return `<tr${open(f)}><td>${status(f.severity)}</td><td><b>${esc(H.title(f.dimension))}</b></td><td class="mt" title="${esc(cn(f.metric))}">${esc(cn(H.metricName(f)))}</td><td class="r num"><b>${esc(f.value)}</b></td><td class="r num t2">${esc(f.threshold)}</td><td class="r num">${x ? `${x.toFixed(1)}×` : '—'}</td><td class="ev2" title="${esc(cn(f.evidence))}">${esc(cn(f.evidence))}</td></tr>`; }).join('')}</tbody></table>`
@@ -37,7 +38,7 @@ function secHealth(hm) {
 
 /* ------------------------------------------------------------ B1 慢语句 · Top SQL */
 function secTop(tm) {
-  if (!tm.ok) return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', '', none(fail(tm) || '本期没有 Top SQL 榜单。', fail(tm) ? '' : '请列出当前库的 Top SQL(按总耗时)。', '在会话里取一次 Top SQL'));
+  if (!tm.ok) return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', '', none(fail(tm) || '本期没有 Top SQL 榜单。', fail(tm) && tm.reason !== 'gone' ? '' : `请列出当前库的 Top SQL(按${T.byLabel(tm.by || 'time')})。`, '在会话里取一次 Top SQL'));
   const by = T.BY.map(([k, l]) => `<a href="#" data-by="${k}" class="${k === tm.by ? 'on' : ''}">按${esc(l)}${tm.per[k] ? '' : '（未取）'}</a>`).join('');
   if (tm.missing) return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', '', none(`「${T.byLabel(tm.by)}」这个维度还没取过。大盘只刊登在会话里真正取过的维度。`, `请按${T.byLabel(tm.by)}取一次 Top SQL。`, `在会话里按${T.byLabel(tm.by)}取一次`), `<span class="byx">${by}</span>`);
   const rows = tm.rows, ins = insight.topsql(tm), b = insight.bizTop(tm), label = T.byLabel(tm.by);
@@ -46,7 +47,7 @@ function secTop(tm) {
   const notes = `<ol class="notes">${rows.slice(0, 10).map((r) => { const x = tm.tune[r.sql_id], f = x && x.evidence && (x.evidence.findings || [])[0];
     return `<li data-sql="${esc(r.sql_id)}"><b>${esc(r.sql_id)}</b>　${T.isSkipped(x) ? `系统 SQL，只引用 ${esc((x.system_objects || []).join('、'))}，按策略不调优。` : f ? `${esc(cn(f.detail || ''))}。${f.advice ? `建议：${esc(cn(f.advice))}。` : ''}` : x ? '已调优。' : '还没有调优过。'}</li>`; }).join('')}</ol>`;
   return sheet('sec-topsql', 'B1', '慢语句 · Top SQL', tm.span ? `${esc(tm.name)} · ${esc(tm.win || stamp(tm.entry.at))} 窗口内增量，按${esc(label)}排序` : `${esc(tm.name)} · ${esc(stamp(tm.entry.at))} 取数 · 累计统计视图，按${esc(label)}排序`,
-    `<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
+    `${missedBanner(tm)}<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <figure class="fig">${P.shares(rows, tm.tune, T.isSkipped, b && b.sql_id)}<figcaption>图　上榜语句占上榜总耗时的比例（报告只有 Top N，没有全量合计）。斜纹为系统 SQL；红色为业务语句里耗时最高的一条。${tm.by === 'reads' ? esc(T.READS_NOTE) + '。' : ''}</figcaption></figure></div>
       <aside class="rcol"><div class="box"><h4>调优札记</h4>${notes}</div></aside></div>
       <h3 class="sh3">${rows.length > 20 ? `榜单前 20 条（共 ${rows.length} 条）` : '完整榜单'}　<span>按${esc(label)}排序；语句满 ${T.QUERY_CAP} 字的是取数时截断的，悬停看原文</span></h3>${table}
@@ -55,7 +56,7 @@ function secTop(tm) {
 
 /* ------------------------------------------------------------ C1 负载 · WDR */
 function secWdr(wm) {
-  if (!wm.ok) return sheet('sec-wdr', 'C1', '负载 · WDR 分析', '', none(fail(wm) || '本期没有 WDR 窗口分析。', fail(wm) ? '' : '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析'));
+  if (!wm.ok) return sheet('sec-wdr', 'C1', '负载 · WDR 分析', '', none(fail(wm) || '本期没有 WDR 窗口分析。', fail(wm) && wm.reason !== 'gone' ? '' : '请列出最近的 WDR 快照,并对最近一个窗口做分析。', '在会话里跑一次 WDR 分析'));
   if (wm.w.wdr_enabled === false) return sheet('sec-wdr', 'C1', '负载 · WDR 分析', '', none('这个库没有开启 WDR：需要把 enable_wdr_snapshot 设为 on 并有快照权限。', '请检查当前库的 WDR 快照是否开启,说明如何开启以及需要的权限。', '在会话里检查'));
   const { d, w, p, findings: fs } = wm, ins = insight.wdr(wm), dbt = W.kpiVal(W.KPIS[0], d), cpu = W.cpuShare(d), waits = W.dimOf(d, 'waits');
   const wItems = waits ? (waits.rows || []).slice(0, 6).map((r) => [String(r[0]), +((num(r[r.length - 1]) || 0).toFixed(1)), '%', '']) : [];
@@ -64,7 +65,7 @@ function secWdr(wm) {
   const fl = fs.map((f) => `<li data-wdim="${esc(f.dimension)}">${status(f.severity)}<b>${esc(cn(f.metric))}：${esc(f.value)}</b>　阈值 ${esc(f.threshold)}。${esc(cn(f.evidence))}</li>`).join('');
   const nat = wm.native.generated ? (wm.nativeUrl ? `<a href="${esc(wm.nativeUrl)}" target="_blank" rel="noopener">原生报告（${fmtInt(Math.round((wm.native.bytes || 0) / 1024))} KB）→</a>` : `原生报告已生成，${fmtInt(Math.round((wm.native.bytes || 0) / 1024))} KB`) : '';
   return sheet('sec-wdr', 'C1', '负载 · WDR 分析', `${esc(wm.name)} · snap ${esc(w.begin_id)}–${esc(w.end_id)}，${esc(w.duration_min)} 分钟，${esc(w.scope || '')} ${esc(w.node || '')}${p ? ` · 对比 snap ${esc(p.window.begin_id)}–${esc(p.window.end_id)}` : wm.sameSkipped ? ' · 没有可对比的窗口（之前分析的是同一个窗口）' : ' · 没有上一窗口'}`,
-    `<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
+    `${missedBanner(wm)}<div class="sheet-b"><div class="main"><h3 class="hl3">${ins.head}</h3><div class="body cols2">${paras(ins.lines)}</div>
       <h3 class="sh3">八项负载指标前后对照　<span>墨线从上一窗口画到本窗口；比例尺从 0 开始</span></h3>${P.pairs(W.KPIS, d, p, W.kpiVal, W.showK)}</div>
       <aside class="rcol"><div class="box"><h4>DB Time</h4><div class="numb big"><span class="v">${dbt === null ? '—' : esc(W.fmtDbt(dbt))}</span><span class="l">秒，平均 ${w.duration_min && dbt !== null ? (dbt / (w.duration_min * 60)).toFixed(dbt / (w.duration_min * 60) < 1 ? 2 : 1) : '—'} 个活跃会话</span><span class="s">${cpu === null ? '' : `CPU ${cpu.toFixed(0)}%，等待 ${(100 - cpu).toFixed(0)}%`}</span></div></div>
         ${wItems.length ? `<div class="box"><h4>等待构成</h4>${P.bars(wItems, true)}</div>` : ''}${fs.length ? `<div class="box"><h4>越线发现</h4><ul class="flist">${fl}</ul></div>` : ''}${nat ? `<p class="fine">${nat}</p>` : ''}</aside></div>

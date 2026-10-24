@@ -7,6 +7,7 @@ import { menu } from '../../lib/overlay.js';
 import { getModel } from '../../lib/store.js';
 import { entryLevel, entryLabel } from '../../pages/health.js';
 import { label as rangeLabel, windowLabel } from '../../lib/range.js';
+import { goneText } from '../../lib/missed.js';
 
 export function pageHead(crumb, statusTag, actions, desc) {
   return `<div class="crumb">诊断大盘<span>/</span><b>${esc(crumb)}</b></div>
@@ -31,6 +32,8 @@ export const emptyHero = (title, text, prompt, label) => `<section class="hero r
 /** 选了时间段、时间段内一份都没有:明说是时间段的缘故(不是「还没跑过」),给一键看全部。 */
 export const rangeHero = (r) => `<section class="hero rise"${rise()}><div class="empty-state">${glyph(null)}<h4>所选时间段（${esc(rangeLabel(r))}）内没有这类报告</h4><p>时间段只筛选已经跑过的报告，不会替你去取数。要看这段时间的情况，在会话里对它做一次分析；或者先看全部报告。</p><button class="btn" data-range-clear>${I.cal}看全部报告</button></div></section>`;
 export const errorHero = (error) => `<section class="hero"><div class="empty-state">${glyph(2)}<h4>报告读取失败</h4><p>${esc(error || '')}</p></div></section>`;
+/** 索引里登记着、文件一份都取不到(reason 'gone',见 lib/data.js fetchFirst):说清楚是文件不在了,给一键重跑;extra 是另外的出路。 */
+export const goneHero = (m, prompt, label, extra = '') => `<section class="hero rise"${rise()}><div class="empty-state">${glyph(2)}<h4>报告文件读取不到</h4><p>${esc(goneText(m))}</p>${primary(prompt, label)}${extra}</div></section>`;
 
 /** 「巡检 09-22 14:03 ▾」/「时段体检 10-17 10:46 – 11:06 ▾」:点开列出最近的报告,选一份即切过去(data-pick)。 */
 export const runPicker = (skill, entry, noun) => (entry ? `<button class="btn" data-run-menu="${skill}">${I.cal}${esc(noun)} ${esc(entry.mode === 'span' && entry.window ? windowLabel(entry.window) : stamp(entry.at))}${I.chev}</button>` : '');

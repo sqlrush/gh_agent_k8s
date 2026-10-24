@@ -4,7 +4,7 @@
 // 的 ?run=<文件> 打开(技能存档后打印的那一行),切页签即回到累计榜。
 // 报告只有 Top N,没有全量合计 —— 页面上写「上榜合计」,不写「占总耗时」。
 
-import { fetchIndex, fetchReport, fetchSqltune } from '../lib/data.js';
+import { fetchIndex, fetchSqltune, fetchFirst, chainFrom } from '../lib/data.js';
 import { fmtMs, brief, stamp } from '../lib/fmt.js';
 import { instName } from '../lib/ui.js';
 import { filterIndex, windowLabel, windowPromptLabel } from '../lib/range.js';
@@ -18,6 +18,12 @@ export function writeBy(b) { try { localStorage.setItem(BY_STORE, b); } catch (_
 
 // 20260922T140300Z.avg.json(累计榜)/ 20261018T124105Z.time.span.json(时段榜)/ ….time.delta.json(增量榜)
 const FILE = /^\d{8}T\d{6}Z\.([a-z]+)(?:\.(span|delta))?\.json$/;
+
+/** 同一维度、同一种榜(累计 / 时段 / 增量):文件取不到时只往前退到这一类的上一份。 */
+const sameKind = (e, want) => {
+  const a = FILE.exec(e.file || ''), b = FILE.exec(want.file || '');
+  return !!(a && b && a[1] === b[1] && (a[2] || '') === (b[2] || ''));
+};
 
 /** index 条目 → 每个 by 最近一份**累计榜**的文件名。 */
 export function latestPerBy(index) {
@@ -74,16 +80,22 @@ export async function load(key, byPref, range, file) {
   if (!avail.length && !pin) return { ok: false, reason: range && all.length ? 'range' : 'none' };
   const by = pin ? FILE.exec(pin.file)[1] : BY.some(([b]) => b === byPref) ? byPref : avail[0][0];
   if (!pin && !per[by]) return { ok: true, key, per, avail, by, missing: true };
-  const entry = pin || per[by];
-  const rep = await fetchReport('topsql', key, entry.file);
-  if (!rep.ok) return { ok: false, reason: 'error', error: rep.error };
+  // 文件不在(索引里登记着、取回 404)→ 退到同一维度、同一种榜(累计 / 时段 / 增量)的上一份,见 lib/data.js fetchFirst
+  const got = await fetchFirst('topsql', key, chainFrom(inRange, (pin || per[by]).file, sameKind));
+  if (!got.ok && got.reason === 'gone') {
+    // 这一页签一份都取不到:页签照常画(能切到别的维度),再指一份最近的时段 / 增量榜(只指路,不自动顶替)
+    const alt = pin ? null : [...inRange].reverse().find((e) => (FILE.exec(e.file || '') || [])[2] && !got.missed.includes(e)) || null;
+    return { ok: false, reason: 'gone', key, per, avail, by, missed: got.missed, alt };
+  }
+  if (!got.ok) return { ok: false, reason: 'error', error: got.error };
+  const rep = got.rep, entry = got.entry;
   const rows = rep.data.rows || [];
   const tunes = await Promise.all(rows.map((r) => fetchSqltune(key, r.sql_id).then((t) => (t.ok ? t.data : null))));
   const tune = Object.fromEntries(rows.map((r, i) => [r.sql_id, tunes[i]]));
   const sum = rows.reduce((a, r) => a + (+r.total_sec || 0), 0) || 1;
   // span:'span'(时段榜)/ 'delta'(增量榜)/ ''(累计榜)。前两种的数是窗口内增量,页面上不能写「自统计重置以来」
   const span = ['span', 'delta'].includes(rep.data.mode) ? rep.data.mode : '';
-  return { ok: true, key, per, avail, by, entry, rep: rep.data, rows, tune, sum, span, win: span ? windowText(rep.data) : '',
+  return { ok: true, key, per, avail, by, entry, missed: got.missed, picked: !!pin, rep: rep.data, rows, tune, sum, span, win: span ? windowText(rep.data) : '',
     winq: span ? (rep.data.window ? windowPromptLabel(rep.data.window) : windowText(rep.data)) : '',   // 深挖首句用,带秒
     share: (r) => ((+r.total_sec || 0) / sum) * 100 };
 }

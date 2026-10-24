@@ -227,6 +227,42 @@ def gen_rotate(user_fd: int) -> str:
     return new
 
 
+# 「确实不存在」:不是读不了、不是被换成链接,是没有了(连目录一起没了也算)。2026-10-24 测试环境:NAS 放在 Mac 的
+# /tmp 下,macOS 每天 0 点的 tmp_cleaner 把三天没碰过的文件整批删掉,保留态的人回来时令牌(有时连主库)都没了。
+# 固定池化的管家据此用保留副本恢复(poolslot.Slot._restore_nas),不当成「在别处用过」去腾挪 ——
+# 腾挪会把唯一完整的那份清掉。读不准、路径上有链接 → False(交给原来的 stale 判断)。
+
+def gen_missing(user_fd: int) -> bool:
+    """NAS 上的版本令牌确实不存在。"""
+    try:
+        os.stat(GEN, dir_fd=user_fd, follow_symlinks=False)
+        return False
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+
+
+def db_missing(user_fd: int) -> bool:
+    """NAS 上的主库确实不存在。"""
+    parent, _sep, base = MAIN_DB.rpartition("/")
+    try:
+        d = fdtree.open_path(user_fd, parent, create=False)
+    except OSError:                     # 含 UnsafePath:路径上埋了链接,不是「不见了」
+        return False
+    if d is None:
+        return True
+    try:
+        os.stat(base, dir_fd=d, follow_symlinks=False)
+        return False
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(d)
+
+
 def db_fingerprint(user_fd: int) -> Optional[Tuple[int, int, int]]:
     """NAS 上主库的 (inode, 纳秒修改时间, 大小);没有 → None。版本令牌之外的第二道核对。"""
     parent, _sep, base = MAIN_DB.rpartition("/")

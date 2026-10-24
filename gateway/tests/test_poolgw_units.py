@@ -139,6 +139,10 @@ class FakeCluster:
             return 409, {"reason": "state"}
         if s.stale:
             return 409, {"reason": "stale"}
+        if getattr(s, "nas_failing", False):
+            # 与管家一样:NAS 上的数据不见了、用保留副本恢复时写回失败 → 继续持有独占、记 dirty,答 503
+            s.dirty = True
+            return 503, {"reason": "not_synced", "state": pa.RETAINED}
         if cid and getattr(s, "lease", "") and cid != s.lease:
             return 409, {"reason": "restarted"}     # 与管家一样:容器 ID 对不上就不恢复
         self.owner[user] = "%s/%d" % (pod, slot)
@@ -375,6 +379,25 @@ def test_unreachable_stewards_mean_wait_not_full(cl):
     with pytest.raises(poolrouter.PoolWait) as exc:
         router.target("newbie")
     assert exc.value.reason == "steward_unreachable" and exc.value.retry_after == 10
+
+
+def test_a_resume_that_cannot_write_the_nas_back_yet_waits_quietly_and_never_evicts(cl):
+    """管家用保留副本恢复 NAS、写回失败时答 503 not_synced(继续持有独占、后台重试)。网关按「稍后再来」处理:
+    不记「失败」、不腾挪那份副本(唯一完整的一份),到等待上限转等待页;写回补上之后照常恢复到同一个槽位。"""
+    _t, router, _sw, logs = _stack(cl, wait_s=3.0)
+    t = router.target("u1")
+    cl.retain(t.pod, "", t.slot, "u1")
+    router.forget("u1")
+    s = cl.pods[t.pod][t.slot]
+    s.nas_failing = True
+    with pytest.raises(poolrouter.PoolWait) as exc:
+        router.target("u1")
+    assert exc.value.reason == "not_synced"
+    assert not cl.verbs("evict", "bind")[1:], "不腾挪、也不换个槽位重新载入"
+    assert not any("失败" in m for m in logs), logs
+    s.nas_failing, s.dirty = False, False          # 后台重试把写回补上了
+    t2 = router.target("u1")
+    assert (t2.pod, t2.slot) == (t.pod, t.slot) and cl.pods[t.pod][t.slot].state == pa.ACTIVE
 
 
 def test_owner_held_outside_the_pool_waits(cl):

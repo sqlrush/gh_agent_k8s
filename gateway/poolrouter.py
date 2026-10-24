@@ -22,8 +22,10 @@ from typing import Callable, Dict, Optional, Tuple
 from . import poolalloc as pa
 from .poolclient import StewardError
 
+# not_synced:管家用保留副本恢复 NAS 时写回失败(继续持有独占、后台重试,docker/poolslot.py _restore_nas),
+# 稍后再来就行 —— 不是失败,不记日志;那份副本是唯一完整的,也不会被腾挪(写回不干净的保留永远不腾挪)
 _RETRY_REASONS = {"pod_changed", "state", "reserved", "stale", "restarted", "user_mismatch", "owner_busy",
-                  "not_restarted"}
+                  "not_restarted", "not_synced"}
 
 
 class NotActive(Exception):

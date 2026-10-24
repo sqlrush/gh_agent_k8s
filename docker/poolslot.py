@@ -15,6 +15,17 @@
 **版本令牌(gen)。** 每次取得独占都换新(poolsync.gen_rotate,按需模式的 Pod 同样换)。转保留时记下当时的令牌
 与 NAS 主库指纹;回来时两样都对得上才直接用槽位里的文件,对不上 = 这个人在别处用过 → 409 stale,网关腾挪后重新绑定。
 
+**NAS 上的数据不见了(2026-10-24)。** 回来时 NAS 上的令牌**不存在**(不是变成了别的值),主库**不存在或还是
+转保留时记下的那一份**(指纹一致),不判 stale:用保留副本完整写回 NAS,写回成功才补上新令牌、照常恢复
+(_restore_nas)。原来的做法是判 stale → 腾挪清盘 → 从 NAS 重新载入 —— 把唯一完整的那份清掉,NAS 上被删的
+跟着丢(全删了就是空库启动)。测试环境的 NAS 曾放在 Mac 的 /tmp 下,macOS 每天 0 点删掉三天没碰过的文件,
+保留超过三天的人回来就是这样;令牌写在绑定 / 恢复时、库写在会话结束时,会话跨过午夜时令牌会比库早一晚被删。
+客户现场误删、备份恢复不全也是同一个样子。
+为什么这不会是「在别处用过」:干净的转保留会释放独占;之后任何人取得独占(别的槽位 bind / resume,按需模式的
+Pod)都先写一个新令牌 —— 令牌不存在,就说明这期间没人拿到过独占;库被别人写过,指纹一定会变(写库都是原子改名,
+inode 换新;原地写也会改纳秒修改时间),所以「库还是记下的那份」也说明没人写过它。极端情况是别人用过、而他写的
+令牌与库后来也被外部清掉了:那时他那段的主库已经不在,保留副本是还能拿到的最新一份;恢复时也只写不删。
+
 所有对 NAS 与槽位盘的读写都经 poolsync / fdtree(按描述符、不跟随链接)。只在绑定载入之后、opencode 启动之前
 (槽位空闲、没有模型进程)按路径用 SQLite 做库自检。
 """
@@ -65,6 +76,7 @@ def _blank(boot: str = "", container_id: str = "") -> dict:
             "boot": boot, "container_id": container_id, "gen": "", "fingerprint": None, "dirty": False,
             "stale": False, "bound_at": None, "retained_at": None, "last_active": None, "evict": None,
             "error": "", "snap_seq": 0, "quiet": False, "reserved_for": None, "reserved_until": 0.0,
+            "restore": False,       # 正在用保留副本恢复 NAS、还没写回成功(见 _restore_nas)
             "grmp_token": ""}       # 本人的中间件令牌:只在管家这里(凭据代理用),不进槽位、不进 status
 
 
@@ -271,7 +283,7 @@ class Slot:
             # 核验时记下的 containerID 是管家自己确认过的,优先于这次请求带来的(网关的视图可能过期)
             self._set(state=BINDING, user=user, gen=gen, container_id=self.rec["container_id"] or container_id,
                       dirty=False, stale=False, error="", bound_at=None, retained_at=None, since=None, quiet=False,
-                      reserved_for=None, reserved_until=0.0)
+                      reserved_for=None, reserved_until=0.0, restore=False)
         return None
 
     def finish_bind(self, grmp_token: str) -> Reply:
@@ -381,15 +393,15 @@ class Slot:
         return 200, {"slot": self.i, "state": RETAINED, "user_id": self.user, "dirty": not clean,
                      "aborted_running": bool(ack.get("aborted_running")), "synced": moved.to_json(), "backup": name}
 
-    def _sync_all(self, final: bool) -> "tuple[poolsync.Moved, Optional[str]]":
+    def _sync_all(self, final: bool, may_delete: bool = True) -> "tuple[poolsync.Moved, Optional[str]]":
         name = None
         if self.ufd is None:
             return poolsync.Moved(errors=["没有打开本人的 NAS 目录"]), None
         if not self._same_boot():
             return poolsync.Moved(errors=["槽位重启过(盘已清空),不回写"]), None
         try:
-            moved = poolsync.sync(self.ufd, self.state_fd, self.snap_seen, may_delete=True, modes=poolsync.NAS_MODES,
-                                  still_valid=self._same_boot)
+            moved = poolsync.sync(self.ufd, self.state_fd, self.snap_seen, may_delete=may_delete,
+                                  modes=poolsync.NAS_MODES, still_valid=self._same_boot)
             if final:
                 name = poolsync.backup(self.ufd, self.state_fd, modes=poolsync.NAS_MODES)
         except Exception as exc:                # noqa: BLE001  写回失败只记下来,不能让收尾中断
@@ -440,9 +452,11 @@ class Slot:
             return 200, dict(self.creds(), resumed=True)
 
     def _reacquire(self) -> Optional[Reply]:
-        """回到保留槽位前:重新取独占,核对版本令牌与主库指纹。写回不干净的保留槽位一直持有独占,直接用。"""
+        """回到保留槽位前:重新取独占,核对版本令牌与主库指纹。写回不干净的保留槽位一直持有独占,直接用
+        (正在用保留副本恢复 NAS 的,先把恢复写完)。NAS 上令牌不存在、主库不存在或还是记下的那份 → 用保留副本恢复,
+        不判 stale。"""
         if self.rec["dirty"] and self.ufd is not None and poolsync.owner_refresh(self.ufd, self.holder):
-            return None
+            return self._restore_nas() if self.rec["restore"] else None
         try:
             self.ufd = poolsync.open_user(self.users_fd, self.user)
         except (poolsync.PoolError, ValueError, OSError) as exc:
@@ -454,12 +468,46 @@ class Slot:
             self.ufd = None
             self._set(state=RETAINED, stale=True)       # 他正在别处用:这份保留副本迟早过期,交给网关腾挪
             return 409, {"reason": "owner_busy", "holder": holder, "retry_after": retry, "state": RETAINED}
+        # 令牌不存在、主库不存在或还是转保留时那一份 = NAS 上的数据(部分)不见了,不是「在别处用过」(论证见模块说明)。
+        # 还要是转保留时那块盘(槽位重启过盘就清空了,没有副本可用,照旧判 stale)
         fp = poolsync.db_fingerprint(self.ufd)
+        intact = fp is not None and list(fp) == self.rec["fingerprint"]
+        if (self.rec["gen"] and poolsync.gen_missing(self.ufd) and (intact or poolsync.db_missing(self.ufd))
+                and self._same_boot()):
+            return self._restore_nas()
         if poolsync.gen_read(self.ufd) != self.rec["gen"] or (list(fp) if fp else None) != self.rec["fingerprint"]:
             self._release_owner()
             self._set(state=RETAINED, stale=True)
             self.log("槽位 %d:%s 在别处用过,保留副本已过期" % (self.i, self.user))
             return 409, {"reason": "stale", "state": RETAINED}
+        return None
+
+    def _restore_nas(self) -> Optional[Reply]:
+        """NAS 上这个人的数据不见了:用保留副本完整写回 NAS。持有独占时调用。
+
+        · 只写不删(may_delete=False):NAS 上还剩下的东西一样不动;
+        · 库快照全部重搬(snap_seen 清空):记下的「已搬过」对的是被删之前的 NAS;
+        · 写回成功才返回 None,由 finish_resume 换上新令牌 —— **写回成功之前不补令牌**:令牌在、数据不全的 NAS
+          会被当成一份完好的;
+        · 写回失败按「写回不干净的保留」走:继续持有独占、记 dirty / not_synced,监视线程稍后重试(_retry_retain),
+          这次恢复先不放行(503,网关稍后重试)。
+        """
+        if not self.rec["restore"]:
+            self.log("⚠ 槽位 %d:%s 在 NAS 上的数据不见了(版本令牌不存在,主库不存在或未被改动),用保留副本恢复" % (self.i, self.user))
+        self._set(restore=True)
+        self.snap_seen = {}
+        try:
+            poolsync.mark_dirty(self.ufd)       # 恢复写到一半管家没了:下一个载入的人看得到「上次没写完」
+        except OSError as exc:
+            self.log("槽位 %d 标记 dirty 失败:%s" % (self.i, exc))
+        moved, name = self._sync_all(final=True, may_delete=False)
+        if moved.errors:
+            self.log("⚠ 槽位 %d:%s 用保留副本恢复 NAS 时写回失败(%s),继续持有独占、稍后再试"
+                     % (self.i, self.user, moved.errors[0]))
+            self._set(state=RETAINED, dirty=True, error="not_synced")
+            return 503, {"reason": "not_synced", "state": RETAINED, "retry_after": int(self.s.sync_seconds)}
+        self._set(restore=False, dirty=False, error="")
+        self.log("槽位 %d:%s 已用保留副本写回 NAS:%s,退出备份 %s" % (self.i, self.user, moved.to_json(), name))
         return None
 
     # -- 腾挪与核验 ---------------------------------------------------------------------------
@@ -655,11 +703,14 @@ class Slot:
             if self.rec["since"] is not None:
                 self._write_run("stop")
             return
-        moved, _name = self._sync_all(final=True)
+        restoring = bool(self.rec["restore"])          # 用保留副本恢复 NAS 时只写不删(见 _restore_nas)
+        moved, _name = self._sync_all(final=True, may_delete=not restoring)
         if moved.errors:
             self.log("⚠ 槽位 %d:%s 的写回仍失败(%s),继续持有独占、稍后再试" % (self.i, self.user, moved.errors[0]))
             return
         try:
+            if restoring:                               # 写回成功了才补令牌,补的就是保留副本下次回来要对的那个
+                self._set(gen=poolsync.gen_rotate(self.ufd), restore=False)
             poolsync.clear_dirty(self.ufd)
             fp = poolsync.db_fingerprint(self.ufd)
             self._release_owner()

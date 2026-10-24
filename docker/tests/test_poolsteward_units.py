@@ -12,6 +12,7 @@ import http.server
 import json
 import os
 import pathlib
+import shutil
 import socket
 import socketserver
 import sqlite3
@@ -28,6 +29,7 @@ sys.path.insert(0, str(_ROOT / "docker"))
 
 import credproxy  # noqa: E402
 import fdtree  # noqa: E402
+import podctl  # noqa: E402
 import poolauth  # noqa: E402
 import poolrun  # noqa: E402
 import poolslot  # noqa: E402
@@ -422,6 +424,118 @@ def test_a_dirty_retained_slot_keeps_the_owner_and_refuses_eviction(pod, monkeyp
     assert _wait(lambda: not s.rec["dirty"]), pod.logs[-10:]
     assert pod.owner() == {}
     assert pod.st.evict({"slot": 0, "container_id": pod.slots[0].container_id})[0] == 202
+
+
+# -- NAS 上的数据不见了(2026-10-24) -------------------------------------------------------------------
+# 测试环境的 NAS 曾放在 Mac 的 /tmp 下,macOS 每天 0 点的 tmp_cleaner 删掉三天没碰过的文件:保留超过三天的人,
+# NAS 上的令牌、主库、备份全没了(闲置账号连整个目录都没了)。原来回来时判 stale → 网关腾挪,清掉槽位里
+# 唯一完整的那份 → 从空 NAS 载入,空库启动。
+
+def _wipe_nas(pod, user="u1234"):
+    """tmp_cleaner 的样子:这个人在 NAS 上的东西整个没了,连目录。"""
+    shutil.rmtree(pod.users / user)
+
+
+def _nas_db(pod, user="u1234") -> pathlib.Path:
+    return pod.users / user / "xdg-data" / "opencode" / "opencode.db"
+
+
+def test_resume_after_the_nas_copy_vanished_restores_it_from_the_retained_slot(pod):
+    pod.bind()
+    _retain(pod)
+    rows = _rows(_nas_db(pod))
+    _wipe_nas(pod)
+    code, body = pod.resume()
+    assert code == 200 and body["resumed"], (body, pod.logs[-5:])
+    s = pod.st.slots[0]
+    assert not s.rec["stale"] and not s.rec["restore"] and s.state == poolslot.ACTIVE
+    assert _rows(_nas_db(pod)) == rows, "库回到了 NAS(就是转保留时那一份)"
+    assert list((pod.users / "u1234" / "backup").iterdir()), "退出备份也补回来了"
+    fd = pod.user_fd()
+    assert poolsync.gen_read(fd) == s.rec["gen"], "写回成功之后换上新令牌"
+    os.close(fd)
+    assert any("NAS 上的数据不见了" in m for m in pod.logs)
+    assert _retain(pod)[0] == 200 and pod.resume()[0] == 200, "之后照常:令牌与指纹都对得上"
+
+
+def test_a_failed_restore_keeps_the_owner_and_writes_no_gen_until_the_nas_copy_is_back(pod, monkeypatch):
+    pod.bind()
+    _retain(pod)
+    rows = _rows(_nas_db(pod))
+    _wipe_nas(pod)
+    real = poolsync.sync
+    monkeypatch.setattr(poolsync, "sync", lambda *a, **kw: poolsync.Moved(errors=["NAS 写满了"]))
+    code, body = pod.resume()
+    assert code == 503 and body["reason"] == "not_synced", body
+    s = pod.st.slots[0]
+    assert s.state == poolslot.RETAINED and s.rec["dirty"] and s.rec["restore"] and not s.rec["stale"]
+    assert pod.owner()["pod"] == "%s/0" % POD, "按写回不干净的保留走:继续持有独占,他到别处登录会被挡回这里"
+    assert not (pod.users / "u1234" / poolsync.GEN).exists(), "写回成功之前不补令牌"
+    assert pod.st.evict({"slot": 0, "container_id": pod.slots[0].container_id})[1]["reason"] == "not_synced"
+    monkeypatch.setattr(poolsync, "sync", real)
+    s.next_sync = 0                         # 让后台的重试马上来一轮
+    assert _wait(lambda: not s.rec["dirty"]), pod.logs[-10:]
+    assert _rows(_nas_db(pod)) == rows and not s.rec["restore"] and pod.owner() == {}
+    fd = pod.user_fd()
+    assert poolsync.gen_read(fd) == s.rec["gen"], "写回补上之后才补令牌,就是下次回来要对的那个"
+    os.close(fd)
+    assert pod.resume()[0] == 200
+
+
+def test_gen_gone_but_db_untouched_also_restores_from_the_retained_slot(pod):
+    """令牌写在绑定 / 恢复时、库写在会话结束时:会话跨过午夜,tmp_cleaner 会先删令牌、晚一晚才删库,
+    同一晚被删的还有别的老文件(这里用 workspace 里的一个文件代表)。库还是转保留时记下的那份 = 没人写过它:
+    照样用保留副本恢复。以前判 stale → 腾挪清盘 → 从 NAS 重新载入,那个文件就丢了。"""
+    pod.bind()
+    (pod.slot_dir(0) / "state" / "workspace" / "notes.md").write_text("会话里写的", encoding="utf-8")
+    _retain(pod)
+    nas = pod.users / "u1234"
+    s = pod.st.slots[0]
+    rows = _rows(_nas_db(pod))
+    (nas / poolsync.GEN).unlink()
+    (nas / "workspace" / "notes.md").unlink()
+    fd = pod.user_fd()
+    assert poolsync.gen_missing(fd) and list(poolsync.db_fingerprint(fd)) == s.rec["fingerprint"]
+    os.close(fd)
+    code, body = pod.resume()
+    assert code == 200 and body["resumed"], (body, pod.logs[-5:])
+    assert not s.rec["stale"] and not s.rec["restore"]
+    assert (nas / "workspace" / "notes.md").read_text(encoding="utf-8") == "会话里写的", "被删的老文件补回了 NAS"
+    assert _rows(_nas_db(pod)) == rows
+    fd = pod.user_fd()
+    assert poolsync.gen_read(fd) == s.rec["gen"]
+    os.close(fd)
+    assert any("NAS 上的数据不见了" in m for m in pod.logs)
+
+
+@pytest.mark.parametrize("left", ["gen", "db"])
+def test_if_the_gen_or_the_db_changed_it_is_still_stale(pod, left):
+    """令牌还在但变了、或库变了 → 照旧 stale。
+
+    这也是安全论证:保留期间(干净的转保留已释放独占)谁取得过独占,都先写一个新令牌 —— 按需模式的 Pod 走
+    podctl.owner_acquire,别的槽位走 poolsync.gen_rotate;之后他的库就算被清掉,令牌也还在。
+    库被别人写过,指纹一定会变(原子改名换 inode;原地写也改纳秒修改时间、这里还改了大小)。"""
+    pod.bind()
+    _retain(pod)
+    nas = pod.users / "u1234"
+    assert pod.owner() == {}, "干净的转保留已释放独占"
+    if left == "gen":
+        assert podctl.owner_acquire(nas, "runtime-u1234-abc", wait_s=0)     # 按需模式的 Pod 用过
+        podctl.owner_release(nas, "runtime-u1234-abc")
+        _nas_db(pod).unlink()                                                 # 他那段的库后来被清掉了
+    else:
+        (nas / poolsync.GEN).unlink()
+        db = _nas_db(pod)
+        db.write_bytes(db.read_bytes() + b"\0")                               # 库还在,但不是记下的那一份
+    fd = pod.user_fd()
+    if left == "gen":
+        assert not poolsync.gen_missing(fd)
+    else:
+        assert poolsync.gen_missing(fd) and list(poolsync.db_fingerprint(fd)) != pod.st.slots[0].rec["fingerprint"]
+    os.close(fd)
+    code, body = pod.resume()
+    assert code == 409 and body["reason"] == "stale"
+    assert pod.st.slots[0].rec["stale"] and not pod.st.slots[0].rec["restore"]
 
 
 # -- 腾挪与核验 -----------------------------------------------------------------------------------

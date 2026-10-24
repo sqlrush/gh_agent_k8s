@@ -113,6 +113,27 @@ def test_db_fingerprint(env):
     assert size == 10 and ino == (nas / "xdg-data" / "opencode" / "opencode.db").stat().st_ino
 
 
+def test_gen_and_db_missing_only_when_they_are_really_gone(env):
+    """「NAS 上的数据不见了」只认确实不存在:还在、读不准、路径上埋了链接,都不算(交给原来的 stale 判断)。"""
+    nas, _state, me, _sfd = env
+    assert ps.gen_missing(me) and ps.db_missing(me), "新目录:两样都没有(连目录都没有也算)"
+    ps.gen_rotate(me)
+    assert not ps.gen_missing(me), "令牌还在"
+    (nas / ps.GEN).unlink()
+    assert ps.gen_missing(me)
+    db = nas / "xdg-data" / "opencode" / "opencode.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"x")
+    assert not ps.db_missing(me), "库还在"
+    db.unlink()
+    assert ps.db_missing(me), "目录在、库不在"
+    (nas / "xdg-data" / "opencode").rmdir()
+    (nas / "xdg-data" / "opencode").symlink_to(nas)
+    assert not ps.db_missing(me), "路径上是链接:不是「不见了」"
+    (nas / ps.GEN).symlink_to(nas / "nowhere")
+    assert not ps.gen_missing(me), "令牌是个(悬空的)链接:也不是「不见了」"
+
+
 def test_on_demand_owner_acquire_rotates_gen_too(tmp_path):
     """按需模式下用过之后,池化里这个人的旧保留副本必须作废。"""
     assert podctl.owner_acquire(tmp_path, "runtime-u1234-abc", wait_s=0)

@@ -35,7 +35,7 @@ class KbError(Exception):
 # 导入侧的子命令在本环境(runtime 镜像)物理不存在。保留命令名做桩:模型按记忆调用时得到「去哪、找谁」,
 # 而不是 argparse 的 invalid choice——那句话对模型没有指导意义,它会开始猜别的命令或自己动手写目录。
 IMPORT_ONLY = ("ingest", "index", "validate", "propose", "review", "apply", "setup", "feedback", "eval", "contract",
-               "add", "attach", "retype", "migrate", "profile", "taxonomy")
+               "add", "attach", "retype", "migrate", "profile", "taxonomy", "inbox-clean")
 IMPORT_ONLY_MSG = ("本环境不含知识库导入功能(gaussdb-kb-import),请联系知识库管理员在导入环境操作。"
                    "本环境可用:query / health / search / cite-check / overview / topic / show / evidence。")
 

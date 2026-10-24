@@ -76,7 +76,7 @@ python3 {baseDir}/../gaussdb-kb/scripts/kb.py health
    原文模糊、前后矛盾的条款单独列出问用户,**不要替客户定规范**。
    `ingest` 打印「⚠ 换版导入」时,必须先读 `INDEX.md` 逐条比对,废止的**整条移进 `archive/<域>.yaml`** 并标
    `status: deprecated`(各 skill 用 grep 检索 rules/,留在原处只打标记照样会被命中——物理隔离才拦得住),最后递增 `VERSION`。
-4. **写入 → 索引 → 校验**:用 write 工具写 `<kb>/rules|guides|errata|archive/`,删掉处理完的 `inbox/<slug>/`,然后
+4. **写入 → 索引 → 校验**:用 write 工具写 `<kb>/rules|guides|errata|archive/`,用 `kb.py inbox-clean <slug>` 删掉处理完的 `inbox/<slug>/`(容器里命令行不放行 rm),然后
    `kb.py index` 与 `kb.py validate`(`[error]` 必须清零,`[warn]` 逐条向用户说明)。
 
 ## 2. 工单路径(xlsx/csv/md/docx → 案例 + 图)
@@ -127,7 +127,8 @@ python3 {baseDir}/../gaussdb-kb/scripts/kb.py health
    有 `[error]` 的拒收(修完再 add),`[warn]` 逐条向用户说明。
 4. 原始证据(照片、日志、报告):`kb.py attach <文件> --to <ID>` 存进 `evidence/` 并登记到条目;类型判错了 `kb.py retype <ID> --to <类型>`
    (旧 ID 进 aliases,历史引用仍可追溯);专题要增删改先 `kb.py taxonomy --init` 写出 `topics/_taxonomy.yaml` 再编辑。
-5. `kb.py validate && kb.py index`:index 同时重建 L0(`L0-总索引.md`)与 L1(`topics/<专题>.md`)。
+5. `kb.py validate && kb.py index`:index 同时重建 L0(`L0-总索引.md`)与 L1(`topics/<专题>.md`);
+   材料先 ingest 过的(原文快照进了 `sources/`,条目的 source 指向它),处理完 `kb.py inbox-clean <slug>` 清掉中间目录。
 
 **存量迁移**(升级前导入的知识库):`kb.py migrate` 出清单(旧指南提议类型、条款与案例补专题)→ 原样给用户确认、按回答改清单 →
 `kb.py migrate --apply` → `validate && index`。产品文档必须补产品系列与版本才迁得过去。

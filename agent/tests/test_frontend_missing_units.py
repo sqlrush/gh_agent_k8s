@@ -68,6 +68,10 @@ health.err = brief(await H.load('k', '', null));
 serve(HIDX);
 const hGone = await H.load('k', '', null);
 health.gone = { ...brief(hGone), page: text(render(VH, hGone)) };
+// u9500 的样子:此刻巡检全丢了、只剩时段体检;点开一份旧巡检 → 取不到,但要给一条出路(选中的那份一直钉着)
+serve({ ...HIDX, [SPAN0.file]: hSpan });
+const hStuck = await H.load('k', NOW1.file, null);
+health.stuck = { ...brief(hStuck), alt: hStuck.alt && hStuck.alt.file, page: render(VH, hStuck) };
 
 /* ---------------------------------------------------------------- Top SQL */
 const tq = { conn: 'lab/og5', by: 'time', limit: 10, rows: [{ sql_id: '1', calls: 2, total_sec: 3, avg_ms: 1500, rows: 0, query: 'q' }] };
@@ -99,6 +103,9 @@ serve({ '/wdr/k/index.json': WE, [WE[0].file]: wRep(10, 11), [WE[1].file]: wRep(
 const wPick = await W.load('k', WE[2].file, null);
 const wRange = await W.load('k', '', { from: '2026-10-17T09:00', to: '2026-10-17T12:00' });
 const wdr = { pick: { ...brief(wPick), prev: wPick.p && wPick.p.window.begin_id, banner: text(render(VW, wPick)) }, range: brief(wRange) };
+// u9400 真数据的样子:清理从最老的删起,点开一份已丢的旧窗口时比它更旧的也都没了 → 显示离它最近的较新一份
+serve({ '/wdr/k/index.json': WE, [WE[2].file]: wRep(30, 31), [WE[3].file]: wRep(40, 41) });
+wdr.forward = brief(await W.load('k', WE[1].file, null));
 
 /* ---------------------------------------------------------------- 文艺风格:同一份说明 */
 globalThis.document = { getElementById: () => null };
@@ -145,6 +152,10 @@ def test_health_only_404_falls_back_and_all_gone_is_an_explained_error(got):
     assert g["ok"] is False and g["reason"] == "gone" and len(g["missed"]) == 2
     assert "报告文件读取不到" in g["page"] and "索引里登记的 2 份报告（最近的是 %s）文件都已不在存档目录里" % _SPAN1 in g["page"]
     assert "在会话里跑一次健康检查" in g["page"], "给一键重跑"
+    s = h["stuck"]
+    assert s["reason"] == "gone" and s["missed"] == ["20261022T060300Z.json", "20261021T010000Z.json"], "只在此刻巡检里找"
+    assert s["alt"] == "20261022T070000Z.span.json"
+    assert 'data-pick="health|20261022T070000Z.span.json"' in s["page"] and "看时段体检（%s）" % _SPAN1 in s["page"], "报错页上给一条出路"
 
 
 def test_topsql_gone_tab_keeps_tabs_and_points_to_a_span_board(got):
@@ -173,6 +184,14 @@ def test_wdr_falls_back(got):
     assert w["pick"]["note"] == "所选的那份报告（10-23 10:00）读取失败，显示的是 10-22 10:00 的那份。" and w["pick"]["note"] in w["pick"]["banner"]
     assert w["range"]["file"] == "20261022T020000Z.json" and w["range"]["missed"] == ["20261024T020000Z.json", "20261023T020000Z.json"]
     assert w["range"]["note"] == "最新的 2 份报告读取失败（最近的一份是 10-24 10:00），显示的是 10-22 10:00 的那份。"
+
+
+def test_picked_old_report_whose_older_ones_are_gone_too_shows_the_nearest_newer(got):
+    """清理总是从最老的删起:点开一份已丢的旧报告,往前全是空的。只往前退就只能报错 —— 改为先旧后新、找离它最近的。"""
+    f = got["wdr"]["forward"]
+    assert f["ok"] is True and f["file"] == "20261023T020000Z.json"
+    assert f["missed"] == ["20261022T020000Z.json", "20261021T020000Z.json"], "先试想要的那份、再试上一份,然后才往新的找"
+    assert f["note"] == "所选的那份报告（10-22 10:00）读取失败，显示的是 10-23 10:00 的那份。"
 
 
 def test_press_style_says_the_same(got):

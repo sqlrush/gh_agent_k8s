@@ -8,7 +8,7 @@ import { dial, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { title, metricName, keyFig, fPrompt, countsOf, naLegend, hDigPrompt, hRedoPrompt, hAbout } from '../../pages/health.js';
 import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker, rangeHero, goneHero } from './common.js';
-import { missedBanner } from '../../lib/missed.js';
+import { missedBanner, reportLabel } from '../../lib/missed.js';
 
 function hero(m) {
   const cnt = {};
@@ -52,7 +52,7 @@ function findingsTable(m) {
 export function render(root, m, ctx) {
   const head = (st, act, desc) => pageHead('健康检查', st, act, desc);
   if (!m.ok) {
-    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : m.reason === 'gone' ? goneHero(m, '请对当前库做一次健康检查。', '在会话里跑一次健康检查') : emptyHero(ctx.key ? '这个实例还没有健康检查报告' : '还没有健康检查报告', '在会话里做一次巡检，报告会自动出现在这里。', '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
+    root.innerHTML = head('', '', []) + (m.reason === 'error' ? errorHero(m.error) : m.reason === 'range' ? rangeHero(ctx.range) : m.reason === 'gone' ? goneHero(m, '请对当前库做一次健康检查。', '在会话里跑一次健康检查', m.alt ? `<button class="btn" data-pick="health|${esc(m.alt.file)}">${I.cal}看${m.alt.mode === 'span' ? '时段体检' : '巡检'}（${esc(reportLabel(m.alt))}）</button>` : '') : emptyHero(ctx.key ? '这个实例还没有健康检查报告' : '还没有健康检查报告', '在会话里做一次巡检，报告会自动出现在这里。', '请对当前库做一次健康检查。', '在会话里跑一次健康检查'));
     return;
   }
   setModel('health', m);

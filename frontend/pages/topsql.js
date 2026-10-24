@@ -19,7 +19,7 @@ export function writeBy(b) { try { localStorage.setItem(BY_STORE, b); } catch (_
 // 20260922T140300Z.avg.json(累计榜)/ 20261018T124105Z.time.span.json(时段榜)/ ….time.delta.json(增量榜)
 const FILE = /^\d{8}T\d{6}Z\.([a-z]+)(?:\.(span|delta))?\.json$/;
 
-/** 同一维度、同一种榜(累计 / 时段 / 增量):文件取不到时只往前退到这一类的上一份。 */
+/** 同一维度、同一种榜(累计 / 时段 / 增量):文件取不到时只退到这一类里离它最近的一份。 */
 const sameKind = (e, want) => {
   const a = FILE.exec(e.file || ''), b = FILE.exec(want.file || '');
   return !!(a && b && a[1] === b[1] && (a[2] || '') === (b[2] || ''));
@@ -80,7 +80,7 @@ export async function load(key, byPref, range, file) {
   if (!avail.length && !pin) return { ok: false, reason: range && all.length ? 'range' : 'none' };
   const by = pin ? FILE.exec(pin.file)[1] : BY.some(([b]) => b === byPref) ? byPref : avail[0][0];
   if (!pin && !per[by]) return { ok: true, key, per, avail, by, missing: true };
-  // 文件不在(索引里登记着、取回 404)→ 退到同一维度、同一种榜(累计 / 时段 / 增量)的上一份,见 lib/data.js fetchFirst
+  // 文件不在(索引里登记着、取回 404)→ 退到同一维度、同一种榜(累计 / 时段 / 增量)里离它最近的一份,见 lib/data.js fetchFirst
   const got = await fetchFirst('topsql', key, chainFrom(inRange, (pin || per[by]).file, sameKind));
   if (!got.ok && got.reason === 'gone') {
     // 这一页签一份都取不到:页签照常画(能切到别的维度),再指一份最近的时段 / 增量榜(只指路,不自动顶替)

@@ -52,23 +52,30 @@ export const fetchSqltune = (key, sqlId) => fetchJson(`/reports/sqltune/${key}/$
 // index.json 每次存档都重写,留了下来 —— 索引里登记着、文件 404,Top SQL 整页「报告读取失败 HTTP 404」。
 // 文件被人手删、备份恢复不全也是同一个样子。所以取一份报告时:
 // · 只在 404(文件不在)时往前退;网关 / 权限这类错误照常报错,不拿旧报告冒充;
-// · 只退到「同一类」的上一份(same 由页面给:健康检查同一种口径、Top SQL 同一维度同一种榜);
+// · 只退到「同一类」里离它最近的一份(same 由页面给:健康检查同一种口径、Top SQL 同一维度同一种榜);
 // · 退过就在页面上说明(lib/missed.js),一份都取不到才报错(reason 'gone')。
-const MAX_TRIES = 20;   // 被清掉的总是最老的一段,往前退一两份就到;封顶免得一路 404 下去
+// 候选不封顶:索引最多 50 份(common/reports.py DEFAULT_KEEP),u9400 的真数据里点最老那份时往新的一侧
+// 要连着跳过 27 份已丢的才到还在的,封顶就会在还有报告时报错。最坏是索引里每份各一次 404,
+// 而且只到下一次存档为止 —— 存档时会把文件已不在的条目清掉(common/reports.py _file_gone)。
 
-/** 想要的那份(file;空 = 索引里最新一份)及往前的同类条目,新的在前。file 不在索引里 → []。 */
+/** 想要的那份(file;空 = 索引里最新一份)及离它最近的同类条目:先旧后新、交替往外(上一份、下一份、上上份……)。
+ *  file 不在索引里 → []。为什么也往新的找:清理总是从最老的删起,点开一份已被删的旧报告时,比它更旧的
+ *  多半也没了(2026-10-24 u9400 的真数据:点哪一份丢了的,往前都是空的),只往前退就只能报错。 */
 export function chainFrom(idx, file, same = () => true) {
   const pos = file ? idx.findIndex((e) => e.file === file) : idx.length - 1;
   if (pos < 0) return [];
   const want = idx[pos];
-  return [want, ...idx.slice(0, pos).reverse().filter((e) => same(e, want))];
+  const older = idx.slice(0, pos).reverse().filter((e) => same(e, want)), newer = idx.slice(pos + 1).filter((e) => same(e, want));
+  const near = [];
+  for (let i = 0; i < Math.max(older.length, newer.length); i++) near.push(...[older[i], newer[i]].filter(Boolean));
+  return [want, ...near];
 }
 
 /** 按顺序取第一份取得到的。missed0:已经知道取不到的条目(调用方先试过的那份)。返回
  *  {ok:true, rep, entry, missed} | {ok:false, reason:'gone', missed} | {ok:false, reason:'error', error}。 */
 export async function fetchFirst(skill, key, cands, missed0 = []) {
   const missed = [...missed0];
-  for (const e of cands.slice(0, MAX_TRIES)) {
+  for (const e of cands) {
     const rep = await fetchReport(skill, key, e.file);
     if (rep.ok) return { ok: true, rep, entry: e, missed };
     if (rep.status !== 404) return { ok: false, reason: 'error', error: rep.error };

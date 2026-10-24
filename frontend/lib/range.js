@@ -109,7 +109,7 @@ export function fromQuery(q) {
 }
 
 /** 时间段内的那一份:file 在时间段内就用它,否则取时间段内最新的一份。时间段内一份都没有 → reason 'range'。
- *  那份的文件不在了(404)就退到时间段内同一类(same)的上一份,退过的记在 missed 里(见 data.js fetchFirst)。 */
+ *  那份的文件不在了(404)就退到时间段内同一类(same)里离它最近的一份,退过的记在 missed 里(见 data.js fetchFirst)。 */
 export async function loadInRange(skill, key, file, r, same) {
   const index = await fetchIndex(skill, key);
   if (!index.ok) return { ok: false, reason: index.status === 404 ? 'none' : 'error', error: index.error };

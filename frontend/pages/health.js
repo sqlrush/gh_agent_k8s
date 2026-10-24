@@ -93,12 +93,12 @@ export const naLegend = (dims) => {
 /** 索引条目的称呼:时段体检写评估窗口(「时段 10-17 10:46 – 11:06」),此刻巡检写存档时间。 */
 export const entryLabel = (e) => (e && e.mode === 'span' && e.window ? `时段 ${windowLabel(e.window)}` : stamp(e && e.at));
 
-// 文件不在时往前退,只退到同一种口径的上一份(时段体检与此刻巡检不能互相顶替,见 lib/data.js fetchFirst)
+// 文件不在时退到同一种口径里离它最近的一份(时段体检与此刻巡检不能互相顶替,见 lib/data.js fetchFirst)
 const sameMode = (e, want) => (e.mode || '') === (want.mode || '');
 
 /** 取一份报告并建模。file 为空取最新;key 为空或 404 返回 {ok:false, reason:'none'}。
  *  range(时间段)给了:只在时间段内的报告里取,走势与上期对比也只算时间段内的;一份都没有 → reason 'range'。
- *  索引里登记着、文件却取不到 → 退到同一种口径的上一份,模型带 missed(取不到的条目);一份都取不到 → reason 'gone'。 */
+ *  索引里登记着、文件却取不到 → 退到同一种口径里最近的一份,模型带 missed(取不到的条目);一份都取不到 → reason 'gone'。 */
 export async function load(key, file, range) {
   if (!key) return { ok: false, reason: 'none' };
   if (range) {
@@ -109,11 +109,14 @@ export async function load(key, file, range) {
   const all = index.ok && Array.isArray(index.data) ? index.data : [];
   if (got.ok) return { ...model(key, got.data, all, file), missed: [], picked: !!file };
   // 时段体检不写 latest.json(不顶掉此刻巡检):只跑过时段体检时 latest 是 404,退回索引里最新的一份;
-  // 指定的那份 / 索引里最新的那份文件不在(被清理过)时,再往前退到同一种口径的上一份
+  // 指定的那份 / 索引里最新的那份文件不在(被清理过)时,再退到同一种口径里离它最近的一份
   const chain = got.status === 404 ? chainFrom(all, file, sameMode) : [];
   if (!chain.length) return { ok: false, reason: got.status === 404 ? 'none' : 'error', error: got.error };
   const r = file ? await fetchFirst('health', key, chain.slice(1), chain.slice(0, 1)) : await fetchFirst('health', key, chain);
-  return r.ok ? { ...model(key, r.rep.data, all, r.entry.file), missed: r.missed, picked: !!file } : r;
+  if (r.ok) return { ...model(key, r.rep.data, all, r.entry.file), missed: r.missed, picked: !!file };
+  // 这一种口径一份都不剩(u9500 的真数据:此刻巡检全丢了,只剩时段体检):指一份另一种口径的,不自动顶替。
+  // 不给这条路的话,点开一份已丢的旧巡检会卡在报错页 —— 选中的那份一直钉着,侧栏点「健康检查」也不会换
+  return r.reason === 'gone' ? { ...r, alt: [...all].reverse().find((e) => !r.missed.includes(e)) || null } : r;
 }
 
 export function model(key, d, all, file) {

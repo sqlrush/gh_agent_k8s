@@ -75,7 +75,7 @@ export const wDigPrompt = (m) => `请分析${wWhen(m)}的 DB Time 构成,说明�
 export const wAbout = (m) => `关于实例 ${m.name} 的${wWhen(m)}:`;
 
 /** 取一份报告(file 为空取最新)与它的上一窗口并建模。
- *  索引里登记着、文件却取不到 → 退到上一份(任一窗口都算同一类),模型带 missed;一份都取不到 → reason 'gone'。 */
+ *  索引里登记着、文件却取不到 → 退到离它最近的一份(任一窗口都算同一类),模型带 missed;一份都取不到 → reason 'gone'。 */
 export async function load(key, file, range) {
   if (!key) return { ok: false, reason: 'none' };
   let rep, idx, missed = [];

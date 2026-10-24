@@ -47,6 +47,18 @@ function tuneHtml(t) {
   }
   return `<div class="alert" data-lv="na">${glyph(null)}<div><b>还没有调优过</b><p>在会话里调优后，建议与执行计划会出现在这里。</p></div></div>`;
 }
+/** SQL 抽屉里的语句出自哪一份报告(深挖首句带它的时间,口径见 lib/prompts.js),与抽屉里显示的数同源:
+ *  在 Top SQL 榜上(tm 给了)→ 那份榜;否则 WDR 窗口里有它 → 那个窗口;否则健康检查的发现里有它 → 那份报告;
+ *  都不是、或那份报告没有时间 → ''(不猜)。 */
+export function seenIn(id, tm) {
+  if (tm) return T.tWhen(tm) ? T.tSrc(tm) : '';
+  const wm = getModel('wdr'), ts = wm && W.dimOf(wm.d, 'topsql');
+  if (wm && ((wm.sqlTexts || {})[id] || (ts && (ts.rows || []).some((x) => String(x[0]) === String(id))))) return wm.w && wm.w.begin_ts ? W.wWhen(wm) : '';
+  const hm = getModel('health');
+  if (hm && hm.findings.some((f) => String(f.sql_id) === String(id))) return H.hWhen(hm) ? H.hSrc(hm) : '';
+  return '';
+}
+
 const KW = /\b(SELECT|FROM|WHERE|GROUP BY|ORDER BY|LEFT JOIN|JOIN|ON|AND|OR|UPDATE|SET|INSERT INTO|VALUES|DELETE|AS|IN|LIMIT|HAVING|sum|count)\b/gi;
 const hl = (sql) => esc(sql).replace(KW, (x) => `<span class="kw">${x}</span>`).replace(/(\$\d+)/g, '<span class="ph">$1</span>');
 
@@ -68,11 +80,12 @@ export async function openSql(id, key) {
     : wText ? `<div class="sec">语句（来自 WDR 窗口采集）</div><div class="sql">${hl(wText)}</div>`
     : `<div class="sec">语句</div><p class="t2" style="margin:0">这条语句不在当前的 Top SQL 榜单里${t && t.original_sql ? '，下面是调优记录里的原文' : ''}。</p>${t && t.original_sql ? `<div class="sql">${hl(t.original_sql)}</div>` : ''}`;
   const mark = T.isSkipped(t) ? '<span class="tag gray">系统 SQL</span>' : t ? '<span class="tag blue">已调优</span>' : '';
+  const from = seenIn(id, r && m), fromText = from ? `这条语句出自${from}。` : '';
   drawer(`SQL 明细 ${esc(id)}`, mark, `${body}<div class="sec">调优结论</div>${tuneHtml(t)}`,
-    (T.isSkipped(t) ? '' : askBtn(r ? T.tunePrompt(r) : `请调优 sql_id 为 ${id} 的语句。`, t ? '在会话里继续调优' : '在会话里调优'))
+    (T.isSkipped(t) ? '' : askBtn(r ? T.tunePrompt(r, m) : `请调优 sql_id 为 ${id} 的语句。${fromText}`, t ? '在会话里继续调优' : '在会话里调优'))
     // 执行计划要**实时连库**才能出,而大盘是纯静态站、egress 为空,不碰数据库 ——
     // 所以计划不在大盘里生成,点一下开一个会话去取。这是当初定的隔离,不要为了省一次点击破掉。
-    + askBtn(`请取 sql_id 为 ${id} 的执行计划并解读（必要时对比改写前后的计划）。`, '在会话里看执行计划')
+    + askBtn(`请取 sql_id 为 ${id} 的执行计划并解读（必要时对比改写前后的计划）。${fromText}`, '在会话里看执行计划')
     + `<button class="btn" data-copy="${esc(id)}">复制 sql_id</button>`);
 }
 

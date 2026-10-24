@@ -15,7 +15,9 @@ import * as D from './details.js';
 import * as cmdk from './cmdk.js';
 import * as assist from './assist.js';
 import * as insight from './insight.js';
-import { writeBy, BY } from '../pages/topsql.js';
+import { writeBy, BY, tAbout } from '../pages/topsql.js';
+import { hAbout } from '../pages/health.js';
+import { wAbout } from '../pages/wdr.js';
 import { readRange, saveRange, valid as rangeValid, label as rangeLabel, fromQuery } from './range.js';
 
 const PAGES = [
@@ -157,9 +159,12 @@ function goPage(p) {
   } else mount();
 }
 const rerun = (skill, file) => { S.run = { ...S.run, [skill]: file }; mount(); };
+// ⌘J / ⌘K 里直接提问的前缀:取到了本页报告就与解读卡提问框同一句(带报告时间,口径见 lib/prompts.js)
+const ABOUT = { health: hAbout, topsql: tAbout, wdr: wAbout };
 const askPrefix = () => {
-  const c = S.ctx, page = c && PAGES.find((p) => p.name === c.page);
-  return c && c.target ? `关于实例 ${c.target.label || c.target.conn} 的${page ? page.label : '大盘'}报告:` : '';
+  const c = S.ctx, page = c && PAGES.find((p) => p.name === c.page), m = c && getModel(c.page);
+  if (!c || !c.target) return '';
+  return ABOUT[c.page] && m && m.ok !== false && !m.missing ? ABOUT[c.page](m) : `关于实例 ${c.target.label || c.target.conn} 的${page ? page.label : '大盘'}报告:`;
 };
 function assistContext() {
   const c = S.ctx, page = PAGES.find((p) => p.name === c.page), m = getModel(c.page);

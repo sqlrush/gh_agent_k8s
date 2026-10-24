@@ -49,13 +49,14 @@ export function health(m) {
     const why = [...new Set(m.dims.map((d) => cn(d.note || d.headline)))].join('；');
     return { src, ask, head: healthHead(m), lines: [`${m.dims.length} 个维度全部采集失败，原因：<b>${esc(why)}</b>。`, '常见是中间件不通、执行账号没有权限，或实例地址填错。',
       failed.length ? `子技能 ${esc(failed.map(fname).join('、'))} 也都没有执行成功。` : ''],
-      chips: [['排查采集为什么失败', `请排查这次健康检查为什么一个维度都没有采到:${why}`], ['检查中间件连通性', '请检查当前实例到中间件的连通性,并说明怎么修复。'], ['重新巡检', '请对当前库重新做一次完整健康检查。']] };
+      chips: [['排查采集为什么失败', `请排查${H.hSrc(m)}为什么一个维度都没有采到:${why}`], ['检查中间件连通性', `请检查当前实例到中间件的连通性,并说明怎么修复(${H.hSrc(m)}一个维度都没有采到)。`], ['重新巡检', H.hRedoPrompt(m)]] };
   }
+  // 追问的首句都带上这份报告的时间(口径见 lib/prompts.js)
   const chips = [];
   if (fs[0] && fs[0].sql_id) chips.push([`解释 ${fs[0].sql_id} 为什么慢`, H.fPrompt(fs[0], m)]);
-  chips.push(['给出处置顺序', '请基于最近一次健康检查报告做一次深入分析,给出处理优先级。']);
-  if (m.prev) chips.push(['和上次比变了什么', `请对比本次与上次(${stamp(m.prev.at)})的健康检查,说明新增和消失的发现。`]);
-  if (failed[0]) chips.push([`${fname(failed[0])} 为什么失败`, `健康检查的子技能 ${failed[0].skill} 执行失败(${failed[0].error}),请分析原因。`]);
+  chips.push(['给出处置顺序', H.hDigPrompt(m)]);
+  if (m.prev) chips.push(['和上次比变了什么', `请对比本次(${H.hWhen(m)})与上次(${H.entryWhen(m.prev)})的${m.span ? '时段体检' : '健康检查'},说明新增和消失的发现。`]);
+  if (failed[0]) chips.push([`${fname(failed[0])} 为什么失败`, `请分析${H.hSrc(m)}里子技能 ${failed[0].skill} 为什么执行失败(${failed[0].error})。`]);
   return { src, ask, head: healthHead(m), chips, lines: [fs[0] && hLine(fs[0], m), fs[1] && hLine(fs[1], m),
     healthSince(m) + (fs.length > 2 ? ` 其余 ${fs.length - 2} 条见下方发现表。` : ''),
     failed.length ? `子技能 <b>${esc(failed.map(fname).join('、'))}</b> 执行失败（${esc(cn(failed[0].error))}），它的检查项这次没有纳入汇总。` : ''] };
@@ -78,10 +79,10 @@ export function topsql(m) {
   lines.push(m.span ? `口径是 <b>${esc(m.win || '这段时间')}</b> 窗口内的增量，不是累计值；新出现的语句整条计入。`
     : '口径是累计统计视图，不是时间窗口；看某段时间的负载用 <a href="/dash/wdr">WDR 分析</a>。');
   const chips = [];
-  if (b0) chips.push([`调优 ${b0.sql_id}`, T.tunePrompt(b0)]);
-  if (sys(top)) chips.push(['系统 SQL 为什么占这么多', `Top SQL 里系统语句 ${top.sql_id} 占上榜耗时 ${pct(top)}%,请分析原因,是否需要调整监控采集频率。`]);
-  if (slow && slow !== b0) chips.push([`${slow.sql_id} 怎么优化`, T.tunePrompt(slow)]);
-  chips.push(['先调哪一条', '请基于最近一次 Top SQL 结果分析哪些语句最值得优化,给出优先级。']);
+  if (b0) chips.push([`调优 ${b0.sql_id}`, T.tunePrompt(b0, m)]);
+  if (sys(top)) chips.push(['系统 SQL 为什么占这么多', `请分析${T.tSrc(m)}里系统语句 ${top.sql_id} 为什么占上榜耗时 ${pct(top)}%,是否需要调整监控采集频率。`]);
+  if (slow && slow !== b0) chips.push([`${slow.sql_id} 怎么优化`, T.tunePrompt(slow, m)]);
+  chips.push(['先调哪一条', T.tDigPrompt(m)]);
   return { src: m.span ? `依据 ${m.win || stamp(m.entry.at)} 时段增量 · 按${T.byLabel(m.by)}排序` : `依据 ${stamp(m.entry.at)} 取数 · 按${T.byLabel(m.by)}排序`, ask: '问问这份榜单，比如：先调哪一条？', chips: chips.slice(0, 4), lines,
     head: sys(top) && b0 ? `耗时第一的是系统 SQL，业务语句先看 ${esc(b0.sql_id)}` : `${esc(top.sql_id)} 占上榜耗时 ${pct(top)}%，最值得先看` };
 }
@@ -98,12 +99,13 @@ export function wdr(m) {
     return x.k.u === '%' ? `${x.k.l}从 ${a}% 到 ${b}%（${x.ch.diff > 0 ? '+' : '−'}${x.ch.text}）` : `${x.k.l}从 ${a} ${au} 到 <b>${b} ${bu}</b>（${x.ch.text}）`; });
   const head0 = pdb && dbt ? (dbt / pdb >= 1.5 ? `DB Time 是上一窗口的 ${(dbt / pdb).toFixed(1)} 倍` : dbt / pdb <= 0.67 ? `DB Time 降到上一窗口的 ${((dbt / pdb) * 100).toFixed(0)}%` : 'DB Time 与上一窗口相当') + (fs[0] ? `，${esc(cn(fs[0].metric))} ${esc(fs[0].value)}` : '')
     : fs[0] ? `${esc(cn(fs[0].metric))} ${esc(fs[0].value)}，${lname(fs[0].severity)}` : '窗口内没有越过阈值的发现';
-  const chips = [];
+  // 追问的首句都带上窗口与快照号(W.wWhen);说「变了 / 上升」的带上对比的那个窗口(W.wPrev)
+  const chips = [], ww = W.wWhen(m), pw = W.wPrev(m);
   const sid = fs.map((f) => (/sqlid\s+(\w+)/.exec(f.evidence || '') || [])[1]).find(Boolean);
-  if (sid) chips.push([`${sid} 为什么占这么多 DB Time`, `请分析 WDR 窗口内 sql_id 为 ${sid} 的语句为什么占这么多 DB Time。`]);
-  if (fs.some((f) => /IO_EVENT/.test(f.metric))) chips.push(['IO 等待从哪来', '请分析这个 WDR 窗口里 IO_EVENT 等待的来源:哪些对象、哪些文件、哪些语句。']);
-  if (moved.some((x) => x.k.l === '临时溢出')) chips.push(['临时溢出怎么降', '这个 WDR 窗口临时溢出明显上升,请找出溢出的语句并给出 work_mem 或改写建议。']);
-  chips.push(['负载为什么变了', '请解读这个 WDR 窗口,说明负载变化的主要原因。']);
+  if (sid) chips.push([`${sid} 为什么占这么多 DB Time`, `请分析${ww}内 sql_id 为 ${sid} 的语句为什么占这么多 DB Time。`]);
+  if (fs.some((f) => /IO_EVENT/.test(f.metric))) chips.push(['IO 等待从哪来', `请分析${ww}里 IO_EVENT 等待的来源:哪些对象、哪些文件、哪些语句。`]);
+  if (moved.some((x) => x.k.l === '临时溢出')) chips.push(['临时溢出怎么降', `请找出${ww}里临时溢出的语句,并给出 work_mem 或改写建议:临时溢出比${pw || '上一窗口'}明显上升。`]);
+  chips.push(['负载为什么变了', `请解读${ww},说明${pw ? `与${pw}相比` : ''}负载变化的主要原因。`]);
   return { src: `依据 snap ${m.w.begin_id}–${m.w.end_id} 窗口报告 · 级别由脚本判定`, ask: '问问这个窗口，比如：负载为什么变了？', head: pangu(head0), chips: chips.slice(0, 4),
     lines: [fs[0] && fl(fs[0]), fs[1] && fl(fs[1]), mv.length ? `与上一窗口相比，${mv.slice(0, 3).join('，')}。` : p ? '其余指标与上一窗口相比没有明显变坏。' : m.sameSkipped ? '之前的报告分析的都是同一个快照窗口，没有可对比的窗口；对更早的窗口做一次分析就能对比。' : '这是第一份报告，没有可对比的窗口。',
       cpu !== null && pcpu !== null && Math.abs(cpu - pcpu) >= 5 ? `CPU 占 DB Time 从 ${pcpu}% ${cpu < pcpu ? '降' : '升'}到 ${cpu}%，等待占比${cpu < pcpu ? '升' : '降'}到 <b>${(100 - cpu).toFixed(0)}%</b>。` : ''] };

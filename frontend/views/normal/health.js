@@ -6,7 +6,7 @@ import { rise } from '../../lib/motion.js';
 import { setModel } from '../../lib/store.js';
 import { dial, rhythm } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
-import { title, metricName, keyFig, fPrompt, countsOf, naLegend } from '../../pages/health.js';
+import { title, metricName, keyFig, fPrompt, countsOf, naLegend, hDigPrompt, hRedoPrompt, hAbout } from '../../pages/health.js';
 import { pageHead, tile, insightCard, heroStats, emptyHero, errorHero, runPicker, rangeHero } from './common.js';
 
 function hero(m) {
@@ -28,7 +28,7 @@ function hero(m) {
   const ins = insight.health(m);
   return `<section class="hero"><div class="hero-grid">
       <div class="glass ringbox rise"${rise()}><div class="title">${I.grid}检查项<span class="t3">点一项看明细</span></div>${dial(m.checks, m.level, `${m.checks.length} 项检查`)}<div class="ring-legend">${legend}</div></div>
-      ${insightCard({ ...ins, ctx: m.span ? `关于实例 ${m.name} 在 ${m.win} 这段时间的时段体检报告:` : `关于实例 ${m.name} 在 ${stamp(m.entry && m.entry.at)} 的健康检查报告:` })}
+      ${insightCard({ ...ins, ctx: hAbout(m) })}
     </div>${heroStats(stats)}</section>`;
 }
 
@@ -70,7 +70,7 @@ export function render(root, m, ctx) {
     ? [['实例', esc(target)], ['执行人', esc(ctx.whoami || '—')], ['评估时段', esc(m.win || '—')], ['口径', '窗口两端相减；连接、锁、膨胀等只有此刻的值'], ['存档', `${m.all.length} 份`]]
     : [['实例', esc(target)], ['执行人', esc(ctx.whoami || '—')], ['巡检时间', esc(stamp(m.entry && m.entry.at))], ['存档', `${m.all.length} 份`]];
   root.innerHTML = head((m.span ? '<span class="tag blue">时段体检</span> ' : '') + tag(m.level) + naTag,
-    runPicker('health', m.entry, m.span ? '时段体检' : '巡检') + `<button class="btn"${dig('请对当前库重新做一次完整健康检查。', '健康检查')}>${I.redo}重新巡检</button>` + primary('请基于最近一次健康检查报告做一次深入分析,给出处理优先级。', '在会话里深挖', '健康检查'),
+    runPicker('health', m.entry, m.span ? '时段体检' : '巡检') + `<button class="btn"${dig(hRedoPrompt(m), '健康检查')}>${I.redo}重新巡检</button>` + primary(hDigPrompt(m), '在会话里深挖', '健康检查'),
     desc)
     + hero(m)
     + `<div class="bento">${tile({ span: 'b8', title: `需要处理的发现<span class="cnt">${m.findings.length}</span>`, desc: '脚本按阈值判定，模型不改级别；指标上停留可看证据', body: findingsTable(m), flush: !!m.findings.length })}

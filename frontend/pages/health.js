@@ -5,7 +5,7 @@ import { fetchLatest, fetchIndex, fetchReport } from '../lib/data.js';
 import { esc, num, split, fmtMs, fmtSec, fmtInt, cn, stamp } from '../lib/fmt.js';
 import { lk, instName } from '../lib/ui.js';
 import { loadInRange, windowLabel, windowPromptLabel } from '../lib/range.js';
-import { DEADLOCK_CODES, deadlockPrompt } from '../lib/prompts.js';
+import { DEADLOCK_CODES, deadlockPrompt, atText, prevNote } from '../lib/prompts.js';
 
 // 维度名 = gaussdb-health/scripts/model.py 的 DIM_* 常量(契约守卫逐个核对,技能改名这里会先红)。
 // 子技能的发现带它们自己的维度名(如 DB Time),不在这张表里就原样显示。
@@ -57,17 +57,31 @@ const KEYFIG = {
 /** 维度的关键读数 {v, u, cap};没采到或没有读数规则时 null。 */
 export const keyFig = (d) => (d.available === false ? null : (KEYFIG[d.dimension] || (() => null))(d));
 
-/** 深挖首句:只放这条发现的数据;m(本页模型)给了且是时段体检时带上评估窗口(见 lib/prompts.js)。 */
+// 深挖首句里这份报告的时间与称呼(口径见 lib/prompts.js):时段体检 = 评估窗口(带秒),此刻巡检 = 巡检时间。
+// 索引条目 e 也能用(「和上次比」要写上一份的时间);m.winq 与 e.window 是同一个窗口。
+const isSpan = (m) => !!(m && m.span && m.win);
+export const entryWhen = (e) => (e && e.mode === 'span' && e.window ? windowPromptLabel(e.window) : atText(e && e.at));
+export const hWhen = (m) => (isSpan(m) ? m.winq || m.win : m && !m.span ? atText(m.entry && m.entry.at) : '');
+/** 「10-17 10:46:29 – 11:06:30 的时段体检」/「10-22 14:03 的健康检查」;取不到时间只写「健康检查」。 */
+export const hSrc = (m) => (hWhen(m) ? `${hWhen(m)} 的${isSpan(m) ? '时段体检' : '健康检查'}` : '健康检查');
+
+/** 深挖首句:只放这条发现的数据;m(本页模型)给了就带上报告时间(时段体检带评估窗口)。 */
 export const fPrompt = (f, m) => {
-  const span = m && m.span && m.win ? (m.winq || m.win) : '';
-  const src = span ? `${span} 的时段体检` : '健康检查';
-  if (DEADLOCK_CODES.has(f.code)) return deadlockPrompt(span ? `${span} 这段时间里` : '健康检查发现', f);
+  const src = hSrc(m);
+  if (DEADLOCK_CODES.has(f.code)) return deadlockPrompt(isSpan(m) ? `${hWhen(m)} 这段时间里` : `${src}发现`, f);
   return f.sql_id
     ? `请解释并优化 sql_id 为 ${f.sql_id} 的语句:${src}发现 ${f.code},${f.metric}=${f.value}(阈值 ${f.threshold})。`
     : `请针对${src}发现 ${f.code}(${f.metric}=${f.value},阈值 ${f.threshold})做深入分析:${f.evidence}`;
 };
 /** 维度深挖首句。 */
-export const dimPrompt = (d, m) => `请深入分析${m && m.span && m.win ? `${m.winq || m.win} 时段体检` : '健康检查'}的「${title(d.dimension)}」维度:${d.headline || ''}`;
+export const dimPrompt = (d, m) => `请深入分析${hWhen(m) ? `${hWhen(m)} ${isSpan(m) ? '时段体检' : '健康检查'}` : '健康检查'}的「${title(d.dimension)}」维度:${d.headline || ''}`;
+/** 页头「在会话里深挖」与解读卡「给出处置顺序」:同一句。 */
+export const hDigPrompt = (m) => `请基于${hSrc(m)}报告做一次深入分析,给出处理优先级。`;
+/** 「重新巡检」:时段体检重跑同一个窗口;此刻巡检重新做一次,交代上一份的时间供对比。 */
+export const hRedoPrompt = (m) => (isSpan(m) ? `请对当前库重新做一次 ${hWhen(m)} 的时段体检。`
+  : `请对当前库重新做一次完整健康检查。${prevNote(m && m.entry && m.entry.at)}`);
+/** 解读卡提问框与 ⌘J / ⌘K 自由提问的前缀。 */
+export const hAbout = (m) => `关于实例 ${m.name} ${!hWhen(m) ? '的健康检查' : isSpan(m) ? `在 ${hWhen(m)} 这段时间的时段体检` : `在 ${hWhen(m)} 的健康检查`}报告:`;
 
 export const LOOKBACK = '回看不了';
 /** 没采到的维度在图例里怎么称呼:全是回看不了 / 全是采集失败 / 两种都有。 */

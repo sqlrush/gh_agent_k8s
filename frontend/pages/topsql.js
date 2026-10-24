@@ -7,7 +7,8 @@
 import { fetchIndex, fetchReport, fetchSqltune } from '../lib/data.js';
 import { fmtMs, brief, stamp } from '../lib/fmt.js';
 import { instName } from '../lib/ui.js';
-import { filterIndex, windowLabel } from '../lib/range.js';
+import { filterIndex, windowLabel, windowPromptLabel } from '../lib/range.js';
+import { atText, prevNote } from '../lib/prompts.js';
 
 export const BY = [['time', '总耗时', 'total_sec'], ['avg', '平均耗时', 'avg_ms'], ['calls', '调用次数', 'calls'], ['reads', '逻辑读', 'total_sec'], ['rows', '返回行', 'rows']];
 export const byLabel = (by) => (BY.find(([b]) => b === by) || [, by])[1];
@@ -29,8 +30,22 @@ export function latestPerBy(index) {
   return out;
 }
 
-// 调优入口全页只有一种写法(user 2026-09-23:两种说法并存让人以为是两件事)
-export const tunePrompt = (r) => `请调优 sql_id 为 ${r.sql_id} 的语句(调用 ${r.calls} 次,平均 ${fmtMs(r.avg_ms)}):${brief(r.query, 200)}`;
+// 深挖首句里这份榜单的时间与称呼(口径见 lib/prompts.js):时段 / 增量榜 = 评估窗口(带秒),累计榜 = 取数时间。
+export const tWhen = (m) => (!m ? '' : m.span ? m.winq || m.win || '' : atText(m.entry && m.entry.at));
+/** 「10-17 10:46:29 – 11:06:30 的 Top SQL 时段榜」/「10-22 14:03 取数的 Top SQL 累计榜」;取不到时间只写「Top SQL」。 */
+export const tSrc = (m) => (!tWhen(m) ? 'Top SQL' : m.span ? `${tWhen(m)} 的 Top SQL 时段榜` : `${tWhen(m)} 取数的 Top SQL 累计榜`);
+
+// 调优入口全页只有一种写法(user 2026-09-23:两种说法并存让人以为是两件事)。
+// m(榜单模型)给了就写明调用次数、平均耗时是哪一份榜上的:累计榜是取数那一刻的累计,时段榜是窗口内的增量。
+export const tunePrompt = (r, m) => `请调优 sql_id 为 ${r.sql_id} 的语句(${tWhen(m) ? `${tSrc(m)}上` : ''}调用 ${r.calls} 次,平均 ${fmtMs(r.avg_ms)}):${brief(r.query, 200)}`;
+/** 页头「在会话里深挖」与解读卡「先调哪一条」:同一句;带排序维度(按平均耗时排的榜和按总耗时排的不是一回事)。 */
+export const tDigPrompt = (m) => `请基于${tSrc(m)}(按${byLabel(m.by)})分析哪些语句最值得优化,给出优先级。`;
+/** 「重新取数」:时段榜重取同一个窗口;累计榜重新取一次,交代上一份的时间供对比。都按当前页签的维度取。 */
+export const tRedoPrompt = (m) => (m.span ? `请重新取一次 ${tWhen(m) || '这段时间'} 的 Top SQL(按${byLabel(m.by)})。`
+  : `请重新取一次当前库的 Top SQL(按${byLabel(m.by)})。${prevNote(m.entry && m.entry.at)}`);
+/** 解读卡提问框与 ⌘J / ⌘K 自由提问的前缀。 */
+export const tAbout = (m) => (m.span ? `关于实例 ${m.name} 在 ${tWhen(m) || '这段时间'} 的 Top SQL(窗口内增量):`
+  : `关于实例 ${m.name} 在 ${tWhen(m)} 取的 Top SQL 榜单:`);
 // 取数脚本在库端把 SQL 截到 80 字(客户中间件白名单里注册的脚本,改它要客户重新注册):满 80 字就标出来
 export const QUERY_CAP = 80;
 export const fullQuery = (q) => (String(q ?? '').length >= QUERY_CAP ? `${q} …(取数时截到 ${QUERY_CAP} 字)` : String(q ?? ''));
@@ -69,6 +84,7 @@ export async function load(key, byPref, range, file) {
   // span:'span'(时段榜)/ 'delta'(增量榜)/ ''(累计榜)。前两种的数是窗口内增量,页面上不能写「自统计重置以来」
   const span = ['span', 'delta'].includes(rep.data.mode) ? rep.data.mode : '';
   return { ok: true, key, per, avail, by, entry, rep: rep.data, rows, tune, sum, span, win: span ? windowText(rep.data) : '',
+    winq: span ? (rep.data.window ? windowPromptLabel(rep.data.window) : windowText(rep.data)) : '',   // 深挖首句用,带秒
     share: (r) => ((+r.total_sec || 0) / sum) * 100 };
 }
 

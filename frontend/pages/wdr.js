@@ -63,10 +63,16 @@ export function change(k, cur, prev) {
   return { cls, text, dir: Math.sign(diff), r, diff };
 }
 // 深挖首句带上分析的是哪个窗口(快照号与时间):不带的话模型要自己去猜是哪一段(见 lib/prompts.js)
-const wWhen = (m) => (m && m.w && m.w.begin_ts ? `WDR 窗口 ${m.w.begin_ts} – ${m.w.end_ts}(快照 ${m.w.begin_id} → ${m.w.end_id})` : 'WDR 窗口');
+export const wWhen = (m) => (m && m.w && m.w.begin_ts ? `WDR 窗口 ${m.w.begin_ts} – ${m.w.end_ts}(快照 ${m.w.begin_id} → ${m.w.end_id})` : 'WDR 窗口');
+/** 对比的那个窗口:「上一窗口(快照 2971 → 2978)」;没有上一窗口返回 ''。 */
+export const wPrev = (m) => (m && m.p && m.p.window ? `上一窗口(快照 ${m.p.window.begin_id} → ${m.p.window.end_id})` : '');
 export const wPrompt = (f, m) => (DEADLOCK_CODES.has(f.code) ? deadlockPrompt(`${wWhen(m)}里`, f)
   : `请针对${wWhen(m)}的发现 ${f.code}(${f.metric}=${f.value})做深入分析:${f.evidence}`);
 export const wDimPrompt = (name, x, m) => `请深入分析${wWhen(m)}的「${WT[name] || name}」:${x.headline || ''}`;
+/** 页头「在会话里深挖」。 */
+export const wDigPrompt = (m) => `请分析${wWhen(m)}的 DB Time 构成,说明是算力型还是等待型负载。`;
+/** 解读卡提问框与 ⌘J / ⌘K 自由提问的前缀。 */
+export const wAbout = (m) => `关于实例 ${m.name} 的${wWhen(m)}:`;
 
 /** 取一份报告(file 为空取最新)与它的上一窗口并建模。 */
 export async function load(key, file, range) {

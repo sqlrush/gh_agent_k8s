@@ -137,6 +137,7 @@ const INSPECT = (ids) => `(() => {
   const failed = text.includes('页面加载失败') ? text.slice(text.indexOf('页面加载失败'), text.indexOf('页面加载失败') + 120) : '';
   return { blocks, leaks, failed, overflow: document.documentElement.scrollWidth - window.innerWidth,
            digs: document.querySelectorAll('[data-dig]').length,
+           digTexts: [...document.querySelectorAll('[data-dig]')].filter((a) => !a.closest('.empty')).map((a) => a.dataset.dig),
            inst: [...document.querySelectorAll('#inst option')].map((o) => ({ v: o.value, t: o.textContent })),
            allNa: (() => { const p = [...document.querySelectorAll('#hd-dims .pill')]; return p.length > 0 && p.every((x) => x.textContent === '不可用'); })(),
            badge: ((document.querySelector('#hd-head .badge, #wd-head .badge') || {}).textContent || '') };
@@ -148,6 +149,12 @@ function report(where, tab, r, ids) {
   r.failed ? bad(where, `页面加载失败:${r.failed}`) : null;
   if (r.allNa) (r.badge === '正常' ? bad(where, '所有维度都没采到,标题却显示「正常」') : good(`所有维度都没采到,标题显示「${r.badge}」而不是「正常」`));
   r.leaks.length ? bad(where, `页面上漏出坏值:${[...new Set(r.leaks)].slice(0, 4).join(' | ')}`) : good('没有 undefined/NaN/null 漏到页面上');
+  // 所有深挖入口的首句都带报告的时间(用户 2026-10-19 提;口径见 frontend/lib/prompts.js)
+  if (r.digTexts && r.digTexts.length && /^(health|topsql|wdr)/.test(where)) {
+    const miss = r.digTexts.filter((t) => !/\d{2}-\d{2} \d{2}:\d{2}/.test(t));
+    miss.length ? bad(where, `${miss.length}/${r.digTexts.length} 个深挖入口首句没带报告时间:${miss[0].slice(0, 60)}`)
+      : good(`${r.digTexts.length} 个深挖入口首句都带报告时间`);
+  }
   tab.errors.length ? bad(where, `脚本错误 ${tab.errors.slice(0, 3).join(' | ')}`) : good('控制台零错误');
   tab.failed.length ? bad(where, `失败请求 ${[...new Set(tab.failed)].slice(0, 5).join(' | ')}`) : good('没有失败的请求');
   tab.errors.length = 0; tab.failed.length = 0;

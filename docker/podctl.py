@@ -103,6 +103,8 @@ _BASH_DENY_AFTER = (
     "*>*",              # 重定向写文件:`cat > x.py` 写出脚本再借技能路径执行
     "*/../../*",        # 借技能目录跳出去执行别处的文件(技能之间的同级引用只有一层 ../)
     "*/proc/*", "*environ*",            # 读别的进程 / 自己的环境
+    # export / declare 写了也拦不住:opencode 只给语法树里的「命令」节点生成匹配项,声明命令不核对
+    # (scripts/check-opencode-permissions.py 实测)。环境里不放凭据(凭据代理)才是兜底。
     "env", "env *", "printenv", "printenv *", "set", "set *", "export", "export *", "declare *",
 )
 

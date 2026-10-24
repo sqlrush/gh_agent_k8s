@@ -89,9 +89,15 @@ opencode ──http://127.0.0.1:4099/model───▶ credproxy ──加 Autho
 | `webfetch` / `websearch` | 拒绝 | 拒绝 |
 | `skill` | 只放行 `gaussdb-*` | 同左 |
 | `read` / `glob` / `grep` / `list` | 放行（`/nas/kb` 在项目目录之外，`external_directory` 也放行） | 同左 |
-| `bash` | 先全拒；放行 `python3` / `python` 执行技能目录 `gaussdb-*` 下的脚本，以及 `cat` `grep` `head` `tail` `ls` `wc` `sort` `uniq` `cut` `date` `echo` `pwd` `ps` `df` `du` `free`；最后再拒掉重定向写文件（`>`）、跳出技能目录（`/../../`）、`/proc/`、`environ`、`env` / `printenv` / `set` / `export` / `declare` | 同左 |
+| `bash` | 先全拒；放行 `python3` / `python` 执行技能目录 `gaussdb-*` 下的脚本，以及 `cat` `grep` `head` `tail` `ls` `wc` `sort` `uniq` `cut` `date` `echo` `pwd` `ps` `df` `du` `free`；最后再拒掉重定向（`>`，含 `2>&1`）、跳出技能目录（`/../../`）、`/proc/`、`environ`、`env` / `printenv` / `set`（`export` / `declare` 也写了规则，但 opencode 不核对，见下） | 同左 |
 
-opencode 的 bash 规则是「最后一条匹配的生效」，管道、`&&`、`$()` 里的每条命令分别核对。这一层是纵深防御：凭据本来就不在这个容器里。
+opencode 的 bash 规则是「最后一条匹配的生效」，管道、`&&`、`$()` 里的每条命令分别核对，重定向（`>`、`<`、heredoc）算在命令里。
+这一层是纵深防御：凭据本来就不在这个容器里。实测（`scripts/check-opencode-permissions.py`，真 opencode + 按脚本发工具调用的假模型）两点要知道：
+
+- **`export`、`declare -p` 这类声明命令 opencode 不核对**（它只给语法树里的「命令」节点生成匹配项），能打印本进程的环境。
+  所以环境里不放凭据：剩下的只有本人的对话口令、报告令牌这类本来就是他自己的东西。
+- **`2>&1` 也算重定向，会被拒**。模型习惯在命令后加 `2>&1 | head`，被拒后会去掉重试（多一次工具调用）。
+  不放开它：规则是通配符，放行 `* 2>&1` 就等于放行 `cat > 任意文件 2>&1`。
 
 ## 镜像里没有的东西
 

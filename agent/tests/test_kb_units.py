@@ -1075,3 +1075,12 @@ def test_ingest_local_machine_path_tells_user_to_upload(tmp_path, capsys, monkey
     text = cap.out + cap.err
     assert rc != 0
     assert "沙箱" in text and "上传" in text and str(tmp_path / "kb" / "inbox" / "uploads") in text
+
+
+def test_agents_md_does_not_send_the_model_to_paths_that_do_not_exist():
+    """容器里没有 /workspace,也没有 search_docs.py。2026-10-24 测试环境:模型照 AGENTS.md 的旧检索流程猜出
+    python3 /workspace/kb.py,被权限规则拦下,界面显示「shell 失败」。检索走知识库 skill,路径以 skill 给的为准。"""
+    text = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "search_docs.py" not in text and "/workspace/docs" not in text
+    assert "不要猜路径" in text and "kb.py query" in text and "kb.py show" in text
+    assert "看文件内容用 read 工具" in text, "模型用 sed -n 看文件片段被拦(同一次测试),要指给它能用的办法"

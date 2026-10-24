@@ -202,3 +202,16 @@ def test_health_window_key_figures_read_real_item_names():
 def test_kb_catalog_contract(samples):
     """知识库三个页签读的目录:由 docker/kbcatalog.build 从样例知识库真实生成。"""
     _check("kb_catalog", _load(samples / "_kb" / "catalog.json"))
+
+
+def test_topsql_tabs_are_the_skills_sort_keys():
+    """大盘 Top SQL 的页签(pages/topsql.js 的 BY)只能是技能 --by 认的维度 —— 页签多一个,点开就是「还没取过」、
+    去会话里取也会被技能拒掉;维度改名,存档文件名 <时间戳>.<维度>.json 也就对不上了。"""
+    src = (_SKILLS / "gaussdb-topsql" / "scripts" / "topsql.py").read_text(encoding="utf-8")
+    keys = set(re.findall(r'"(\w+)"', re.search(r"^SORT_KEYS\s*=\s*\[(.*?)\]", src, re.M).group(1)))
+    page = (_PAGES / "topsql.js").read_text(encoding="utf-8")
+    tabs = re.findall(r"\['(\w+)', '[^']+', '\w+'\]", page.split("export const BY", 1)[1].split("];", 1)[0])
+    assert {"time", "avg", "self", "self_avg"} <= set(tabs), tabs
+    if not {"self", "self_avg"} <= keys:
+        pytest.skip("agent/ 的 gaussdb-topsql 还没同步 gh_skill 60615b4(--by self / self_avg),同步后这条才生效")
+    assert set(tabs) <= keys, "大盘有、技能没有的维度:%s" % (set(tabs) - keys)

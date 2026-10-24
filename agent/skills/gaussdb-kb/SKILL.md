@@ -39,7 +39,8 @@ python3 {baseDir}/scripts/kb.py query --q "<用户的问题>"
 
 输出就是各诊断 skill 里同款的「客户知识库参照」小节:贵行规范 / 历史相似(带结论强度与处置)/ 本行历史路径
 (只含客户确认过的边,标几个案例支持)/ 原始工单。**引用必带 ID 与出处**;写着「无」就如实说「本行无先例,以下为通用做法」;
-绝不编案例或规范。有 findings 的 skill(health / sqltune / …)不用你查——它们的脚本已经把这一节写进输出了。
+绝不编案例或规范。有 findings 的 9 个诊断 skill(health / lockwait / waitevent / vacuum / wdr / memanalyze / sqltune /
+proctune / sqlreview)不用你查——它们的脚本已经把这一节写进 markdown 输出了(wdr 在 `collect` 的证据包里)。
 三种模式输出同一格式;文件模式的状态行写「模式:文件(原因)」,引用要求不变。要看案例全文时先读 `<kb>/CASES.md`
 (案例逐条清单)再读 `<kb>/cases/` 的文件,不要整目录灌进上下文。
 

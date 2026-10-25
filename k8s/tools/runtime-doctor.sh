@@ -723,8 +723,12 @@ trap cleanup EXIT
 IMG=$(G deploy "$D" -o jsonpath='{.spec.template.spec.containers[0].image}')
 [ -n "$IMG" ] || IMG=$(G deploy -l role=runtime -o jsonpath='{.items[0].spec.template.spec.containers[0].image}')
 if [ -z "$IMG" ]; then
+  # 还没有任何用户 Deployment 时按网关的拼法拼:<USER_IMAGE_REGISTRY>/gaussdb-agent-runtime:<USER_IMAGE_TAG>。
+  # 漏了仓库前缀,镜像在内网仓库的部署里临时 Pod 全部 ImagePullBackOff,②④ 会误报「NAS 挂不上」(2026-10-25 照手册验证时发现)
   TAG=$(G configmap gateway-config -o jsonpath='{.data.USER_IMAGE_TAG}')
-  [ -n "$TAG" ] && IMG="gaussdb-agent-runtime:${TAG}"
+  REGP=$(G configmap gateway-config -o jsonpath='{.data.USER_IMAGE_REGISTRY}')
+  REGP=${REGP%/}
+  [ -n "$TAG" ] && IMG="${REGP:+$REGP/}gaussdb-agent-runtime:${TAG}"
 fi
 detect_local_proxy
 

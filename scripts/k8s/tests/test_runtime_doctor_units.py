@@ -366,3 +366,21 @@ def test_fix_is_verified_as_uid_1000_not_by_the_owner_root_sees():
     fix = fix[:fix.index("\n  fi\n")]
     assert 'start_pod "$pv" 1000' in fix and "$NAS_SH" in fix, "修完要以 uid 1000 再查一遍"
     assert "$3 != 1000" not in fix
+
+
+def test_fallback_image_carries_the_registry_prefix():
+    """**2026-10-25 照《从源码构建到 K8s 运行》在全新 kind 集群上验证时发现。** 工号还没登录过、集群里一个用户
+    Deployment 都没有时,临时 Pod 的镜像按 gateway-config 拼;以前只拼了 USER_IMAGE_TAG,镜像在内网仓库的部署里
+    临时 Pod 全部 ImagePullBackOff,② 报成「NAS 挂不上」、④ 出网不测 —— 而网关建用户 Pod 时是带仓库前缀的。"""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    start = text.index('IMG=$(G deploy "$D"')
+    fb = text[text.index('if [ -z "$IMG" ]; then', start):]
+    fb = fb[:fb.index("\nfi\n")]
+    assert "USER_IMAGE_REGISTRY" in fb and "USER_IMAGE_TAG" in fb
+    snippet = textwrap.dedent('''
+        G() { case "$*" in *USER_IMAGE_TAG*) echo t1 ;; *USER_IMAGE_REGISTRY*) echo "$REG" ;; esac; }
+        IMG=""
+    ''') + fb + '\nfi\necho "IMG=$IMG"\n'
+    assert _bash(snippet, env={"REG": "registry.example/gaussdb-agent/"})[1].strip() == \
+        "IMG=registry.example/gaussdb-agent/gaussdb-agent-runtime:t1"
+    assert _bash(snippet, env={"REG": ""})[1].strip() == "IMG=gaussdb-agent-runtime:t1"

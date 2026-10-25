@@ -6,6 +6,10 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 COPY docker/nginx-dash.conf /etc/nginx/conf.d/default.conf
 COPY frontend/ /usr/share/nginx/html/dash/
+# 构建目录里的文件可能是 0600:nginx 的 worker 读不到就是 403(基础镜像默认 USER 101,chmod 要切回 root 做)
+USER root
+RUN chmod -R a+rX /usr/share/nginx/html/dash
+USER 101
 
 LABEL org.opencontainers.image.title="gaussdb-agent-frontend" \
       org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \

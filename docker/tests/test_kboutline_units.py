@@ -121,3 +121,9 @@ def test_topic_list_puts_parameters_first(tmp_path):
     items = ol.list(topic="lock", limit=10)["items"]
     cats = [x["category"] for x in items]
     assert cats == sorted(cats, key=lambda c: ["GUC 参数", "系统表 / 视图", "说明类页面", "SQL 语法与函数", "错误码"].index(c))
+
+
+def test_images_normalize_file_permissions():
+    """构建目录里的文件可能是 0600;镜像里必须统一成人人可读,否则槽位(uid 2000+)读不到 /opt/agent 下的脚本。"""
+    assert "chmod -R a+rX /opt/agent" in (_ROOT / "docker" / "Dockerfile").read_text(encoding="utf-8")
+    assert "chmod -R a+rX /usr/share/nginx/html/dash" in (_ROOT / "docker" / "Dockerfile.frontend").read_text(encoding="utf-8")

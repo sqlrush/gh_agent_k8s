@@ -1,5 +1,6 @@
 // 普通风格 · 知识库:总览(主视觉 = 条目数、覆盖环、关系缩略图 + 智能体解读;其下 = 最近案例、健康自检、最近检索、缺口)
-// + 案例 / 条款 / 关系图三个页签(lib/kb-docs.js、lib/kb-graph.js)。页签记在地址的 # 上(#cases=<id> 等),刷新与后退都停在原处。
+// + 知识条目 / 案例 / 条款 / 关系图四个页签(lib/kb-items.js、lib/kb-docs.js、lib/kb-graph.js)。页签记在地址的 # 上(#items=<id>、#cases=<id> 等),
+// 刷新与后退都停在原处。
 
 import { esc, stamp, cn, fmtInt } from '../../lib/fmt.js';
 import { I, glyph, tag, cu, dig } from '../../lib/ui.js';
@@ -7,31 +8,40 @@ import { rise } from '../../lib/motion.js';
 import { setModel } from '../../lib/store.js';
 import { covring, minigraph } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
-import { casesView, rulesView } from '../../lib/kb-docs.js';
+import { casesView, rulesView, KTYPES, EIGHT } from '../../lib/kb-docs.js';
+import { itemsView, entries } from '../../lib/kb-items.js';
 import { graphView } from '../../lib/kb-graph.js';
 import { missLabel } from '../../pages/kb.js';
 import { pageHead, tile, insightCard, emptyHero } from './common.js';
 
-const TABS = [['overview', '总览'], ['cases', '案例'], ['rules', '条款'], ['graph', '关系图']];
-const S = { tab: 'overview', caseId: '', ruleId: '', node: '', q: '', sys: '' };
+const TABS = [['overview', '总览'], ['items', '知识条目'], ['cases', '案例'], ['rules', '条款'], ['graph', '关系图']];
+const S = { tab: 'overview', caseId: '', ruleId: '', itemId: '', node: '', q: '', sys: '', ktype: '', topic: '' };
 function readHash() {
   const [tab, arg] = decodeURIComponent(location.hash.replace(/^#/, '')).split('=');
   S.tab = TABS.some(([k]) => k === tab) ? tab : 'overview';
+  if (arg && S.tab === 'items') S.itemId = arg;
   if (arg && S.tab === 'cases') S.caseId = arg;
   if (arg && S.tab === 'rules') S.ruleId = arg;
   if (S.tab === 'graph') S.node = arg || '';
 }
 function writeHash() {
-  const arg = S.tab === 'cases' ? S.caseId : S.tab === 'rules' ? S.ruleId : S.tab === 'graph' ? S.node : '';
+  const arg = S.tab === 'items' ? S.itemId : S.tab === 'cases' ? S.caseId : S.tab === 'rules' ? S.ruleId : S.tab === 'graph' ? S.node : '';
   const h = '#' + S.tab + (arg ? '=' + encodeURIComponent(arg) : '');
   if (location.hash !== h) history.replaceState(null, '', h);
 }
 
+// 总览上的类型计数:八类即使为 0 也列出(灰显),修正 / 旧指南有才列;点一类进「知识条目」并按它筛选
+function typeSplit(m) {
+  const n = (k) => +m.types[k] || 0;
+  return KTYPES.filter(([k]) => EIGHT.includes(k) || n(k)).map(([k, s, name]) =>
+    `<span${n(k) ? '' : ' class="t3"'}><a href="#" data-ktype="${k}" title="${name}">${s}</a> <b>${fmtInt(n(k))}</b></span>`).join('');
+}
+
 function hero(m) {
-  const total = m.counts.case + m.counts.rule;
+  const total = m.types ? Object.values(m.types).reduce((a, b) => a + (+b || 0), 0) : m.counts.case + m.counts.rule;
   const left = `<div class="glass kbbox rise"${rise()}><div class="title">${I.book}知识条目<span class="t3">全体共享，${m.d.readonly === false ? '可写' : '只读'}</span></div>
     <div class="kbtop"><div><div class="big num">${cu(fmtInt(total))}<small>条</small></div>
-      <div class="kbsplit"><span>案例 <b>${fmtInt(m.counts.case)}</b></span><span>条款 <b>${fmtInt(m.counts.rule)}</b></span><span class="t3">整理自 ${fmtInt(m.counts.raw)} 份原始工单</span></div></div>
+      <div class="kbsplit">${m.types ? typeSplit(m) : `<span>案例 <b>${fmtInt(m.counts.case)}</b></span><span>条款 <b>${fmtInt(m.counts.rule)}</b></span>`}${m.counts.raw ? `<span class="t3">整理自 ${fmtInt(m.counts.raw)} 份原始工单</span>` : ''}</div></div>
       <div class="kbcov">${covring(m.cov, m.cov === null ? '文件模式只有关键词' : '向量覆盖')}</div></div>
     ${m.catOk ? `<div class="mg-h"><span>关系图 · ${Number.isFinite(m.gEdges) ? fmtInt(m.gEdges) : '—'} 条已确认的边（${esc(m.gKind)}）</span><a href="#" data-tab="graph">展开${I.arrow}</a></div>${minigraph(m.cat)}` : ''}</div>`;
   return `<section class="hero"><div class="hero-grid">${left}${insightCard({ ...insight.kb(m), ctx: '关于共享知识库:' })}</div></section>`;
@@ -59,13 +69,13 @@ function overview(m) {
 export function render(root, m, ctx) {
   setModel('kb', m);
   readHash();
-  const counts = m.catOk ? { cases: m.cases.length, rules: m.rules.length, graph: (m.cat.edges || []).length } : {};
+  const counts = m.catOk ? { items: entries(m.cat).length, cases: m.cases.length, rules: m.rules.length, graph: (m.cat.edges || []).length } : {};
   const draw = () => {
     writeHash();
     let body;
     if (S.tab === 'overview') body = overview(m);
     else if (!m.catOk) body = `<div class="kbx"><div class="card"><div class="empty"><b>读不到知识库目录</b>${esc(m.catErr || '')}</div></div></div>`;
-    else body = `<div class="kbx">${S.tab === 'cases' ? casesView(m.cat, S) : S.tab === 'rules' ? rulesView(m.cat, S) : graphView(m.cat, S)}</div>`;
+    else body = `<div class="kbx">${S.tab === 'items' ? itemsView(m.cat, S) : S.tab === 'cases' ? casesView(m.cat, S) : S.tab === 'rules' ? rulesView(m.cat, S) : graphView(m.cat, S)}</div>`;
     const tabs = `<div class="tabs">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${l}${counts[k] !== undefined ? `<span class="n">${counts[k]}</span>` : ''}</button>`).join('')}</div>`;
     const st = m.ok && m.attached ? (m.issues ? tag(1, `${m.issues} 项待处理`) : tag(0, '健康')) : '';
     const desc = S.tab === 'overview'
@@ -78,10 +88,16 @@ export function render(root, m, ctx) {
   if (!root.dataset.kbBound) {                    // 事件只挂一次:root 在切实例、切风格时会被整页重画
     root.dataset.kbBound = '1';
     root.addEventListener('click', (ev) => {
-      const t = ev.target.closest('[data-tab],[data-case],[data-rule],[data-node],[data-sys]');
+      const t = ev.target.closest('[data-tab],[data-item],[data-ktype],[data-topic],[data-case],[data-rule],[data-node],[data-sys]');
       if (!t || !root.contains(t) || t.hasAttribute('data-dig') || !root._kbGo) return;
       ev.preventDefault();
-      if (t.dataset.tab !== undefined) root._kbGo({ tab: t.dataset.tab, q: '', node: t.dataset.tab === 'graph' ? S.node : '' });
+      if (t.dataset.tab !== undefined) root._kbGo({ tab: t.dataset.tab, q: '', node: t.dataset.tab === 'graph' ? S.node : '', ktype: '', topic: '' });
+      else if (t.dataset.item !== undefined) root._kbGo({ tab: 'items', itemId: t.dataset.item });
+      else if (t.dataset.ktype !== undefined || t.dataset.topic !== undefined) {
+        const f = t.dataset.ktype !== undefined ? { ktype: t.dataset.ktype } : { topic: t.dataset.topic };
+        if (S.tab === 'items') { Object.assign(S, f, { itemId: '' }); root._kbDraw(); }
+        else root._kbGo({ tab: 'items', itemId: '', q: '', ktype: '', topic: '', ...f });
+      }
       else if (t.dataset.case !== undefined) root._kbGo({ tab: 'cases', caseId: t.dataset.case, q: S.tab === 'cases' ? S.q : '', sys: S.tab === 'cases' ? S.sys : '' });
       else if (t.dataset.rule !== undefined) root._kbGo({ tab: 'rules', ruleId: t.dataset.rule, q: S.tab === 'rules' ? S.q : '' });
       else if (t.dataset.node !== undefined) { S.tab = 'graph'; S.node = t.dataset.node; root._kbDraw(); }

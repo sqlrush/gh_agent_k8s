@@ -1,13 +1,26 @@
-// 知识库大盘的「案例」「条款」两个页签:左边列表(搜索 / 筛选),右边原文。
+// 知识库大盘的「案例」「条款」两个页签:左边列表(搜索 / 筛选),右边原文;以及各页签共用的类型 / 专题标签。
 // 数据是 /reports/_kb/catalog.json(用户 Pod 从共享知识库现读现算)。
 // 只出 HTML 字符串;交互由 pages/kb.js 统一用 data-* 属性委托:
 //   data-case="<案例 id>"  data-rule="<条款 id>"  data-sys="<系统>"  data-node="<关系图节点 id>"  input.kb-q
+//   data-item="<条目 id>"  data-ktype="<类型>"  data-topic="<专题>"(知识条目页签,lib/kb-items.js)
 
 import { esc } from './fmt.js';
 
 export const SEV = { S1: 'crit', S2: 'warn', S3: 'notice', S4: 'notice' };
 export const RSEV = { error: ['crit', '必须'], warn: ['warn', '建议'], info: ['notice', '提示'] };
 const SECTION_ORDER = ['现场', '判断', '处置', '复发标志'];
+// 知识类型:代码、简称、全称,顺序与 common/kb/types.py 的 TYPE_NAMES 一致(有守卫测试)
+export const KTYPES = [['errata', '修正', '公司内部规范(修正)'], ['norm', '规范', '公司内部规范'], ['runbook', '手册', '处置与恢复手册'],
+  ['defect', '缺陷', '已知缺陷与版本例外'], ['baseline', '基线', '指标口径与正常基线'], ['case', '案例', '历史案例排查思路'],
+  ['product', '产品文档', '高斯产品文档'], ['wiki', 'Wiki', '存量 Wiki 经验'], ['profile', '画像', '环境与业务画像'], ['guide', '指南', '指南(类型待确认)']];
+// 八类知识(总览上即使为 0 也列出来,缺哪类一眼可见);修正、旧指南只在有的时候出现
+export const EIGHT = ['norm', 'case', 'profile', 'baseline', 'defect', 'runbook', 'product', 'wiki'];
+const KT = Object.fromEntries(KTYPES.map(([k, s, n]) => [k, { short: s, name: n }]));
+export const typeShort = (k) => (KT[k] ? KT[k].short : k);
+export const typeName = (k) => (KT[k] ? KT[k].name : k);
+export const typePill = (k) => `<span class="pill kt" title="${esc(typeName(k))}">${esc(typeShort(k))}</span>`;
+export const topicName = (cat, slug) => { const t = (cat.topics || []).find((x) => x.slug === slug); return t ? t.name : slug; };
+export const topicTags = (cat, slugs) => ((slugs || []).length ? `<span>专题 ${slugs.map((s) => esc(topicName(cat, s))).join(' / ')}</span>` : '');
 
 export const allRules = (cat) => (cat.groups || []).flatMap((g) => (g.rules || []).map((r) => ({ ...r, group: g.title, file: g.file })));
 export const citedBy = (cat, rid) => (cat.cases || []).filter((c) => (c.rules || []).includes(rid));
@@ -32,19 +45,19 @@ export function casesView(cat, st) {
         <div class="sub" style="margin:0">共 ${list.length} 条 · 按发生时间倒序</div></div>
       <div class="kb-items">${list.map((c) => `<div class="kb-item ${c.id === cur.id ? 'on' : ''}" data-case="${esc(c.id)}">
           ${sevPill(c.severity)}<div class="t">${esc(c.title)}</div>
-          <div class="m">${esc(c.system)} · ${esc(c.occurred_at)} · ${esc(c.conclusion)}${(c.rules || []).length ? ` · 依据 ${c.rules.length} 条条款` : ''}</div></div>`).join('')
+          <div class="m">${esc(c.system)} · ${esc(c.occurred_at)} · ${esc(c.conclusion)}${(c.rules || []).length ? ` · 依据 ${c.rules.length} 条条款` : ''}${(c.topics || []).length ? ` · ${esc(c.topics.map((s) => topicName(cat, s)).join(' / '))}` : ''}</div></div>`).join('')
         || '<div class="kb-item m">没有匹配的案例</div>'}</div></div>
     ${caseDoc(cat, cur)}</div>`;
 }
 
-function caseDoc(cat, c) {
+export function caseDoc(cat, c) {
   const rules = Object.fromEntries(allRules(cat).map((r) => [r.id, r]));
   const secs = c.sections || {};
   const keys = [...SECTION_ORDER.filter((k) => secs[k]), ...Object.keys(secs).filter((k) => !SECTION_ORDER.includes(k))];
   const tags = (title, xs) => (xs && xs.length ? `<div class="kb-sec"><h3>${title}</h3><div class="kb-tags">${xs.map((s) => `<span>${esc(s)}</span>`).join('')}</div></div>` : '');
   return `<div class="card kb-doc">
     ${sevPill(c.severity)}<h1>${esc(c.title)}</h1>
-    <div class="kb-meta"><span>系统 ${esc(c.system || '—')}</span><span>发生 ${esc(c.occurred_at || '—')}</span><span>结论 ${esc(c.conclusion || '—')}</span></div>
+    <div class="kb-meta">${typePill('case')}<span>系统 ${esc(c.system || '—')}</span><span>发生 ${esc(c.occurred_at || '—')}</span><span>结论 ${esc(c.conclusion || '—')}</span>${topicTags(cat, c.topics)}</div>
     ${c.primary_factor ? `<div class="kb-factor"><b>主因</b> ${esc(c.primary_factor)}</div>` : ''}
     ${keys.map((k) => `<div class="kb-sec"><h3>${esc(k)}</h3><p>${esc(secs[k])}</p></div>`).join('')}
     ${tags('识别信号', c.signals)}${tags('涉及对象', c.objects)}
@@ -74,12 +87,12 @@ export function rulesView(cat, st) {
     ${ruleDoc(cat, cur)}</div>`;
 }
 
-function ruleDoc(cat, r) {
+export function ruleDoc(cat, r) {
   const cs = citedBy(cat, r.id);
   const x = RSEV[r.severity];
   return `<div class="card kb-doc">
     <span class="pill ${x ? x[0] : 'dim'}">${x ? x[1] + '执行' : esc(r.severity || '—')}</span><h1>${esc(r.id)}</h1>
-    <div class="kb-meta"><span>${esc(r.group)}</span>${r.check ? `<span>${r.check === 'deterministic' ? '可由脚本判定' : '需人工判断'}</span>` : ''}</div>
+    <div class="kb-meta">${typePill('norm')}<span>${esc(r.group)}</span>${r.check ? `<span>${r.check === 'deterministic' ? '可由脚本判定' : '需人工判断'}</span>` : ''}${topicTags(cat, r.topics)}</div>
     <div class="kb-factor kb-rule"><b>条文</b> ${esc(r.rule)}</div>
     ${r.rationale ? `<div class="kb-sec"><h3>为什么</h3><p>${esc(r.rationale)}</p></div>` : ''}
     ${r.criteria ? `<div class="kb-sec"><h3>怎么判定违规</h3><p>${esc(r.criteria)}</p></div>` : ''}

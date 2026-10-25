@@ -215,3 +215,16 @@ def test_topsql_tabs_are_the_skills_sort_keys():
     if not {"self", "self_avg"} <= keys:
         pytest.skip("agent/ 的 gaussdb-topsql 还没同步 gh_skill 60615b4(--by self / self_avg),同步后这条才生效")
     assert set(tabs) <= keys, "大盘有、技能没有的维度:%s" % (set(tabs) - keys)
+
+
+def test_kb_type_names_on_the_page_are_the_libs():
+    """大盘知识库页的类型简称与顺序(lib/kb-docs.js 的 KTYPES)要与 common/kb/types.py 的 TYPE_NAMES 一致:
+    模型在回答里写〔手册 RB-LCK-001〕,大盘上同一条也叫「手册」。"""
+    from common.kb import types as kbtypes
+    src = (_REPO / "frontend" / "lib" / "kb-docs.js").read_text(encoding="utf-8")
+    m = re.search(r"export const KTYPES = \[(.*?)\];", src, re.S)
+    assert m, "kb-docs.js 里找不到 KTYPES"
+    js = re.findall(r"\['([^']+)', '([^']+)', '([^']+)'\]", m.group(1))
+    assert [(c, s, n) for c, s, n in js] == [(c, s, n) for c, (n, s) in kbtypes.TYPE_NAMES.items()]
+    eight = re.search(r"export const EIGHT = \[(.*?)\];", src).group(1)
+    assert set(re.findall(r"'([^']+)'", eight)) == set(kbtypes.EIGHT_TYPES)

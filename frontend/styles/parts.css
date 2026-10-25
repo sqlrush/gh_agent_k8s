@@ -1,4 +1,4 @@
-/* 大盘样式 · 零件:风格滑块、知识库「案例 / 条款 / 关系图」页签(lib/kb-docs.js、lib/kb-graph.js 的版式)。
+/* 大盘样式 · 零件:风格滑块、知识库「知识条目 / 案例 / 条款 / 关系图」页签(lib/kb-docs.js、lib/kb-graph.js 的版式)。
    页签的 CSS 原样沿用旧版,只把旧变量名接到新色板上。 */
 
 /* ------------------------------------------------------------ 风格滑块:普通 ⇄ 文艺 */
@@ -24,6 +24,7 @@
 .kbx .pill { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11.5px; font-weight: 600; background: var(--fill2); }
 .kbx .pill.ok { background: var(--ok-soft); } .kbx .pill.notice { background: var(--notice-soft); } .kbx .pill.warn { background: var(--warn-soft); } .kbx .pill.crit { background: var(--crit-soft); }
 .kbx .pill.dim { color: var(--dim); font-weight: 500; }
+.kbx .pill.kt { background: var(--panel); color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); font-weight: 500; }  /* 知识类型:描边,不占状态色 */
 .kbx .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
 .kbx .mono { font-family: var(--mono); font-size: 12.5px; }
 .kbx .dig { font-size: 13px; }

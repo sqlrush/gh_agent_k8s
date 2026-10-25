@@ -1,12 +1,14 @@
-"""知识库目录:给大盘「案例 / 条款 / 关系图」三个页签用的一份 JSON。
+"""知识库目录:给大盘「知识条目 / 案例 / 条款 / 关系图」页签用的一份 JSON。
 
 报告端口 4097 的 `/_kb/catalog.json` 现读现算(按文件修改时间缓存),不落盘:
 知识库是全体共享的,由管理员在导入环境更新 —— 每个人的报告目录里各存一份只会越来越旧。
 
-**只读三类东西,别的一律不碰**:
+**只读审核过的知识,别的一律不碰**:
   cases/*.md       案例(解析失败的不进目录,和检索时的口径一致)
   rules/*.yaml     现行条款(已废止的不进 —— 与 RULES.md 同一个口径)
   graph/*.yaml     已确认(accepted)的关系边;canonical.yaml 只用来把同一对象的不同叫法合成一个节点
+  errata/ 与六类类型化条目(wiki/ product/ runbooks/ defects/ baselines/ profiles/,2026-10-24 八类知识):
+                   每条带类型与专题标签;topics/_taxonomy.yaml 只用来取专题名
 收件目录 inbox/、原始材料 sources/ 与 raw/、索引 index/ 都不读:那里是未审核的材料与客户原件,
 大盘上不该出现。
 
@@ -34,8 +36,15 @@ from common.kb import cases as kbcases  # noqa: E402
 from common.kb import graphfiles  # noqa: E402
 from common.kb import rulesfile  # noqa: E402
 
-# 只有这三个子目录会被读;改这张表之前想清楚它会不会把未审核材料端到大盘上
-READ_DIRS = ("cases", "rules", "graph")
+from common.kb import catalog as kbcat  # noqa: E402
+from common.kb import topics as kbtopics  # noqa: E402
+from common.kb import types as kbtypes  # noqa: E402
+
+# 只有这些子目录会被读(也是缓存键);改这张表之前想清楚它会不会把未审核材料端到大盘上
+READ_DIRS = ("cases", "rules", "graph", "errata", "guides", "topics") + kbtypes.TYPED_DIRS
+# 类型化条目在大盘上展示的事实字段(frontmatter 里这些键原样带出;不在表里的不出)
+_FACTS = ("product", "versions", "deployment", "affected_versions", "fixed_in", "vendor_status", "system",
+          "metric", "unit", "metric_source", "window", "value_kind", "version", "aliases", "approval")
 
 
 def _mtime(kb: pathlib.Path) -> float:
@@ -80,11 +89,24 @@ def _rule(e: dict) -> Dict[str, Any]:
             "keywords": [str(k) for k in kw] if isinstance(kw, list) else [], "source": str(e.get("source") or "")}
 
 
+def _item(e) -> Dict[str, Any]:
+    """一条知识(类型化条目 / 修正 / 旧指南)在大盘上的样子:类型、专题、验证状态、适用范围、事实字段、正文小节、证据。"""
+    meta = e.meta or {}
+    applies = meta.get("applies") if isinstance(meta.get("applies"), dict) else {}
+    facts = {k: meta[k] for k in _FACTS if meta.get(k) not in (None, "", [])}
+    return {"id": e.id, "type": e.type, "title": e.title, "summary": e.summary, "topics": list(e.topics),
+            "verification": e.verification, "source": e.source, "as_of": e.as_of, "file": e.file,
+            "applies": {k: v for k, v in applies.items() if v not in (None, "", [])},
+            "not_applies": str(meta.get("not_applies") or ""), "facts": facts,
+            "sections": dict(meta.get("sections") or {}), "evidence": [str(x) for x in e.evidence]}
+
+
 def build(kb: pathlib.Path) -> Dict[str, Any]:
     """读知识库,返回目录。知识库不存在时 attached=False,不抛。"""
     kb = pathlib.Path(kb)
-    if not (kb / "cases").is_dir() and not (kb / "rules").is_dir():
-        return {"attached": False, "reason": "知识库目录不存在或为空", "cases": [], "groups": [], "edges": [], "warnings": 0}
+    if not any((kb / d).is_dir() for d in ("cases", "rules") + kbtypes.TYPED_DIRS):
+        return {"attached": False, "reason": "知识库目录不存在或为空", "cases": [], "groups": [], "edges": [], "warnings": 0,
+                "items": [], "types": {}, "topics": []}
     cases, case_findings = kbcases.load_cases(kb)
     groups: List[Dict[str, Any]] = []
     warnings = sum(1 for lvl, _ in case_findings if lvl == "error")
@@ -103,8 +125,20 @@ def build(kb: pathlib.Path) -> Dict[str, Any]:
 
     edges = [{"src": node(t.src), "dst": node(t.dst), "rel": t.rel, "source": t.source, "case": t.case_id}
              for t in triples if t.status == "accepted"]
-    return {"attached": True, "cases": [_case(c) for c in cases], "groups": groups, "edges": edges,
-            "warnings": warnings}
+    # 八类知识的标签:与模型检索同一份 common/kb/catalog(类型、专题的口径一致)
+    cat = kbcat.load(kb)
+    by_id = {e.id: e for e in cat.entries if not e.archived}
+    case_rows = [dict(_case(c), topics=list(by_id[c.id].topics) if c.id in by_id else []) for c in cases]
+    for g in groups:
+        g["rules"] = [dict(r, topics=list(by_id[r["id"]].topics) if r["id"] in by_id else []) for r in g["rules"]]
+    items = [_item(e) for e in cat.entries if not e.archived and e.type not in (kbtypes.NORM, kbtypes.CASE)]
+    counts = kbcat.type_counts(cat)
+    topics = [{"slug": t.slug, "name": t.name, "count": len(cat.in_topic(t.slug))} for t in cat.topics]
+    other = len(cat.in_topic(kbtopics.OTHER))
+    if other:
+        topics.append({"slug": kbtopics.OTHER, "name": kbtopics.OTHER_NAME, "count": other})
+    return {"attached": True, "cases": case_rows, "groups": groups, "edges": edges, "warnings": warnings,
+            "items": items, "types": counts, "topics": [t for t in topics if t["count"]]}
 
 
 class Cached:

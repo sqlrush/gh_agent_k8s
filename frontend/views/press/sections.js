@@ -9,6 +9,7 @@ import * as H from '../../pages/health.js';
 import * as T from '../../pages/topsql.js';
 import * as W from '../../pages/wdr.js';
 import { missLabel } from '../../pages/kb.js';
+import { KTYPES } from '../../lib/kb-docs.js';
 import { paras } from './bits.js';
 import { missedBanner, goneText } from '../../lib/missed.js';
 
@@ -79,7 +80,10 @@ function secWdr(wm) {
 function secKb(km) {
   if (!km.ok) return sheet('sec-kb', 'D1', '知识 · 知识库', '', none(km.status === 404 ? '本期没有知识库自检。' : `知识库状态报告读取失败：${km.error || ''}`, km.status === 404 ? '请查看知识库的健康状态。' : '', '在会话里查一次知识库状态'));
   if (!km.attached) return sheet('sec-kb', 'D1', '知识 · 知识库', '', none(`知识库未接入：${km.st.reason || ''}`, '请查看知识库为什么没有接入。', '在会话里检查'));
-  const ins = insight.kb(km), all = `<a href="/dash/kb?style=normal#cases">全部 ${fmtInt(km.cases.length)} 个案例、${fmtInt(km.rules.length)} 条条款与关系图，见普通风格的知识库页签 →</a>`;
+  const kinds = km.types ? KTYPES.filter(([k]) => +km.types[k]).map(([k, s]) => `${s} ${fmtInt(km.types[k])}`).join(' · ') : '';
+  const ins = insight.kb(km), all = kinds
+    ? `<a href="/dash/kb?style=normal#items">全部知识（${esc(kinds)}）与关系图，见普通风格的知识库页签 →</a>`
+    : `<a href="/dash/kb?style=normal#cases">全部 ${fmtInt(km.cases.length)} 个案例、${fmtInt(km.rules.length)} 条条款与关系图，见普通风格的知识库页签 →</a>`;
   const cases = km.catOk ? `<div class="cases">${km.cases.slice(0, 6).map((x) => `<article class="case"><h4><a href="#" data-open-case="${esc(x.id)}">${esc(x.title)}</a></h4><div class="meta">${esc(x.severity || '—')} · ${esc(x.system)} · ${esc(x.occurred_at)} · ${esc(x.conclusion)}</div>
     <p><b>主因</b>　${esc(cn(x.primary_factor))}</p>${['现场', '处置', '复发标志'].filter((k) => (x.sections || {})[k]).map((k) => `<p><b>${esc(k)}</b>　${esc(cn(x.sections[k]))}</p>`).join('')}${(x.rules || []).length ? `<div class="refs">依据 ${x.rules.map((r) => `<span>${esc(r)}</span>`).join('')}</div>` : ''}</article>`).join('')}</div><p class="fine">${all}</p>`
     : `<p class="t3">读不到知识库目录：${esc(km.catErr || '')}</p>`;

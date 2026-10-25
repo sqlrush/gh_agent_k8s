@@ -1,4 +1,4 @@
-"""知识库目录(大盘案例 / 条款 / 关系图页签的数据)。
+"""知识库目录(大盘知识条目 / 案例 / 条款 / 关系图页签的数据)。
 
 最要紧的是**只端该端的**:收件目录里未审核的材料、客户原件、已废止条款、候选边都不能上大盘。
 """
@@ -122,3 +122,69 @@ def test_cache_rebuilds_when_a_file_changes(tmp_path):
     st = p.stat()
     os.utime(p, (st.st_atime, st.st_mtime + 5))
     assert "相关表" in c.get()["groups"][0]["rules"][0]["rule"]
+
+
+# ---------------------------------------------------------------- 八类知识的类型与专题标签(2026-10-24)
+
+def _typed(kb):
+    (kb / "runbooks").mkdir()
+    (kb / "runbooks" / "RB-LCK-001.md").write_text("""---
+id: RB-LCK-001
+type: runbook
+title: 终止阻塞根会话
+topics: [lock]
+source: 运维手册 §4.2
+verification: 已验证
+approval: [GS-OPS-001]
+applies: {product: GaussDB 集中式, versions: '>= 503'}
+---
+## 摘要
+只终止根会话。
+## 回退步骤
+无需回退。
+""", encoding="utf-8")
+    (kb / "profiles").mkdir()
+    (kb / "profiles" / "EP-CBST.md").write_text("---\nid: EP-CBST\ntype: profile\ntitle: CBST 画像\nsystem: CBST\n"
+                                                 "version: 505.2.0\naliases: [og5]\n---\n## 摘要\n核心账务。\n", encoding="utf-8")
+    (kb / "wiki").mkdir()
+    (kb / "wiki" / "WK-0001.md").write_text("---\nid: WK-0001\ntype: wiki\ntitle: 坏条目\n---\n没有摘要也没有出处\n", encoding="utf-8")
+    return kb
+
+
+def test_typed_items_carry_type_topics_and_facts(tmp_path):
+    cat = kbcatalog.build(_typed(_kb(tmp_path)))
+    by = {i["id"]: i for i in cat["items"]}
+    assert set(by) == {"RB-LCK-001", "EP-CBST"}, "校验不过的条目(WK-0001 缺摘要 / 出处)不上大盘,与检索同一口径"
+    rb = by["RB-LCK-001"]
+    assert rb["type"] == "runbook" and rb["topics"] == ["lock"] and rb["verification"] == "已验证"
+    assert rb["applies"] == {"product": "GaussDB 集中式", "versions": ">= 503"}
+    assert rb["facts"]["approval"] == ["GS-OPS-001"] and rb["sections"]["回退步骤"] == "无需回退。"
+    assert by["EP-CBST"]["facts"]["aliases"] == ["og5"] and by["EP-CBST"]["file"] == "profiles/EP-CBST.md"
+
+
+def test_type_counts_topics_and_tags_on_cases_and_rules(tmp_path):
+    cat = kbcatalog.build(_typed(_kb(tmp_path)))
+    assert cat["types"] == {"norm": 1, "case": 1, "runbook": 1, "profile": 1}, "已废止条款不计数"
+    slugs = {t["slug"]: t for t in cat["topics"]}
+    assert slugs["lock"]["name"] and slugs["lock"]["count"] >= 1
+    assert all(t["count"] for t in cat["topics"]), "没有条目的专题不列"
+    assert isinstance(cat["cases"][0]["topics"], list) and "topics" in cat["groups"][0]["rules"][0]
+
+
+def test_typed_dirs_feed_the_cache_key_but_inbox_does_not(tmp_path):
+    import os
+    kb = _typed(_kb(tmp_path))
+    c = kbcatalog.Cached(kb)
+    first = c.get()
+    p = kb / "runbooks" / "RB-LCK-001.md"
+    p.write_text(p.read_text(encoding="utf-8").replace("只终止根会话", "只终止阻塞链的根会话"), encoding="utf-8")
+    st = p.stat()
+    os.utime(p, (st.st_atime, st.st_mtime + 5))
+    second = c.get()
+    assert second is not first and "阻塞链" in {i["id"]: i for i in second["items"]}["RB-LCK-001"]["summary"]
+    assert "inbox" not in kbcatalog.READ_DIRS and "sources" not in kbcatalog.READ_DIRS
+
+
+def test_missing_kb_has_empty_typed_fields(tmp_path):
+    cat = kbcatalog.build(tmp_path / "nope")
+    assert cat["items"] == [] and cat["types"] == {} and cat["topics"] == []

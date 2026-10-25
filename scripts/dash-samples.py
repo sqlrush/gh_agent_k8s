@@ -221,6 +221,24 @@ _RULES = {
 }
 
 
+# 知识条目页签:六类类型化条目各一条(2026-10-24 八类知识)
+_TYPED = (
+    ("runbooks", "RB-LCK-001.md", "---\nid: RB-LCK-001\ntype: runbook\ntitle: 终止阻塞根会话\ntopics: [lock]\nsource: 运维手册 §4.2\n"
+     "verification: 已验证\napproval: [GS-OPS-001]\napplies: {product: GaussDB 集中式, versions: '>= 503'}\n---\n"
+     "## 摘要\n只终止阻塞链的根会话,不批量杀会话。\n## 执行前提\n确认根会话不是批量作业。\n## 步骤\n按根会话 pid 终止。\n## 回退步骤\n无需回退。\n"),
+    ("defects", "KD-0001.md", "---\nid: KD-0001\ntype: defect\ntitle: 某版本下统计信息收集偶发卡住\ntopics: [vacuum]\nsource: 厂商通告\n"
+     "affected_versions: 505.1–505.2\nfixed_in: 505.2.1\nvendor_status: 已确认\n---\n## 摘要\n受影响版本升级到修复补丁。\n## 规避办法\n分批收集。\n"),
+    ("baselines", "BL-CBST-ACTIVE_SESSIONS.md", "---\nid: BL-CBST-ACTIVE_SESSIONS\ntype: baseline\ntitle: 活跃会话数基线\ntopics: [conn]\n"
+     "system: CBST\nmetric: active_sessions\nunit: 个\nwindow: 5 分钟\nvalue_kind: 瞬时值\n---\n## 摘要\n日间 20–40,批量窗口 80 以内。\n## 正常表现\n日间 20–40。\n"),
+    ("product", "PD-0001.md", "---\nid: PD-0001\ntype: product\ntitle: 锁等待超时参数的行为\ntopics: [lock]\nsource: 产品文档 · 锁\n"
+     "product: GaussDB 集中式\nversions: '>= 503'\n---\n## 摘要\n超时后语句报错退出,事务需应用侧回滚。\n"),
+    ("wiki", "WK-0001.md", "---\nid: WK-0001\ntype: wiki\ntitle: 连接池打满的排查顺序\ntopics: [conn]\nsource: 内部 Wiki · 连接\n"
+     "verification: 未验证\nas_of: '2025-06'\n---\n## 摘要\n先看连接来源分布,再看空闲事务。\n"),
+    ("profiles", "EP-CBST.md", "---\nid: EP-CBST\ntype: profile\ntitle: CBST 环境画像\nsystem: CBST\nproduct: GaussDB 集中式\n"
+     "version: 505.2.0\naliases: [og5]\n---\n## 摘要\n核心账务,日终批量 22:00 起。\n## 批量窗口\n22:00–02:00。\n"),
+)
+
+
 def kb_catalog_samples(out: pathlib.Path):
     """知识库页签的数据:造一个小知识库,用**真正的** docker/kbcatalog.build 生成 _kb/catalog.json。"""
     import importlib.util
@@ -249,6 +267,9 @@ def kb_catalog_samples(out: pathlib.Path):
         (kb / "rules" / name).write_text(title + "\n" + yaml.safe_dump(
             [{"id": i, "severity": s, "check": "advisory", "rule": r, "rationale": w, "keywords": ["样例"], "source": "运维规范 §5"}
              for i, s, r, w in items], allow_unicode=True, sort_keys=False), encoding="utf-8")
+    for sub, name, text in _TYPED:
+        (kb / sub).mkdir(parents=True, exist_ok=True)
+        (kb / sub / name).write_text(text, encoding="utf-8")
     cat = kbcatalog.build(kb)
     cat["built_at"] = "2026-09-22 22:03:00"
     (out / "_kb").mkdir(exist_ok=True)

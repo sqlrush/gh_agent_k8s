@@ -1,5 +1,5 @@
 // 知识库:取数与建模。全体共享一份知识库,不分实例。数据:/reports/kb/health.json(gaussdb-kb health --json)
-// + /reports/kb/queries.jsonl(本人的检索日志)+ /reports/_kb/catalog.json(案例 / 条款 / 关系图的目录)。
+// + /reports/kb/queries.jsonl(本人的检索日志)+ /reports/_kb/catalog.json(知识条目 / 案例 / 条款 / 关系图的目录)。
 
 import { fetchKbHealth, fetchKbQueries, fetchKbCatalog } from '../lib/data.js';
 import { allRules } from '../lib/kb-docs.js';
@@ -28,13 +28,14 @@ export function model(h, q, c) {
     issues: pending.length + warns.length + (cov !== null && cov < 100 ? 1 : 0),
     queries: (q.ok ? q.data : []).filter((r) => new Date(r.at).getTime() >= since).sort((a, b) => (b.at > a.at ? 1 : -1)).slice(0, 20),
     rules: catOk ? allRules(cat) : [],
+    types: catOk && cat.types ? cat.types : null,   // 八类知识各多少(与模型 L0「知识范围」同一口径);旧镜像的目录没有这一项
     cases: catOk ? [...(cat.cases || [])].sort((a, b) => String(b.occurred_at).localeCompare(String(a.occurred_at))) : [],
   };
 }
 /** 缺口清单里 q: 开头的是检索词无命中,其余是诊断发现码。 */
 export const missLabel = (code) => (String(code).startsWith('q:') ? `检索无命中 · 「${String(code).slice(2)}」` : String(code));
 
-/** 普通风格的知识库页(含案例 / 条款 / 关系图页签)。 */
+/** 普通风格的知识库页(含知识条目 / 案例 / 条款 / 关系图页签)。 */
 export async function render(root, ctx) {
   const view = await import('../views/normal/kb.js');
   return view.render(root, await load(), ctx);

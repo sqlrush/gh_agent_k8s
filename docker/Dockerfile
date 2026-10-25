@@ -85,10 +85,14 @@ RUN cd /opt/agent/config/opencode/skills && for d in gaussdb-*; do case "$d" in 
     && test "$(ls -d gaussdb-* | wc -l)" = "3"
 COPY --from=imgdeps /opt/imgdeps/ /usr/local/lib/python3.12/site-packages/
 RUN python3 -c "import PIL.Image, pillow_heif; pillow_heif.register_heif_opener(); print('pillow', PIL.__version__, 'pillow-heif', pillow_heif.__version__)"
+# 7zip(7zz):解 GaussDB 官方文档 CHM(kb.py ingest <CHM> → 官方文档集);poppler-utils(pdftotext):导 PDF 规范
+# —— 2026-10-25 发现容器里一直没有 pdftotext,PDF 在导入容器里导不进去。装完当场各跑一次,缺了构建就失败
+RUN apt-get update && apt-get install -y --no-install-recommends 7zip poppler-utils \
+    && rm -rf /var/lib/apt/lists/* && 7zz i >/dev/null && pdftotext -v 2>&1 | head -1
 USER agent
 ENV GSDB_KB_INBOX=/nas/kb/inbox/uploads
 # opencode 工具权限按角色给(docker/podctl.py:opencode_permissions):导入容器里 kb-init 要用 write 工具写草稿
 ENV AGENT_ROLE=kb-import
 LABEL org.opencontainers.image.title="gaussdb-agent-kb-import" \
       org.opencontainers.image.source="https://github.com/sqlrush/gh_agent_k8s" \
-      org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import + gaussdb-kb-init (HEIC/TIFF -> JPEG for image reading); kb/ mounted read-write; no GRMP token"
+      org.opencontainers.image.description="opencode + gaussdb-kb + gaussdb-kb-import + gaussdb-kb-init (HEIC/TIFF -> JPEG for image reading; 7zip for CHM docsets; poppler for PDF); kb/ mounted read-write; no GRMP token"

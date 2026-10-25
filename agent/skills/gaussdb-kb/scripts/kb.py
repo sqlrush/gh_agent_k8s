@@ -35,9 +35,9 @@ class KbError(Exception):
 # 导入侧的子命令在本环境(runtime 镜像)物理不存在。保留命令名做桩:模型按记忆调用时得到「去哪、找谁」,
 # 而不是 argparse 的 invalid choice——那句话对模型没有指导意义,它会开始猜别的命令或自己动手写目录。
 IMPORT_ONLY = ("ingest", "index", "validate", "propose", "review", "apply", "setup", "feedback", "eval", "contract",
-               "add", "attach", "retype", "migrate", "profile", "taxonomy", "inbox-clean")
+               "add", "attach", "retype", "migrate", "profile", "taxonomy", "inbox-clean", "docset")
 IMPORT_ONLY_MSG = ("本环境不含知识库导入功能(gaussdb-kb-import),请联系知识库管理员在导入环境操作。"
-                   "本环境可用:query / health / search / cite-check / overview / topic / show / evidence。")
+                   "本环境可用:query / health / search / cite-check / overview / topic / doc / show / evidence。")
 
 
 def cmd_import_only(args: argparse.Namespace) -> int:
@@ -194,7 +194,20 @@ def health_dict(kb: pathlib.Path, status, file_warnings: list, readonly: bool) -
         "pending": _pending(kb),
         "misses": [{"code": code, "n": n} for code, n in _misses_top(kb)],
         "types": kbcat.coverage(kb),
+        "docsets": _docsets_summary(kb),
     }
+
+
+def _docsets_summary(kb: pathlib.Path) -> list:
+    from common.kb import docset as kbdocset
+    out = []
+    for ds in kbdocset.installed(kb):
+        m, idx = ds.manifest, ds.manifest.get("index") or {}
+        out.append({"code": ds.code, "title": m.get("title", ""), "product": m.get("product", ""),
+                    "versions": str(m.get("versions", "")), "items": m.get("items", 0),
+                    "model_summaries": m.get("model_summaries", 0), "index_complete": bool(idx.get("complete")),
+                    "docs_left": idx.get("docs_left", 0)})
+    return out
 
 
 def cmd_health(args: argparse.Namespace) -> int:
@@ -233,6 +246,15 @@ def cmd_health(args: argparse.Namespace) -> int:
             print("知识类型  : " + " · ".join(f"{name} {d['types'].get(k, 0)}" for k, name in kbcat.COVERAGE_ROWS
                                               if k != "guide" or d["types"].get(k)))
             print(f"下一步    : {'(请知识库管理员)' if readonly else ''}{kbcat.next_step(d['types'])}")
+        for ds in d["docsets"]:
+            state = "完整" if ds["index_complete"] else "未完成(还差 %s 条,导入环境跑 kb.py index)" % ds["docs_left"]
+            print(f"官方文档集: {ds['code']} {ds['title']} · {ds['product']} {ds['versions']} · {ds['items']} 条 · 索引{state}")
+        try:
+            if d["docsets"] and kbconfig.load(kb).docset_applicability_unknown:
+                print("[warn ] 测试开关开着:官方文档集对所有实例按「适用性未知」处理——只许在测试环境;正式环境关掉"
+                      "(kb.yaml test_switches.docset_applicability_unknown)")
+        except kbconfig.KbConfigError:
+            pass
         print("待处理    : " + ("; ".join(d["pending"]) if d["pending"] else "无"))
         if d["misses"]:
             print("缺口清单  : 近期查不到条款/案例的发现 Top —— " +

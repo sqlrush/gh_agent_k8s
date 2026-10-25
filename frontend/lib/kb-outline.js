@@ -20,6 +20,17 @@ async function cached(key, fn) {
 const lv = (n) => `<span class="ol-lv">L${n}</span>`;
 const err = (r) => `<div class="empty"><b>读取失败</b>${esc(r.error || '')}${r.status === 404 ? '(当前镜像版本不提供这一层的数据)' : ''}</div>`;
 const node = (o, id) => o.topics.find((t) => t.slug === id);
+const findToc = (items, path) => {                  // 原书目录里按路径找节点
+  let cur = { children: items };
+  for (const seg of path) { cur = (cur.children || []).find((c) => c.name === seg); if (!cur) return null; }
+  return cur;
+};
+function subTable(code, n) {
+  if (!n || !n.children.length) return '';
+  return `<table class="ol-tbl" style="margin-bottom:12px"><thead><tr><th>子目录</th><th class="r">条目</th><th></th></tr></thead><tbody>
+    ${n.children.map((c) => `<tr class="ol-row" data-ol="P:${esc(code)}|${esc(c.path.join(SEP))}"><td>${esc(c.name)}</td><td class="r">${fmtInt(c.n)}</td><td>${c.children.length ? `${c.children.length} 个子目录` : ''}</td></tr>`).join('')}</tbody></table>
+    <h3>本目录下全部条目</h3>`;
+}
 const dsOf = (o, code) => (o.docsets || []).find((d) => d.code === code);
 
 function parse(key) {
@@ -118,14 +129,14 @@ function l1Docset(s) {
     <table class="ol-tbl"><thead><tr><th>目录</th><th class="r">条目</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-async function listPanel(params, title, offset) {
+async function listPanel(params, title, offset, before = '') {
   const r = await cached(`list:${JSON.stringify(params)}:${offset}`, () => fetchKbList({ ...params, offset, limit: PAGE }));
   if (!r.ok) return err(r);
   const d = r.data;
   const pager = d.total > PAGE ? `<div class="ol-pager">${offset > 0 ? `<button class="kb-btn" data-olpage="${offset - PAGE}">← 上一页</button>` : ''}
       <span>${offset + 1}–${Math.min(offset + PAGE, d.total)} / ${fmtInt(d.total)}</span>
       ${offset + PAGE < d.total ? `<button class="kb-btn" data-olpage="${offset + PAGE}">下一页 →</button>` : ''}</div>` : '';
-  return `<h2>${title}<small>${fmtInt(d.total)} 条</small></h2>${pager}${d.items.map(itemRow).join('') || '<p class="sub">(没有条目)</p>'}${pager}`;
+  return `<h2>${title}<small>${fmtInt(d.total)} 条</small></h2>${before}${pager}${d.items.map(itemRow).join('') || '<p class="sub">(没有条目)</p>'}${pager}`;
 }
 
 async function l2(id) {
@@ -174,7 +185,10 @@ export async function mountOutline(el, S, onNavigate) {
   if (cur.kind === 'T' && node(o, cur.arg)) main = crumb(o, cur) + l1Topic(o, node(o, cur.arg));
   else if (cur.kind === 'Q' && node(o, cur.arg)) main = crumb(o, cur, '<span>官方文档</span>') + await listPanel({ topic: cur.arg }, `${lv(1)}${esc(node(o, cur.arg).name)} · 官方文档`, S.olOffset || 0);
   else if (cur.kind === 'D' && dsOf(o, cur.arg)) main = crumb(o, cur) + l1Docset(dsOf(o, cur.arg));
-  else if (cur.kind === 'P' && dsOf(o, cur.code)) main = crumb(o, cur) + await listPanel({ docset: cur.code, path: cur.path }, `${lv(1)}${esc(cur.path.split(SEP).slice(-1)[0])}`, S.olOffset || 0);
+  else if (cur.kind === 'P' && dsOf(o, cur.code)) {
+    const sub = (S.olOffset || 0) ? '' : subTable(cur.code, findToc(dsOf(o, cur.code).toc, cur.path.split(SEP)));
+    main = crumb(o, cur) + await listPanel({ docset: cur.code, path: cur.path }, `${lv(1)}${esc(cur.path.split(SEP).slice(-1)[0])}`, S.olOffset || 0, sub);
+  }
   else if (cur.kind === 'I') main = crumb(o, { kind: 'L0' }, `<span>${lv(2)}${esc(cur.arg)}</span>`) + await l2(cur.arg);
   else if (cur.kind === 'E') main = crumb(o, { kind: 'L0' }, `<a data-ol="I:${esc(cur.arg)}">${lv(2)}${esc(cur.arg)}</a><b>›</b><span>${lv(3)}原文</span>`) + await l3(cur.arg);
   else main = crumb(o, { kind: 'L0' }) + l0(o);

@@ -114,3 +114,10 @@ def test_reports_server_routes(tmp_path):
         assert get("/_kb/docsets/T25/manifest.json")[0] == 404, "知识库文件本身仍不能直接读"
     finally:
         srv.shutdown()
+
+
+def test_topic_list_puts_parameters_first(tmp_path):
+    ol = kboutline.Outline(_kb(tmp_path))
+    items = ol.list(topic="lock", limit=10)["items"]
+    cats = [x["category"] for x in items]
+    assert cats == sorted(cats, key=lambda c: ["GUC 参数", "系统表 / 视图", "说明类页面", "SQL 语法与函数", "错误码"].index(c))

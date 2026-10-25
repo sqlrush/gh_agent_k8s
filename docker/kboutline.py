@@ -173,6 +173,8 @@ class Outline:
             ents = [e for e in ents if list(e.meta.get("doc_path") or [])[:len(want)] == want]
         if topic:
             ents = [e for e in ents if (topic == kbtopics.OTHER and not e.topics) or topic in e.topics]
+            # 专题下按「标题带专题关键词 → GUC 参数 → 视图 → 说明页 → SQL 语法 → 错误码」排,与 L1 代表条目同一口径
+            ents = docnav.representatives(ents, topic, kbtopics.by_slug(cat.topics).get(topic), n=len(ents))
         offset = max(0, int(offset))
         limit = max(1, min(LIST_MAX, int(limit)))
         page = ents[offset:offset + limit]

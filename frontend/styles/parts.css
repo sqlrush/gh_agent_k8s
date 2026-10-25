@@ -90,7 +90,7 @@
 .ol-n.on { background: var(--primary-tint); color: var(--blue); font-weight: 600; }
 .ol-n small { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 11.5px; white-space: nowrap; padding-left: 6px; }
 .ol-n.d0 { font-weight: 600; }
-.ol-n.d2 { padding-left: 18px; } .ol-n.d3 { padding-left: 30px; } .ol-n.d4 { padding-left: 42px; } .ol-n.d5 { padding-left: 54px; }
+.ol-n.d2 { padding-left: 18px; } .ol-n.d3 { padding-left: 30px; } .ol-n.d4 { padding-left: 42px; } .ol-n.d5 { padding-left: 54px; } .ol-n.d6 { padding-left: 66px; }
 .ol-car { width: 10px; flex: none; display: inline-block; }
 .ol-car::before { content: "▸"; color: var(--dim); font-style: normal; font-size: 10px; }
 .ol-car.open::before { content: "▾"; } .ol-car.leaf::before { content: "·"; }

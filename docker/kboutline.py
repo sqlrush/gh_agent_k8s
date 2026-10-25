@@ -2,7 +2,7 @@
 
 报告端口 4097 上四条路(现读现算;骨架按文件修改时间缓存):
   /_kb/outline.json                       L0 骨架 + L1 专题(客户条目、本行确认过的候选原因、官方文档计数与代表条目)
-                                          + 官方文档集的原书目录(到第 4 级,带条目数)
+                                          + 官方文档集的原书目录(到第 5 级,带条目数;GUC 参数能下到参数类)
   /_kb/list.json?docset=&path=&topic=&offset=&limit=
                                           L1 下钻:某个目录 / 某个专题下的官方文档条目(分页,一页最多 200 条)
   /_kb/item/<ID>.json                     L2 一条条目的全文(小节)
@@ -38,7 +38,7 @@ from common.kb import types as kbtypes  # noqa: E402
 LIST_MAX = 200
 EVIDENCE_MAX = 30000
 SECTION_MAX = 20000
-TOC_DEPTH = 4
+TOC_DEPTH = 5
 _READ_DIRS = ("cases", "rules", "graph", "errata", "guides", "topics") + kbtypes.TYPED_DIRS
 
 

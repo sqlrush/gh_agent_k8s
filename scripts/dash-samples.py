@@ -239,6 +239,31 @@ _TYPED = (
 )
 
 
+def _docset_sample(kb: pathlib.Path) -> None:
+    """一套很小的官方文档集(两页、三条),走真正的 docset.scan / apply。"""
+    import yaml
+    from common.kb import docset
+    src = kb.parent / "_chm"
+    src.mkdir(exist_ok=True)
+    page = '<html><head><meta charset="utf-8"></head><body><h1>{t}</h1>{b}</body></html>'
+    (src / "p_lock.html").write_text(page.format(t="锁管理", b=(
+        '<div class="section"><h4 class="sectiontitle">deadlock_timeout</h4><p>参数说明：死锁检测时间。</p><p>默认值：1000。</p></div>'
+        '<div class="section"><h4 class="sectiontitle">lockwait_timeout</h4><p>参数说明：单个锁的最长等待时间。</p><p>默认值：1200000。</p></div>')),
+        encoding="utf-8")
+    (src / "p_fault.html").write_text(page.format(t="锁等待超时处理", b="<p>" + "锁等待超时,业务报错。" * 10 + "</p>"), encoding="utf-8")
+    obj = lambda n, l="": f'<LI><OBJECT type="text/sitemap"><param name="Name" value="{n}"><param name="Local" value="{l}"></OBJECT>'  # noqa: E731
+    (src / "book.hhc").write_text("<UL>" + obj("使用指南") + "<UL>" + obj("配置运行参数") + "<UL>" + obj("GUC参数说明") + "<UL>"
+                                  + obj("锁管理", "p_lock.html") + "</UL></UL></UL>" + obj("维护指南") + "<UL>" + obj("故障处理")
+                                  + "<UL>" + obj("锁等待超时处理", "p_fault.html") + "</UL></UL></UL>", encoding="utf-8")
+    staging = kb / "inbox" / "ds"
+    docset.scan(src, staging)
+    (staging / "plan").mkdir()
+    (staging / "plan" / "plan.yaml").write_text(yaml.safe_dump({"code": "S25", "product": "GaussDB 集中式", "versions": "505.2",
+                                                                "title": "样例官方文档", "doc_version": "25.1.32",
+                                                                "kernel_version": "505.2.1"}, allow_unicode=True), encoding="utf-8")
+    docset.apply(kb, docset.unpacked_root(staging), staging / "plan")
+
+
 def kb_catalog_samples(out: pathlib.Path):
     """知识库页签的数据:造一个小知识库,用**真正的** docker/kbcatalog.build 生成 _kb/catalog.json。"""
     import importlib.util
@@ -270,11 +295,25 @@ def kb_catalog_samples(out: pathlib.Path):
     for sub, name, text in _TYPED:
         (kb / sub).mkdir(parents=True, exist_ok=True)
         (kb / sub / name).write_text(text, encoding="utf-8")
+    _docset_sample(kb)
     cat = kbcatalog.build(kb)
     cat["built_at"] = "2026-09-22 22:03:00"
     (out / "_kb").mkdir(exist_ok=True)
     (out / "_kb" / "catalog.json").write_text(json.dumps(cat, ensure_ascii=False, indent=1), encoding="utf-8")
-    import shutil; shutil.rmtree(kb, ignore_errors=True)
+    # 「目录」页签(渐进式披露)的四条路:用**真正的** docker/kboutline 生成
+    spec = importlib.util.spec_from_file_location("kboutline_for_samples", _ROOT.parent / "docker" / "kboutline.py")
+    kboutline = importlib.util.module_from_spec(spec); spec.loader.exec_module(kboutline)
+    ol = kboutline.Outline(kb)
+    outline = ol.outline()
+    (out / "_kb" / "outline.json").write_text(json.dumps(outline, ensure_ascii=False, indent=1), encoding="utf-8")
+    page = ol.list(docset="S25", topic="lock", limit=20)
+    (out / "_kb" / "list.json").write_text(json.dumps(page, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out / "_kb" / "item").mkdir(exist_ok=True)
+    (out / "_kb" / "evidence").mkdir(exist_ok=True)
+    for item_id in (page["items"][0]["id"], outline["topics"][0]["entries"][0]["id"]):
+        (out / "_kb" / "item" / f"{item_id}.json").write_text(json.dumps(ol.item(item_id), ensure_ascii=False, indent=1), encoding="utf-8")
+        (out / "_kb" / "evidence" / f"{item_id}.json").write_text(json.dumps(ol.evidence(item_id), ensure_ascii=False, indent=1), encoding="utf-8")
+    import shutil; shutil.rmtree(kb, ignore_errors=True); shutil.rmtree(kb.parent / "_chm", ignore_errors=True)
 
 
 def main(argv=None) -> int:

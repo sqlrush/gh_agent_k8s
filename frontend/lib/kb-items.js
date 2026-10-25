@@ -41,7 +41,8 @@ export function itemsView(cat, st) {
         <input class="kb-q" placeholder="搜索标题、摘要、编号……" value="${esc(st.q || '')}">
         <div class="kb-chips">${chip('ktype', '', !st.ktype, '全部类型')}${kinds.map(([k, s]) => chip('ktype', k, st.ktype === k, `${esc(s)} ${n(k)}`)).join('')}</div>
         <div class="kb-chips">${chip('topic', '', !st.topic, '全部专题')}${(cat.topics || []).filter((t) => nt(t.slug)).map((t) => chip('topic', t.slug, st.topic === t.slug, `${esc(t.name)} ${nt(t.slug)}`)).join('')}</div>
-        <div class="sub" style="margin:0">共 ${list.length} 条${list.length !== all.length ? ` / ${all.length}` : ''} · 按类型排列</div></div>
+        <div class="sub" style="margin:0">共 ${list.length} 条${list.length !== all.length ? ` / ${all.length}` : ''} · 按类型排列</div>
+        ${(cat.docsets || []).length ? `<div class="sub" style="margin:0">官方文档集 ${(cat.docsets || []).map((d) => `${esc(d.code)} ${d.items} 条`).join('、')}:在<a href="#" data-tab="outline">「目录」页签</a>按专题 / 原书目录逐层浏览</div>` : ''}</div>
       <div class="kb-items">${list.map((e) => `<div class="kb-item ${e.id === cur.id ? 'on' : ''}" data-item="${esc(e.id)}">
           ${typePill(e.type)} <b style="font-size:12.5px">${esc(e.id)}</b><div class="t kb-clamp">${esc(e.title)}</div>
           <div class="m">${(e.topics || []).length ? esc(e.topics.map((s) => topicName(cat, s)).join(' / ')) : '未归专题'}${e.verification ? ` · ${esc(e.verification)}` : ''}</div></div>`).join('')

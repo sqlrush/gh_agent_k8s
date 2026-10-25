@@ -59,6 +59,13 @@ def _mtime(kb: pathlib.Path) -> float:
                 latest = max(latest, p.stat().st_mtime)
             except OSError:
                 pass
+    docsets = kb / "docsets"                     # 官方文档集:只看各套 manifest(装上 / 换版时会变),不扫几千个条目
+    if docsets.is_dir():
+        for m in docsets.glob("*/manifest.json"):
+            try:
+                latest = max(latest, m.stat().st_mtime)
+            except OSError:
+                pass
     return latest
 
 
@@ -106,7 +113,7 @@ def build(kb: pathlib.Path) -> Dict[str, Any]:
     kb = pathlib.Path(kb)
     if not any((kb / d).is_dir() for d in ("cases", "rules") + kbtypes.TYPED_DIRS):
         return {"attached": False, "reason": "知识库目录不存在或为空", "cases": [], "groups": [], "edges": [], "warnings": 0,
-                "items": [], "types": {}, "topics": []}
+                "items": [], "types": {}, "topics": [], "docsets": []}
     cases, case_findings = kbcases.load_cases(kb)
     groups: List[Dict[str, Any]] = []
     warnings = sum(1 for lvl, _ in case_findings if lvl == "error")
@@ -126,7 +133,12 @@ def build(kb: pathlib.Path) -> Dict[str, Any]:
     edges = [{"src": node(t.src), "dst": node(t.dst), "rel": t.rel, "source": t.source, "case": t.case_id}
              for t in triples if t.status == "accepted"]
     # 八类知识的标签:与模型检索同一份 common/kb/catalog(类型、专题的口径一致)
-    cat = kbcat.load(kb)
+    # 官方文档集(几千条)不进这份目录:大盘「目录」页签按层下钻取(kboutline);这里只带每套一行摘要
+    cat = kbcat.load(kb, with_docsets=False)
+    from common.kb import docset as kbdocset
+    docsets = [{"code": ds.code, "title": ds.manifest.get("title", ""), "product": ds.manifest.get("product", ""),
+                "versions": str(ds.manifest.get("versions", "")), "items": ds.manifest.get("items", 0)}
+               for ds in kbdocset.installed(kb)]
     by_id = {e.id: e for e in cat.entries if not e.archived}
     case_rows = [dict(_case(c), topics=list(by_id[c.id].topics) if c.id in by_id else []) for c in cases]
     for g in groups:
@@ -138,7 +150,7 @@ def build(kb: pathlib.Path) -> Dict[str, Any]:
     if other:
         topics.append({"slug": kbtopics.OTHER, "name": kbtopics.OTHER_NAME, "count": other})
     return {"attached": True, "cases": case_rows, "groups": groups, "edges": edges, "warnings": warnings,
-            "items": items, "types": counts, "topics": [t for t in topics if t["count"]]}
+            "items": items, "types": counts, "topics": [t for t in topics if t["count"]], "docsets": docsets}
 
 
 class Cached:

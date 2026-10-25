@@ -199,6 +199,17 @@ def test_health_window_key_figures_read_real_item_names():
     assert names and not missing, "健康检查页按项名取读数,window.py 里没有这些项:%s" % missing
 
 
+def test_kb_outline_contract(samples):
+    """「目录」页签(渐进式披露)四条路:由 docker/kboutline 从样例知识库(含一套小的官方文档集)真实生成。"""
+    _check("kb_outline", _load(samples / "_kb" / "outline.json"))
+    _check("kb_list", _load(samples / "_kb" / "list.json"))
+    for p in sorted((samples / "_kb" / "item").glob("*.json")):
+        _check("kb_item", _load(p))
+    for p in sorted((samples / "_kb" / "evidence").glob("*.json")):
+        _check("kb_evidence", _load(p))
+    assert len(list((samples / "_kb" / "item").glob("*.json"))) == 2, "官方文档一条、客户条目一条"
+
+
 def test_kb_catalog_contract(samples):
     """知识库三个页签读的目录:由 docker/kbcatalog.build 从样例知识库真实生成。"""
     _check("kb_catalog", _load(samples / "_kb" / "catalog.json"))

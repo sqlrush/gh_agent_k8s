@@ -421,6 +421,8 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir
     不从目录里读 —— 目录里的东西用户自己能改,工号不能让他改。
     另一条不是文件的路径是 /_kb/catalog.json:大盘知识库页签的目录,由 kbcatalog 从共享知识库现读现算
     (只读案例 / 现行条款 / 已确认的边,不读收件目录与原件)。没给 kb_dir 就没有这条路。
+    「目录」页签按渐进式披露一层层取(kboutline,2026-10-25):/_kb/outline.json(L0 + L1)、
+    /_kb/list.json(L1 下钻,分页)、/_kb/item/<ID>.json(L2)、/_kb/evidence/<ID>.json(L3;客户条目只给出处,不给原件)。
     知识库里的文件本身不能经这个端口直接取 —— 只端算好的目录。
 
     token 非空时(固定池化,2026-10-23)每个请求都要带 `Authorization: Bearer <token>`,否则 401:
@@ -432,10 +434,13 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir
     import urllib.parse
     root = pathlib.Path(root).resolve()
     catalog = None
+    outline = None
     if kb_dir is not None:
-        # 同目录的 kbcatalog.py;不给 kb_dir 时连 import 都不做(注释单独一行:镜像内容守卫按整行匹配 import)
+        # 同目录的 kbcatalog.py / kboutline.py;不给 kb_dir 时连 import 都不做(注释单独一行:镜像内容守卫按整行匹配 import)
         import kbcatalog
+        import kboutline
         catalog = kbcatalog.Cached(pathlib.Path(kb_dir))
+        outline = kboutline.Outline(pathlib.Path(kb_dir))
 
     class H(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -450,6 +455,8 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir
                 if not hmac.compare_digest(got.encode("utf-8"), ("Bearer " + token).encode("utf-8")):
                     return self._status(401)
             rel = posixpath.normpath(urllib.parse.unquote(self.path.split("?", 1)[0])).lstrip("/")
+            if rel.startswith("_kb/") and rel != "_kb/catalog.json" and outline is not None:
+                return self._outline(rel)
             if rel == "_kb/catalog.json" and catalog is not None:
                 try:
                     data = json.dumps(catalog.get(), ensure_ascii=False).encode("utf-8")
@@ -482,6 +489,34 @@ def make_reports_server(root: pathlib.Path, port: int, user_id: str = "", kb_dir
                 return self._status(404)
             self.send_response(200)
             self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _outline(self, rel: str):
+            """「目录」页签的四条路;ID 只在目录里查,不拼路径。"""
+            import re
+            query = urllib.parse.parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            arg = lambda k, d="": (query.get(k) or [d])[0]                       # noqa: E731
+            try:
+                if rel == "_kb/outline.json":
+                    obj = outline.outline()
+                elif rel == "_kb/list.json":
+                    obj = outline.list(docset=arg("docset"), path=arg("path"), topic=arg("topic"),
+                                       offset=int(arg("offset", "0") or 0), limit=int(arg("limit", "100") or 100))
+                else:
+                    m = re.fullmatch(r"_kb/(item|evidence)/(.+)\.json", rel)
+                    obj = (outline.item(m.group(2)) if m.group(1) == "item" else outline.evidence(m.group(2))) if m else None
+                    if obj is None:
+                        return self._status(404)
+            except (ValueError, OSError) as exc:
+                obj = {"error": str(exc)}
+            except Exception as exc:            # noqa: BLE001  知识库文件坏了也只影响这一页
+                obj = {"attached": False, "reason": "知识库目录读取失败:%s" % exc}
+            data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", _REPORT_TYPES[".json"])
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

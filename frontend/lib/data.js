@@ -87,3 +87,8 @@ export const fetchKbHealth = () => fetchJson('/reports/kb/health.json');
 export const fetchKbQueries = () => fetchJsonl('/reports/kb/queries.jsonl');
 // 知识库目录(案例 / 条款 / 关系图三个页签):由用户 Pod 从共享知识库现读现算,不是报告存档
 export const fetchKbCatalog = () => fetchJson('/reports/_kb/catalog.json');
+// 「目录」页签按层取(渐进式披露):骨架 → 某目录 / 专题下的条目(分页)→ 一条全文 → 原始证据
+export const fetchKbOutline = () => fetchJson('/reports/_kb/outline.json');
+export const fetchKbList = (q) => fetchJson('/reports/_kb/list.json?' + new URLSearchParams(q).toString());
+export const fetchKbItem = (id) => fetchJson(`/reports/_kb/item/${encodeURIComponent(id)}.json`);
+export const fetchKbEvidence = (id) => fetchJson(`/reports/_kb/evidence/${encodeURIComponent(id)}.json`);

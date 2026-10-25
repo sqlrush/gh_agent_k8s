@@ -10,22 +10,24 @@ import { covring, minigraph } from '../../lib/viz.js';
 import * as insight from '../../lib/insight.js';
 import { casesView, rulesView, KTYPES, EIGHT } from '../../lib/kb-docs.js';
 import { itemsView, entries } from '../../lib/kb-items.js';
+import { mountOutline } from '../../lib/kb-outline.js';
 import { graphView } from '../../lib/kb-graph.js';
 import { missLabel } from '../../pages/kb.js';
 import { pageHead, tile, insightCard, emptyHero } from './common.js';
 
-const TABS = [['overview', '总览'], ['items', '知识条目'], ['cases', '案例'], ['rules', '条款'], ['graph', '关系图']];
-const S = { tab: 'overview', caseId: '', ruleId: '', itemId: '', node: '', q: '', sys: '', ktype: '', topic: '' };
+const TABS = [['overview', '总览'], ['outline', '目录'], ['items', '知识条目'], ['cases', '案例'], ['rules', '条款'], ['graph', '关系图']];
+const S = { tab: 'overview', caseId: '', ruleId: '', itemId: '', node: '', q: '', sys: '', ktype: '', topic: '', ol: 'L0', olOffset: 0 };
 function readHash() {
   const [tab, arg] = decodeURIComponent(location.hash.replace(/^#/, '')).split('=');
   S.tab = TABS.some(([k]) => k === tab) ? tab : 'overview';
+  if (S.tab === 'outline') S.ol = arg || 'L0';
   if (arg && S.tab === 'items') S.itemId = arg;
   if (arg && S.tab === 'cases') S.caseId = arg;
   if (arg && S.tab === 'rules') S.ruleId = arg;
   if (S.tab === 'graph') S.node = arg || '';
 }
 function writeHash() {
-  const arg = S.tab === 'items' ? S.itemId : S.tab === 'cases' ? S.caseId : S.tab === 'rules' ? S.ruleId : S.tab === 'graph' ? S.node : '';
+  const arg = S.tab === 'outline' ? (S.ol === 'L0' ? '' : S.ol) : S.tab === 'items' ? S.itemId : S.tab === 'cases' ? S.caseId : S.tab === 'rules' ? S.ruleId : S.tab === 'graph' ? S.node : '';
   const h = '#' + S.tab + (arg ? '=' + encodeURIComponent(arg) : '');
   if (location.hash !== h) history.replaceState(null, '', h);
 }
@@ -34,7 +36,8 @@ function writeHash() {
 function typeSplit(m) {
   const n = (k) => +m.types[k] || 0;
   return KTYPES.filter(([k]) => EIGHT.includes(k) || n(k)).map(([k, s, name]) =>
-    `<span${n(k) ? '' : ' class="t3"'}><a href="#" data-ktype="${k}" title="${name}">${s}</a> <b>${fmtInt(n(k))}</b></span>`).join('');
+    `<span${n(k) ? '' : ' class="t3"'}><a href="#" data-ktype="${k}" title="${name}">${s}</a> <b>${fmtInt(n(k))}</b></span>`).join('')
+    + (m.docsets || []).map((d) => `<span><a href="#" data-tab="outline" title="${esc(d.title)}">官方 ${esc(d.code)}</a> <b>${fmtInt(d.items)}</b></span>`).join('');
 }
 
 function hero(m) {
@@ -75,6 +78,7 @@ export function render(root, m, ctx) {
     let body;
     if (S.tab === 'overview') body = overview(m);
     else if (!m.catOk) body = `<div class="kbx"><div class="card"><div class="empty"><b>读不到知识库目录</b>${esc(m.catErr || '')}</div></div></div>`;
+    else if (S.tab === 'outline') body = '<div class="kbx"><div class="ol-mount"></div></div>';
     else body = `<div class="kbx">${S.tab === 'items' ? itemsView(m.cat, S) : S.tab === 'cases' ? casesView(m.cat, S) : S.tab === 'rules' ? rulesView(m.cat, S) : graphView(m.cat, S)}</div>`;
     const tabs = `<div class="tabs">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${l}${counts[k] !== undefined ? `<span class="n">${counts[k]}</span>` : ''}</button>`).join('')}</div>`;
     const st = m.ok && m.attached ? (m.issues ? tag(1, `${m.issues} 项待处理`) : tag(0, '健康')) : '';
@@ -82,6 +86,11 @@ export function render(root, m, ctx) {
       ? [['模式', esc(m.st.mode || '—') + (m.st.reason ? `（${esc(m.st.reason)}）` : '')], ['版本', esc(m.st.version || '—')], ['本环境', m.d.readonly === false ? '可写' : '只读'], ...(m.ix.indexed_at ? [['上次索引', esc(m.ix.indexed_at)]] : []), ['维护', '全体共享，由知识库管理员在导入环境维护']]
       : [['目录生成于', esc((m.cat && m.cat.built_at) || '—')], ['本环境', '只读'], ...(m.cat && m.cat.warnings ? [['注意', `${esc(m.cat.warnings)} 个文件解析有问题，未列出`]] : [])];
     root.innerHTML = pageHead('知识库', st, `<button class="btn"${dig('请在知识库里检索:', '知识库')}>${I.search}在会话里检索</button>`, desc) + tabs + body;
+    if (S.tab === 'outline') {
+      const el = root.querySelector('.ol-mount');
+      const nav = (patch) => { Object.assign(S, patch); writeHash(); mountOutline(el, S, nav).then(() => el.scrollIntoView({ block: 'start' })); };
+      mountOutline(el, S, nav);
+    }
   };
   const go = (patch) => { Object.assign(S, patch); draw(); window.scrollTo(0, 0); };
   root._kbDraw = draw; root._kbGo = go;

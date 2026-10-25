@@ -28,7 +28,8 @@ export function model(h, q, c) {
     issues: pending.length + warns.length + (cov !== null && cov < 100 ? 1 : 0),
     queries: (q.ok ? q.data : []).filter((r) => new Date(r.at).getTime() >= since).sort((a, b) => (b.at > a.at ? 1 : -1)).slice(0, 20),
     rules: catOk ? allRules(cat) : [],
-    types: catOk && cat.types ? cat.types : null,   // 八类知识各多少(与模型 L0「知识范围」同一口径);旧镜像的目录没有这一项
+    types: catOk && cat.types ? cat.types : null,   // 八类知识各多少(客户知识;官方文档集另见 docsets);旧镜像的目录没有这一项
+    docsets: catOk ? cat.docsets || [] : [],        // 官方文档集(标准知识库)每套一行:代号、条目数;逐条看在「目录」页签
     cases: catOk ? [...(cat.cases || [])].sort((a, b) => String(b.occurred_at).localeCompare(String(a.occurred_at))) : [],
   };
 }

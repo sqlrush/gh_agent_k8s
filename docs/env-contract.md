@@ -22,6 +22,9 @@
 | `MODEL_ID` | 是 | 模型 id | ConfigMap | opencode 默认模型 = `<MODEL_PROVIDER_NAME>/<MODEL_ID>` |
 | `MODEL_PROVIDER_NAME` | 否 | 默认 `model-service` | ConfigMap | |
 | `MODEL_INPUT_MODALITIES` | 要看图时是 | 模型能接收的输入，逗号分隔：`text,image`（可选项 `text` / `image` / `audio` / `video` / `pdf`，`text` 自动带上） | ConfigMap | 不设 = 纯文本：opencode 的 read 不把图片交给模型，报「this model does not support image input」——知识库导入读照片 / 截图要设 `text,image`。只在模型服务确实支持图片时设；写了不认识的项 Pod 启动即失败并列出可选项 |
+| `KB_CLIP_ORIGINS` | 要用网页剪藏时是 | 允许剪藏的内网网站，`协议://主机[:端口]`，逗号分隔 | ConfigMap（agent-config） | 空 = 关闭剪藏。网关（映射成 `GATEWAY_KB_CLIP_ORIGINS`，剪藏页只收这些网站交来的内容）与导入容器（`kb.py clip status`）读同一份；格式写错网关拒绝启动并指出哪一项 |
+| `KB_CLIP_MAX_MB` | 否 | 单次剪藏（网页 + 页内图片）总大小上限，默认 `30`，最大 `45` | ConfigMap（agent-config） | 网关映射成 `GATEWAY_KB_CLIP_MAX_MB`；导入容器的剪藏接收按同一个数校验 |
+| `KB_CLIP_RECEIVER` | 模板内置 | 导入容器 `1` | 模板 | entrypoint 据此在 4095 拉起剪藏接收（`podctl serve-clip`，`docker/clipd.py`）；诊断容器没有这个端口 |
 | `MODEL_PROXY_URL` | 模板内置 | `http://127.0.0.1:4099/model` | 模板 | opencode 经它访问模型（凭据代理）。不设时退回旧做法：`MODEL_BASE_URL` + `MODEL_API_KEY` 直接写进 `opencode.json`（只给不用 K8s 的单机演示） |
 | `GRMP_PROXY_SOCKET` | 模板内置 | `/run/credproxy/credproxy.sock` | 模板 | 技能脚本经这个套接字调中间件，不再要求本容器有 `GRMP_AUTH_TOKEN` |
 | `AGENT_ROLE` | 镜像内置 | runtime 镜像 `runtime`（默认）/ kb-import 镜像 `kb-import` | 镜像 | 决定 opencode 的工具权限（见下文「工具权限」）。平台不要覆盖 |

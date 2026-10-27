@@ -15,25 +15,29 @@ docker login ghcr.io -u <你的GitHub用户名>
 > 提示 Password 时粘贴令牌（令牌在 https://github.com/settings/tokens/new 生成，只勾 `read:packages`）。看到 `Login Succeeded`。
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.4.1-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.4.2-oc1.18.27
 ```
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.4.1-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.4.2-oc1.18.27
 ```
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.4.1-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.4.2-oc1.18.27
 ```
 
 ```bash
-docker pull ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.4.1-oc1.18.27
+docker pull ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.4.2-oc1.18.27
+```
+
+```bash
+docker pull ghcr.io/sqlrush/gaussdb-agent-kbstd:agent-v1.4.2-oc1.18.27
 ```
 
 ```bash
 docker images | grep gaussdb-agent
 ```
-> 4 行。
+> 5 行（第五个 `gaussdb-agent-kbstd` 是标准知识库：GaussDB 官方文档集，部署后由 Job 自动装进知识库）。
 
 ---
 
@@ -53,22 +57,24 @@ REG=<内网镜像仓库地址>
 ```
 
 ```bash
-docker tag ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.4.1-oc1.18.27 $REG/gaussdb-agent-runtime:agent-v1.4.1-oc1.18.27
-docker tag ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.4.1-oc1.18.27 $REG/gaussdb-agent-kb-import:agent-v1.4.1-oc1.18.27
-docker tag ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.4.1-oc1.18.27 $REG/gaussdb-agent-gateway:agent-v1.4.1-oc1.18.27
-docker tag ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.4.1-oc1.18.27 $REG/gaussdb-agent-frontend:agent-v1.4.1-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-runtime:agent-v1.4.2-oc1.18.27 $REG/gaussdb-agent-runtime:agent-v1.4.2-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-kb-import:agent-v1.4.2-oc1.18.27 $REG/gaussdb-agent-kb-import:agent-v1.4.2-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-gateway:agent-v1.4.2-oc1.18.27 $REG/gaussdb-agent-gateway:agent-v1.4.2-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-frontend:agent-v1.4.2-oc1.18.27 $REG/gaussdb-agent-frontend:agent-v1.4.2-oc1.18.27
+docker tag ghcr.io/sqlrush/gaussdb-agent-kbstd:agent-v1.4.2-oc1.18.27 $REG/gaussdb-agent-kbstd:agent-v1.4.2-oc1.18.27
 ```
 
 ```bash
-docker push $REG/gaussdb-agent-runtime:agent-v1.4.1-oc1.18.27
-docker push $REG/gaussdb-agent-kb-import:agent-v1.4.1-oc1.18.27
-docker push $REG/gaussdb-agent-gateway:agent-v1.4.1-oc1.18.27
-docker push $REG/gaussdb-agent-frontend:agent-v1.4.1-oc1.18.27
+docker push $REG/gaussdb-agent-runtime:agent-v1.4.2-oc1.18.27
+docker push $REG/gaussdb-agent-kb-import:agent-v1.4.2-oc1.18.27
+docker push $REG/gaussdb-agent-gateway:agent-v1.4.2-oc1.18.27
+docker push $REG/gaussdb-agent-frontend:agent-v1.4.2-oc1.18.27
+docker push $REG/gaussdb-agent-kbstd:agent-v1.4.2-oc1.18.27
 ```
 > 每条最后一行是 `digest: sha256:...`。
 
 ```bash
-sed -i "s#image: gaussdb-agent-#image: $REG/gaussdb-agent-#" k8s/base/gateway.yaml k8s/base/frontend.yaml
+sed -i "s#image: gaussdb-agent-#image: $REG/gaussdb-agent-#" k8s/base/gateway.yaml k8s/base/frontend.yaml k8s/base/kbstd-install.yaml
 sed -i "s#USER_IMAGE_REGISTRY: \"\"#USER_IMAGE_REGISTRY: \"$REG\"#" k8s/base/configmap-gateway.yaml
 ```
 
@@ -165,7 +171,7 @@ kubectl -n gaussdb-agent edit configmap gateway-config
 确认这行：
 
 ```yaml
-  USER_IMAGE_TAG: "agent-v1.4.1-oc1.18.27"
+  USER_IMAGE_TAG: "agent-v1.4.2-oc1.18.27"
 ```
 
 ---

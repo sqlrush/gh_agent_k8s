@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# 离线交付包:把**四个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
+# 离线交付包:把**五个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
 #   gaussdb-agent-runtime / -kb-import   每用户一个的业务 Pod
 #   gaussdb-agent-gateway                接入网关(全体共用)
 #   gaussdb-agent-frontend               四个大盘的静态页面(全体共用)
-# 后两个漏了的话,客户拿到包也部署不起来 —— 网关起不来、大盘 502,而现场往往没有外网可以补拉。
+#   gaussdb-agent-kbstd                  标准知识库(官方文档集),部署时由 Job kbstd-install 装进 NAS(2026-10-27 起)
+# 漏了哪个,客户拿到包也部署不完整 —— 网关起不来、大盘 502、官方文档集装不上,而现场往往没有外网可以补拉。
+# 开发时没有标准知识库包可加 --without-kbstd,正式发版不许用。
 # (原第 5 个 openGauss 向量库镜像 2026-10-23 下线:知识库索引改为 NAS 上的 index/store.sqlite。)
-# 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64]
+# 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64] [--without-kbstd]
 #   前提: 镜像已构建——本机架构用 <TAG>,另一架构用 <TAG>-<arch>(scripts/build-images.sh <TAG>-<arch> --platform linux/<arch>)。
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 TAG=${1:?tag}; shift || true
-ARCHS="amd64,arm64"
-while [ $# -gt 0 ]; do case "$1" in --arch) ARCHS=$2; shift 2 ;; *) echo "unknown $1" >&2; exit 2 ;; esac; done
+ARCHS="amd64,arm64"; KBSTD="kbstd"
+while [ $# -gt 0 ]; do case "$1" in --arch) ARCHS=$2; shift 2 ;; --without-kbstd) KBSTD=""; shift ;; *) echo "unknown $1" >&2; exit 2 ;; esac; done
 HOST_ARCH=$(docker info --format '{{.Architecture}}' 2>/dev/null | sed 's/aarch64/arm64/; s/x86_64/amd64/')
 # 包名:标签本身以 agent- 开头时不再重复(gaussdb-agent-v0.4-…),否则 gaussdb-agent-<TAG>
 case "$TAG" in agent-*) PKG="gaussdb-$TAG" ;; *) PKG="gaussdb-agent-$TAG" ;; esac
@@ -26,9 +28,9 @@ COMMIT=$(git -C "$HERE" rev-parse --short HEAD)
 for ARCH in ${ARCHS//,/ }; do
   SUFFIX=""; [ "$ARCH" != "$HOST_ARCH" ] && SUFFIX="-$ARCH"
   IMAGES=""
-  for T in runtime kb-import gateway frontend; do
+  for T in runtime kb-import gateway frontend $KBSTD; do
     IMG="gaussdb-agent-$T:$TAG$SUFFIX"
-    docker image inspect "$IMG" >/dev/null 2>&1 || { echo "缺镜像 $IMG(先 build-images.sh)" >&2; exit 1; }
+    docker image inspect "$IMG" >/dev/null 2>&1 || { echo "缺镜像 $IMG(先 build-images.sh;标准知识库 kbstd 要加 --kbstd <放包的目录>)" >&2; exit 1; }
     IMAGES="$IMAGES $IMG"
     printf '%-10s %-40s id=%s size=%sMB\n' "$ARCH" "$IMG" "$(docker image inspect "$IMG" --format '{{.Id}}' | cut -c8-19)" \
       "$(docker image inspect "$IMG" --format '{{.Size}}' | awk '{printf "%d", $1/1048576}')" >> "$DIST/MANIFEST.txt"

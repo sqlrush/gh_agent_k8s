@@ -97,7 +97,7 @@ check "5 page.md 已生成,带出处(source_url / sha256)"                    "h
 out=$(grep -c '首页\|评论(2)\|赞 12\|技术支持请联系' "$B/page.md")
 check "6 page.md 里没有导航 / 评论 / 页脚"                                '[ "$out" = 0 ]'
 out=$(last_reply); printf '%s\n' "$out" > "$OUT/reply-1.txt"
-check "7 模型给出待确认的清单(含现象 / 根因 / 处置的提炼)"                'has "确认" && (has "根因" || has "判断") && (has "处置")'
+check "7 模型给出待确认的清单(写入前交管理员确认)"                       'has "确认" && has "案例"'
 echo "   ↳ $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-400)"
 out=$(ls "$KB/cases" | wc -l | tr -d ' ')
 check "8 确认之前没有写进 cases/(还是 $N_CASES 条)"                        '[ "$out" = "$N_CASES" ]'
@@ -118,7 +118,7 @@ out="$NEW"
 check "9 入库了新案例(耗时 ${DT}s)"                                       '[ -n "$NEW" ]'
 # 案例的 source 指向 sources/ 里的标准化快照;原网页地址在那份快照里(剪藏批次处理完会被清掉,不能指回 page.md)
 out=$(for f in $NEW; do cat "$KB/cases/$f"; s=$(awk '/^source:/{sub(/^source: */, ""); sub(/#.*/, ""); print; exit}' "$KB/cases/$f"); cat "$KB/$s" 2>/dev/null; done)
-check "10 案例写明根因,出处顺着快照追得到原网页地址"                       "has '127.0.0.1:$WIKI_PORT/display/OPS/lock-incident' && (has 'idle in transaction' || has '未提交')"
+check "10 案例筛出了现象 / 根因 / 处置(现场、判断、处置三段都有),出处顺着快照追得到原网页"  "has '127.0.0.1:$WIKI_PORT/display/OPS/lock-incident' && has '## 现场' && has '## 判断' && has '## 处置' && (has 'idle in transaction' || has '未提交') && has 'pg_terminate_backend'"
 out=$(ls "$KB/evidence" 2>/dev/null | grep -- "$BATCH"; for f in $NEW; do grep -A3 '^evidence:' "$KB/cases/$f"; done)
 check "11 原始网页作为 L3 证据挂在条目上(evidence/ 里有快照,条目登记了它)"   "[ \$(printf '%s' \"\$out\" | grep -c -- '$BATCH') -ge 2 ]"
 out=$(find "$KB/index/store.sqlite" -newer "$OUT/t0" 2>/dev/null)

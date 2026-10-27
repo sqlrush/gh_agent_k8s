@@ -59,6 +59,8 @@ def test_a_page_clip_lands_as_a_complete_batch_that_webclip_converts(tmp_path):
                                "type": "image/png", "bytes": len(PNG)}]
     assert meta["skipped"] == [{"src": "https://cdn.other/x.png", "reason": "跨站图片,读不到"}]
     assert (batch / "images" / "img-001.png").read_bytes() == PNG
+    snap = (batch / (out["batch"] + ".html")).read_bytes()
+    assert snap.startswith(b"<!-- saved from url=(0049)" + URL.encode() + b" -->\n<html>"), "快照要记得自己的来源"
     assert not list((s.kb / "inbox" / "clips" / ".incoming").iterdir()), "临时目录要清空"
     res = webclip.convert(batch, s.kb)
     page = res.page_md.read_text(encoding="utf-8")
@@ -149,6 +151,12 @@ def test_a_dropped_mhtml_keeps_its_url_title_and_date(tmp_path):
 def test_dropped_files_must_be_what_their_suffix_says(tmp_path, name, raw, text):
     with pytest.raises(clipd.ClipRejected, match=text):
         clipd.store(_s(tmp_path), {"kind": "file", "file_name": name, "data": base64.b64encode(raw).decode()})
+
+
+def test_a_url_cannot_close_the_source_comment_early(tmp_path):
+    out = clipd.store(_s(tmp_path), _page(url="https://wiki.corp/a?x=--><script>alert(1)</script>"))
+    snap = (tmp_path / "kb" / "inbox" / "clips" / out["batch"] / (out["batch"] + ".html")).read_text(encoding="utf-8")
+    assert snap.split("\n", 1)[0].count("-->") == 1 and "%2D%2D>" in snap.split("\n", 1)[0]
 
 
 def test_a_saved_html_file_gives_its_url_from_the_saved_from_comment(tmp_path):

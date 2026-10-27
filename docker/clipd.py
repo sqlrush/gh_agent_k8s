@@ -237,7 +237,10 @@ def store(s: Settings, payload: Mapping[str, object], now: Optional[_dt.datetime
         html = payload.get("html")
         if not isinstance(html, str) or not html.lstrip().startswith("<"):
             raise ClipRejected(400, "没有收到网页内容")
-        raw = html.encode("utf-8")
+        # 快照开头记下原网页地址(浏览器「另存为」的同一种写法):快照作为 L3 证据挂到条目上之后,剪藏批次会被清掉,
+        # 只有它还记得这份网页是从哪来的。地址里的 "--" 转义掉,免得提前结束注释
+        mark = "<!-- saved from url=(%04d)%s -->\n" % (len(url), url.replace("--", "%2D%2D"))
+        raw = mark.encode("utf-8") + html.encode("utf-8")
         if len(raw) > s.max_bytes:
             raise ClipRejected(413, "网页本身超过 %d MB 上限:请把页面拆开分别剪藏" % (s.max_bytes // 1024 // 1024))
         images, skipped = _images(payload.get("images"), s.max_bytes - len(raw))

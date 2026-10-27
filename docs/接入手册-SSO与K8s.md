@@ -320,6 +320,7 @@ Secret `gateway-auth`：`TRUST_SECRET`、`ADMIN_TOKEN`。
 | 键 | 说明 |
 |---|---|
 | `GRMP_API_HOST` / `GRMP_API_PORT` | 中间件地址 |
+| `GRMP_PATH_PREFIX` | 中间件接口路径前缀，**必填**，中间件团队提供（以 `/` 开头、只写路径、末尾不带 `/`，形如 `/xxx/grmp/diagnostic/agent`）；没填时登录数据库直接报「GRMP_PATH_PREFIX 没配」 |
 | `GRMP_APPKEY` | 调用方应用名。空 = 不带签名头 |
 | `GRMP_SIGN_MODE` | `full`（三个头）/ `headers-only`（只 Appkey + Timestamp）。见 §5.2 |
 | `GRMP_SIGN_TIMESTAMP` | `ms` / `s` |
@@ -347,7 +348,7 @@ POST <中间件>/...
 若 SM2 密钥尚未签发，可先只加 Appkey 与 Timestamp，**不加 Signature**：
 
 ```yaml
-GRMP_APPKEY: F-GAUSS-AGENT
+GRMP_APPKEY: <中间件给的 Appkey>
 GRMP_SIGN_MODE: headers-only     # 此档不读私钥
 GRMP_SIGN_TIMESTAMP: s           # 秒级,形如 1758431954
 ```

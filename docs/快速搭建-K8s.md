@@ -153,6 +153,7 @@ kubectl -n gaussdb-agent edit configmap agent-config
 ```yaml
   GRMP_API_HOST: "<中间件地址>"
   GRMP_API_PORT: "<中间件端口>"
+  GRMP_PATH_PREFIX: "<中间件接口路径前缀>"
   MODEL_BASE_URL: "<模型服务地址,含/v1>"
   MODEL_ID: "<模型名称>"
 ```

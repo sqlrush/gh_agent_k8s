@@ -10,6 +10,7 @@
 | `POD_NAME` | 建议 | Pod 名 | downward API `metadata.name` | `.owner` 独占标记里的持有者；缺省用 `hostname` |
 | `GRMP_API_HOST` | runtime 是 | 中间件主机名或 IP | ConfigMap | 每次启动重新渲染进 `config.yaml`，改地址重建 Pod 即生效 |
 | `GRMP_API_PORT` | 否 | 默认 `8080` | ConfigMap | |
+| `GRMP_PATH_PREFIX` | runtime 是 | 中间件接口路径前缀（中间件团队提供，以 `/` 开头、只写路径），技能请求 `<前缀>/common-operations` 与 `<前缀>/common-operations/invoke` | ConfigMap | 2026-10-26 起由部署配置，代码里没有默认值；没配时登录数据库与凭据代理都直接报「GRMP_PATH_PREFIX 没配」，不猜 |
 | `GRMP_AUTH_TOKEN` | runtime 是 | 本人令牌 | Secret，按人 | **只注入凭据代理容器 `credproxy`**（2026-10-23，见下文「凭据代理」），opencode 容器里没有；镜像与 NAS 都不落盘 |
 | `GRMP_APPKEY` | 中间件开了签名校验时是 | 与中间件约定的应用名（整个智能体一个） | ConfigMap | 2026-09-18 中间件加固：请求头再带 Appkey / Timestamp / Signature；为空 = 不签名 |
 | `GRMP_SIGN_MODE` | 否 | `full`（默认，三个头）/ `headers-only`（只 Appkey + Timestamp） | ConfigMap | 2026-09-20 客户过渡期：密钥审批未下来，先只加 Appkey 与 Timestamp。`headers-only` 时不读私钥。**拿不到私钥不会自动降级**——降级必须显式配置，否则生产上 Secret 挂载失败会悄悄变成不签名 |

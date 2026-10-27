@@ -433,7 +433,7 @@ kubectl -n gaussdb-agent get secret
 
 ```bash
 kubectl -n gaussdb-agent patch configmap agent-config --type merge -p '{"data":{
-  "GRMP_API_HOST":"<中间件IP>","GRMP_API_PORT":"<中间件端口>",
+  "GRMP_API_HOST":"<中间件IP>","GRMP_API_PORT":"<中间件端口>","GRMP_PATH_PREFIX":"<中间件接口路径前缀>",
   "MODEL_BASE_URL":"<模型服务地址,如 https://api.deepseek.com/v1>","MODEL_ID":"<模型名>","MODEL_PROVIDER_NAME":"<随便起个名字,如 deepseek>"}}'
 ```
 

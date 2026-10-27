@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import functools
 import json
 import pathlib
 import subprocess
@@ -24,7 +25,6 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 NS = "gaussdb-agent"
-GRMP_LIST = "/icbc/paas/aiops/grmp/diagnostic/agent/common-operations"
 SECRET_NAMES = ("GRMP_AUTH_TOKEN", "MODEL_API_KEY", "GRMP_SM2_PRIVATE_KEY")
 CTX = "orbstack"
 TRUST = ""
@@ -79,10 +79,19 @@ _NAMES = "for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < \"$f\" 2>/dev/null;
     % "|".join(SECRET_NAMES)
 
 
+
+@functools.lru_cache(maxsize=1)
+def grmp_list() -> str:
+    """中间件「查命令清单」的路径:前缀取集群 agent-config 的 GRMP_PATH_PREFIX(部署配置,代码里不写死)。"""
+    prefix = K("get", "configmap", "agent-config", "-o", "jsonpath={.data.GRMP_PATH_PREFIX}").strip().rstrip("/")
+    if not prefix:
+        raise SystemExit("集群的 agent-config 里没有 GRMP_PATH_PREFIX:先按《从源码构建到 K8s 运行》5.5 填上")
+    return prefix + "/common-operations"
+
 def curl_grmp(sock: str) -> str:
     return ("curl -s -m 60 --unix-socket %s -X POST -H 'Content-Type: application/json' "
             "-d '{\"dataIp\":\"10.0.0.9\",\"offset\":1,\"limit\":5}' -w '\\n%%{http_code}' http://credproxy%s"
-            % (sock, GRMP_LIST))
+            % (sock, grmp_list()))
 
 
 def _status(out: str):
@@ -162,7 +171,7 @@ def part_p(port: int, admin: str, user: str, values) -> None:
     if others:
         o = "slot-%d" % others[0]
         st, _b = _status(kexec(pod, o, "curl -s -m 30 -X POST -d '{}' -w '\\n%%{http_code}' http://127.0.0.1:%d%s"
-                               % (mport, GRMP_LIST)))
+                               % (mport, grmp_list())))
         st2, _b2 = _status(kexec(pod, o, curl_grmp("/run/credproxy/credproxy.sock")))
         ls = kexec(pod, o, "ls /run/credproxy").split()
         record("P6", "同 Pod 别的槽位:经我的模型中继调中间件 404、自己的套接字(没人在用)403、看不到我的套接字",

@@ -37,6 +37,8 @@ import poolsteward  # noqa: E402
 import poolsync  # noqa: E402
 import slotrun  # noqa: E402
 
+GRMP_PREFIX = "/example/grmp/diagnostic/agent"      # 部署时配置的中间件路径前缀(GRMP_PATH_PREFIX);单测用样例
+
 FAKE = pathlib.Path(__file__).with_name("fake_opencode.py")
 KEY = b"c" * 32
 POD = "pool-0"
@@ -276,6 +278,7 @@ def proxied_pod(monkeypatch, grmp_upstream):
     monkeypatch.setattr(slotrun.SlotSupervisor, "_reap_orphans", lambda self: None)
     port, seen = grmp_upstream
     ups = credproxy.Upstreams.from_env({"GRMP_API_HOST": "127.0.0.1", "GRMP_API_PORT": str(port),
+                                        "GRMP_PATH_PREFIX": GRMP_PREFIX,
                                         "GRMP_USER_ID_HEADER": "X-User-Id", "MODEL_BASE_URL": "http://127.0.0.1:9/v1",
                                         "MODEL_API_KEY": "mk", "AGENT_SKILLS_DIR": str(_ROOT / "agent")})
     p = Pod(pathlib.Path(tempfile.mkdtemp(dir="/tmp", prefix="ps")), upstreams=ups)
@@ -289,7 +292,7 @@ def _grmp_via(sock: pathlib.Path):
     c.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     c.sock.connect(str(sock))
     try:
-        c.request("POST", credproxy.GRMP_PREFIX + "/common-operations", body=b'{"dataIp": "10.0.0.9"}',
+        c.request("POST", GRMP_PREFIX + "/common-operations", body=b'{"dataIp": "10.0.0.9"}',
                   headers={"Content-Type": "application/json", "X-User-Id": "u9999"})
         r = c.getresponse()
         return r.status, json.loads(r.read())
@@ -921,7 +924,7 @@ def test_each_slots_credproxy_forwards_only_for_its_own_user_while_in_use(proxie
     model_sock = pod.slot_dir(0) / "sock" / credproxy.MODEL_SOCKET_NAME
     assert _grmp_via(model_sock)[0] == 404, "模型套接字(能被 localhost 上的中继连到)绝不转中间件"
     c = http.client.HTTPConnection("127.0.0.1", pod.slots[0].model_port, timeout=10)   # 别的槽位也连得上这个端口
-    c.request("POST", credproxy.GRMP_PREFIX + "/common-operations", body=b"{}")
+    c.request("POST", GRMP_PREFIX + "/common-operations", body=b"{}")
     assert c.getresponse().status == 404, "经模型中继借不到这个人的中间件身份"
     c.close()
     assert "grmp-of-u1234" not in json.dumps(pod.st.status())

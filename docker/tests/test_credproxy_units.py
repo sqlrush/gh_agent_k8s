@@ -27,8 +27,9 @@ from common.grmp import signing, sm2  # noqa: E402
 
 D = sm2.generate_private_key()
 PUB = sm2.public_key(D)
-LIST = credproxy.GRMP_PREFIX + "/common-operations"
-INVOKE = credproxy.GRMP_PREFIX + "/common-operations/invoke"
+PREFIX = "/example/grmp/diagnostic/agent"         # 部署时配置的前缀(GRMP_PATH_PREFIX);单测用样例
+LIST = PREFIX + "/common-operations"
+INVOKE = PREFIX + "/common-operations/invoke"
 
 
 class _TCP(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -89,7 +90,7 @@ def upstream():
 
 def _env(base, **kw):
     host, port = base.split("//")[1].split(":")
-    env = {"GRMP_API_HOST": host, "GRMP_API_PORT": port, "GRMP_APPKEY": "gaussdb-agent",
+    env = {"GRMP_API_HOST": host, "GRMP_API_PORT": port, "GRMP_PATH_PREFIX": PREFIX, "GRMP_APPKEY": "gaussdb-agent",
            "GRMP_SM2_PRIVATE_KEY": "%064x" % D, "GRMP_USER_ID_HEADER": "X-User-Id", "GRMP_USER_ID_PARAM": "userId",
            "MODEL_BASE_URL": base + "/v1", "MODEL_API_KEY": "real-model-key",
            "AGENT_SKILLS_DIR": str(_ROOT / "agent")}
@@ -166,7 +167,8 @@ def test_only_the_two_diagnostic_paths_are_forwarded(upstream, sockdir):
     base, seen, _g = upstream
     _p, path, srv = _serve(_env(base), sockdir)
     try:
-        for url in (credproxy.GRMP_PREFIX + "/other", "/anything", credproxy.GRMP_PREFIX + "/common-operations/../x"):
+        for url in (PREFIX + "/other", "/anything", PREFIX + "/common-operations/../x",
+                    "/another/prefix/common-operations", "/another/prefix/common-operations/invoke"):
             assert _post(path, url, {})[0] == 404, url
     finally:
         srv.shutdown()
@@ -401,3 +403,33 @@ def test_relay_with_no_proxy_behind_it_just_closes(sockdir):
         assert logs and "连不上凭据代理" in logs[0]
     finally:
         ls.close()
+
+
+def test_missing_path_prefix_is_reported_not_guessed(upstream, sockdir):
+    """前缀是部署配置:没配时中间件请求一律回 503 说清楚缺哪一项,不拿一个猜的前缀去请求中间件。"""
+    base, seen, _g = upstream
+    env = _env(base)
+    env.pop("GRMP_PATH_PREFIX")
+    _p, path, srv = _serve(env, sockdir)
+    try:
+        code, out = _post(path, LIST, {"dataIp": "10.0.0.9"})
+    finally:
+        srv.shutdown()
+    assert code == 503 and "GRMP_PATH_PREFIX" in out["msg"] and seen == []
+
+
+def test_path_prefix_is_validated_and_normalized_like_the_skills_side():
+    """凭据代理与技能侧(common/grmp/paths.py)各有一份规整函数:两边对同一批输入必须一致。"""
+    from common.grmp import paths
+    good = ["/a/b", " /a/b/ ", "/x", "/example/grmp/diagnostic/agent/"]
+    bad = ["a/b", "/a b", "/a?x=1", "/a#f", "//a", "/a/../b", "http://h/a"]
+    for raw in good:
+        assert credproxy.normalize_prefix(raw) == paths.normalize(raw), raw
+    for raw in bad:
+        with pytest.raises(credproxy.ConfigError):
+            credproxy.normalize_prefix(raw)
+        with pytest.raises(paths.PrefixError):
+            paths.normalize(raw)
+    assert credproxy.normalize_prefix("") == paths.normalize("") == ""
+    with pytest.raises(credproxy.ConfigError):
+        credproxy.Upstreams.from_env({"GRMP_API_HOST": "h", "GRMP_PATH_PREFIX": "no-slash"})

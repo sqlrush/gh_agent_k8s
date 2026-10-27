@@ -384,3 +384,26 @@ def test_fallback_image_carries_the_registry_prefix():
     assert _bash(snippet, env={"REG": "registry.example/gaussdb-agent/"})[1].strip() == \
         "IMG=registry.example/gaussdb-agent/gaussdb-agent-runtime:t1"
     assert _bash(snippet, env={"REG": ""})[1].strip() == "IMG=gaussdb-agent-runtime:t1"
+
+
+@pytest.mark.parametrize("prefix,want", [
+    ("/example/grmp/diagnostic/agent", "[正常] 中间件接口路径前缀 /example/grmp/diagnostic/agent"),
+    ("", "GRMP_PATH_PREFIX 没填或格式不对"),
+    ("grmp/diagnostic", "GRMP_PATH_PREFIX 没填或格式不对"),
+])
+def test_config_check_reports_the_grmp_path_prefix(prefix, want):
+    """中间件接口路径前缀是部署配置(代码里不写死):① 要查它配了没有,没配给出 patch 命令。"""
+    snippet = textwrap.dedent('''
+        U=u0001; D=runtime-u0001; KN="kubectl -n gaussdb-agent"; CMD="bash runtime-doctor.sh"; ADV=""; ADV_N=0
+        G() { case "$*" in
+          *MODEL_BASE_URL*) echo https://m.example.com/v1 ;; *MODEL_ID*) echo m1 ;;
+          *GRMP_API_HOST*) echo 10.1.1.1 ;; *GRMP_API_PORT*) echo 8080 ;; *GRMP_PATH_PREFIX*) echo "$PRE" ;;
+          *MODEL_API_KEY*) echo a2V5a2V5 ;; *"secret grmp-token-"*) echo secret/grmp-token-u0001 ;; *) echo "" ;;
+        esac; }
+        check_config
+        printf '%s\\n' "$ADV"
+    ''')
+    out = _bash(snippet, env={"PRE": prefix})[1]
+    assert want in out, out
+    if not prefix.startswith("/"):
+        assert "GRMP_PATH_PREFIX" in out.split("== ① 配置与开通 ==")[-1] and "patch configmap agent-config" in out, out

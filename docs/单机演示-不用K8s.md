@@ -64,6 +64,7 @@ docker run -d --name agent-demo \
   -e MODEL_ID='<模型名>' \
   -e GRMP_API_HOST='<中间件地址>' \
   -e GRMP_API_PORT=8080 \
+  -e GRMP_PATH_PREFIX='<中间件接口路径前缀>' \
   -e GRMP_AUTH_TOKEN='<中间件令牌>' \
   -v ~/agent-demo/me:/nas/me \
   -v ~/agent-demo/kb:/nas/kb:ro \

@@ -37,8 +37,9 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Dict, Mapping, Optional, Tuple
 
-GRMP_PREFIX = "/icbc/paas/aiops/grmp/diagnostic/agent"
-GRMP_PATHS = frozenset({GRMP_PREFIX + "/common-operations", GRMP_PREFIX + "/common-operations/invoke"})
+# 中间件接口路径 = 部署时配置的前缀(GRMP_PATH_PREFIX,与技能侧 common/grmp/paths.py 同一个变量)+ 这两个固定尾巴
+GRMP_PREFIX_ENV = "GRMP_PATH_PREFIX"
+GRMP_SUFFIXES = ("/common-operations", "/common-operations/invoke")
 MODEL_PREFIX = "/model"
 SOCKET_NAME = "credproxy.sock"         # 只转中间件
 MODEL_SOCKET_NAME = "model.sock"        # 只转模型(固定池化:槽位的模型中继接这个)
@@ -62,6 +63,17 @@ class ConfigError(ValueError):
     pass
 
 
+def normalize_prefix(raw: Optional[str]) -> str:
+    """与技能侧 common.grmp.paths.normalize 同一规则(单测核对两边一致):去空白与末尾 /,空串 = 没配。"""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    if (not text.startswith("/") or any(ch.isspace() for ch in text) or "?" in text or "#" in text
+            or "//" in text or "/../" in text + "/"):
+        raise ConfigError("%s=%r 不是合法的路径前缀(以 / 开头,只写路径)" % (GRMP_PREFIX_ENV, text))
+    return text.rstrip("/")
+
+
 def _skills_common(env: Mapping[str, str]):
     """复用技能里的签名与工号模块(镜像里装在 opencode 的技能目录下)。"""
     root = env.get("AGENT_SKILLS_DIR") or "/opt/agent/config/opencode/skills"
@@ -77,6 +89,11 @@ class Upstreams:
     model_base: str         # 空 = 不提供模型转发
     model_key: str
     env: Mapping[str, str]  # 签名与工号的旋钮(GRMP_APPKEY、GRMP_SIGN_*、GRMP_SM2_PRIVATE_KEY、GRMP_USER_ID_*)
+    grmp_prefix: str = ""   # 中间件接口路径前缀;空 = 没配,中间件请求一律报「没配」
+
+    @property
+    def grmp_paths(self) -> frozenset:
+        return frozenset(self.grmp_prefix + s for s in GRMP_SUFFIXES) if self.grmp_prefix else frozenset()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Upstreams":
@@ -97,7 +114,8 @@ class Upstreams:
         key = env.get("MODEL_API_KEY") or ""
         if model and not key:
             raise ConfigError("有 MODEL_BASE_URL 却没有 MODEL_API_KEY(模型 Key 由平台以 Secret model-api 注入代理)")
-        return cls(grmp_base=grmp, model_base=model, model_key=key, env=dict(env))
+        return cls(grmp_base=grmp, model_base=model, model_key=key, env=dict(env),
+                   grmp_prefix=normalize_prefix(env.get(GRMP_PREFIX_ENV)))
 
 
 class Proxy:
@@ -121,7 +139,9 @@ class Proxy:
             return code, json.dumps({"code": str(code), "msg": msg}, ensure_ascii=False).encode("utf-8")
         if not self.ups.grmp_base:
             return fail(503, "凭据代理没有配置中间件地址(GRMP_API_HOST)")
-        if path not in GRMP_PATHS:
+        if not self.ups.grmp_prefix:
+            return fail(503, "凭据代理没有配置中间件接口路径前缀(GRMP_PATH_PREFIX,部署时在 agent-config 里填)")
+        if path not in self.ups.grmp_paths:
             return fail(404, "凭据代理只转发 GRMP 诊断接口")
         bound = self.binding()
         if bound is None:
@@ -240,7 +260,7 @@ def make_handler(proxy: Proxy, grmp: bool = True, model: bool = True):
                 return self._send(413, b'{"msg": "request too large"}')
             if model and (path == MODEL_PREFIX or path.startswith(MODEL_PREFIX + "/")):
                 return self._model(path[len(MODEL_PREFIX):] or "/", body)
-            if grmp and self.command == "POST" and path.split("?", 1)[0] in GRMP_PATHS:
+            if grmp and self.command == "POST" and path.split("?", 1)[0].endswith(GRMP_SUFFIXES):
                 code, out = proxy.grmp(path.split("?", 1)[0], body)
                 return self._send(code, out)
             self._send(404, b'{"msg": "not found"}')

@@ -9,7 +9,7 @@
 #   bash runtime-doctor.sh <工号> --login                      再经网关真登录一次,看容器会不会被反复收掉(约 3 分钟)
 #
 # 查六样:
-#   ① 配置与开通:模型地址/模型名/key;中间件地址是不是 localhost 或样例值;这个工号开通了没有
+#   ① 配置与开通:模型地址/模型名/key;中间件地址是不是 localhost 或样例值;中间件接口路径前缀配了没有;这个工号开通了没有
 #   ② NAS:个人目录 users/<工号> 在不在、容器的 uid 1000 能不能写(写不进的话容器一启动就退出)
 #   ③ 用户容器:在不在、就绪没有、重启了几次、上一次为什么退出
 #   ④ 出网:用两个临时 Pod 实际连一次模型与中间件 —— 一个带用户容器的标签(受出网策略约束),
@@ -367,6 +367,14 @@ check_config() {
       advise "中间件地址是「${GH:-（空）}:${GP}」" "容器里的 localhost 指容器自己;要填中间件的实际 IP 与端口。脚本会同时改地址与对应的出网规则,并重启用户容器" \
         "${CMD} ${U} --fix --grmp <中间件IP:端口>" ;;
     *) ok "中间件地址 ${GH}:${GP}" ;;
+  esac
+  GPRE=$(G configmap agent-config -o jsonpath='{.data.GRMP_PATH_PREFIX}')
+  case "$GPRE" in
+    /?*) ok "中间件接口路径前缀 ${GPRE}" ;;
+    *)
+      bad "中间件接口路径前缀 GRMP_PATH_PREFIX 没填或格式不对:「${GPRE}」—— 登录数据库会直接报「GRMP_PATH_PREFIX 没配」"
+      advise "中间件接口路径前缀没配" "填中间件团队给的路径前缀(以 / 开头,只写路径),改完重启用户容器" \
+        "${KN} patch configmap agent-config --type merge -p '{\"data\":{\"GRMP_PATH_PREFIX\":\"<中间件给的路径前缀>\"}}'" "$restart" ;;
   esac
   if [ -n "$(G secret "grmp-token-$U" -o name)" ]; then ok "已开通(有 Secret grmp-token-${U})"
   else

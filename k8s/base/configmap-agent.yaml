@@ -8,11 +8,14 @@ metadata:
 data:
   GRMP_API_HOST: grmp.example.internal
   GRMP_API_PORT: "8080"
+  # **必填。** 中间件接口的路径前缀,由中间件团队提供(形如 /xxx/grmp/diagnostic/agent,以 / 开头,只写路径)。
+  # 技能请求 <前缀>/common-operations 与 <前缀>/common-operations/invoke。留空时登录数据库直接报「GRMP_PATH_PREFIX 没配」。
+  GRMP_PATH_PREFIX: ""
   # 2026-09-18 中间件加固:请求头带 Appkey / Timestamp / Signature。GRMP_APPKEY 为空 = 不签名。
   # 私钥在 Secret grmp-sm2。下面四个旋钮按中间件口径填,缺省 = 国标 / Java BouncyCastle 常见形态;
   # 注意 OpenSSL 签出来的默认 userId 是空串,客户用什么必须问清(docs/env-contract.md)。
-  # 2026-09-20 客户过渡期:密钥审批周期紧张,先只发 Appkey + Timestamp,不发 Signature。
-  #   过渡期填:GRMP_APPKEY: F-GAUSS-AGENT / GRMP_SIGN_MODE: headers-only / GRMP_SIGN_TIMESTAMP: s
+  # 过渡期(私钥还没到位):先只发 Appkey + Timestamp,不发 Signature。
+  #   过渡期填:GRMP_APPKEY: <中间件给的 Appkey> / GRMP_SIGN_MODE: headers-only / GRMP_SIGN_TIMESTAMP: s
   #   密钥到位后:GRMP_SIGN_MODE 改回 full,并建 Secret grmp-sm2。
   # headers-only 时不读私钥,平台不必挂一个用不上的 Secret;full 时拿不到私钥会直接报错,
   # **不会因为拿不到私钥就自动降级**——降级必须是这里写明的决定。

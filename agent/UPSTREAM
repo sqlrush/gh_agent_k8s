@@ -20,3 +20,4 @@ synced 2026-10-27: gh_skill c0b8beb 499f8d6 d7f6e89 2c5eda0 aa8ae42 — 网页�
 synced 2026-10-27: gh_skill skills-v12.21(de29b0e)— kb_docset.py:docset install 同版本跳过时不重写 L0 / L1;测试同步。方向:gh_skill → 本仓库(整文件复制)
 synced 2026-10-30: gh_skill feat/proc-adm-source 4fe15ae — 存储过程源码 ADM_SOURCE 兜底:common/proc_source.py 新增,common/{procname,proc_locate}.py、procinfo / proctune 的取数入口与报告、两份 procanalyze.py、两个 SKILL.md、proc-setup.md 整文件;白名单 procinfo.source_adm / proctune.source_adm;tests/test_proc_source_units.py 新增、test_registry_drift_units.py 整文件。方向:gh_skill → 本仓库(这些文件在本仓库没有容器专属改动)
 synced 2026-10-30: gh_skill skills-v12.22(81b7eb0)— 发版:procinfo 2.3.0、proctune 2.5.0(两个 SKILL.md 的版本号);对应本仓库 agent-v1.4.3
+synced 2026-10-30: gh_skill skills-v12.22(d1fde38)— 修正:只按合法标识符查 ADM_SOURCE(common/proc_source.py、tests/test_proc_source_units.py 整文件)

@@ -19,6 +19,8 @@ OK, BAD, WARN = "ok", "bad", "warn"
 NAMES = {"dir": "发布包目录", "registry": "内网镜像仓库", "k8s": "Kubernetes", "nas": "NAS", "model": "模型服务",
          "grmp": "中间件", "whitelist": "白名单核对", "sso": "统一认证", "capacity": "集群余量"}
 
+MAX_SKEW = 1      # kubectl 与集群相差的小版本数,超过就提示(k8s 的版本偏差策略)
+
 # 发版台要用到的权限(命名空间内)
 VERBS = [("get", "configmaps"), ("patch", "configmaps"), ("get", "secrets"), ("create", "secrets"), ("patch", "deployments"),
          ("patch", "statefulsets"), ("patch", "pods"), ("delete", "pods"), ("create", "pods/exec"), ("create", "pods/portforward"),
@@ -166,6 +168,11 @@ class Scanner:
         if archs:
             self.store.kv_set("node_arch", archs[0])
         it.st, it.msg = OK, "权限完整%s" % (" · 节点 %s" % archs[0] if archs else "")
+        v = self.kube.version()
+        if "client" in v and "server" in v and abs(v["client"] - v["server"]) > MAX_SKEW:
+            it.st = WARN
+            it.msg += (" · kubectl 1.%d 与集群 1.%d 相差 %d 个小版本(官方只保证相差 %d 以内):"
+                       "启动时用 --kubectl 换成集群配套的 kubectl" % (v["client"], v["server"], abs(v["client"] - v["server"]), MAX_SKEW))
         return it
 
     def nas(self) -> Item:

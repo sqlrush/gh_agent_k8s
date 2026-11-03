@@ -86,6 +86,20 @@ class Kube:
         res = self.run(["auth", "can-i", verb, resource], namespaced=namespaced, check=False)
         return res.out.strip() == "yes"
 
+    def version(self) -> Dict[str, int]:
+        """kubectl 与集群各自的小版本号(1.31 → 31)。连不上集群时只有 client;读不出来就是空。"""
+        res = self.run(["version", "-o", "json"], namespaced=False, check=False, timeout=30)
+        try:
+            doc = json.loads(res.out or "{}")
+        except ValueError:
+            return {}
+        out: Dict[str, int] = {}
+        for side, key in (("client", "clientVersion"), ("server", "serverVersion")):
+            m = re.match(r"\d+", str((doc.get(key) or {}).get("minor") or ""))      # 托管集群常见 "27+"
+            if m:
+                out[side] = int(m.group())
+        return out
+
     def logs(self, target: str, container: str = "", tail: int = 200) -> str:
         args = ["logs", target, "--tail", str(tail)] + (["-c", container] if container else [])
         return self.run(args, check=False).out

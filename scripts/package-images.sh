@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 离线交付包:把**五个**镜像(两种架构)导出成 tar.gz + sha256,连同 k8s 清单与文档打成一个 dist/ 目录。
+# 另有发版台镜像(跳板机上跑,不进集群)单独一个 tar + 启动脚本 release-console.sh。
 #   gaussdb-agent-runtime / -kb-import   每用户一个的业务 Pod
 #   gaussdb-agent-gateway                接入网关(全体共用)
 #   gaussdb-agent-frontend               四个大盘的静态页面(全体共用)
@@ -40,7 +41,16 @@ for ARCH in ${ARCHS//,/ }; do
   docker save $IMAGES | gzip -6 > "$OUT"
   (cd "$DIST" && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256")
   echo "  → $(basename "$OUT") $(du -h "$OUT" | cut -f1)" >> "$DIST/MANIFEST.txt"
+  # 发版台镜像单独一个包:它跑在跳板机上,不进集群、不推客户的镜像仓库。名字不是「<包名>-<架构>」,
+  # release/pack.py 与发版台的包识别都不会把它当成要入库的镜像包
+  RIMG="gaussdb-agent-release:$TAG$SUFFIX"
+  docker image inspect "$RIMG" >/dev/null 2>&1 || { echo "缺镜像 $RIMG(build-images.sh 会一起构建)" >&2; exit 1; }
+  ROUT="$DIST/gaussdb-agent-release-${PKG#gaussdb-agent-}-$ARCH.tar.gz"
+  docker save "$RIMG" | gzip -6 > "$ROUT"
+  (cd "$DIST" && shasum -a 256 "$(basename "$ROUT")" > "$(basename "$ROUT").sha256")
+  echo "  → $(basename "$ROUT") $(du -h "$ROUT" | cut -f1)  发版台(release-console.sh 导入)" >> "$DIST/MANIFEST.txt"
 done
+install -m 0755 "$HERE/scripts/release-console.sh" "$DIST/release-console.sh"
 
 # 清单与文档
 # **文档清单不要再写死。** 写死的后果是:加了新文档却忘了加进这一行,客户拿到的包里
@@ -71,6 +81,7 @@ COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
 cat >> "$DIST/MANIFEST.txt" <<EOF
   → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/ 全部交付文档(清单见 docs/仓库结构说明.md「交付给客户的」一节)
   → release.yaml     发版台读的版本说明(镜像 digest、白名单全量、各版本的变化);用发版台时把整个目录拷进发布包目录即可
+  → release-console.sh  发版台一条命令起:整个目录拷进发布包目录后运行 <目录>/release-console.sh(--help 看选项)
 
 导入镜像:
   docker:      gunzip -c $PKG-<arch>.tar.gz | docker load

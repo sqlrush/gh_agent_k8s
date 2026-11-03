@@ -102,3 +102,17 @@ def test_history_from_newer_packages_covers_the_legacy_ones(tmp_path):
     build(tmp_path, "v1.4.3", with_release=False)
     h = pk.history(pk.discover(tmp_path))
     assert set(h) == {"agent-v1.4.4", "agent-v1.4.3"} and h["agent-v1.4.3"]["notes"] == ["旧"]
+
+
+def test_a_link_pointing_outside_is_listed_with_the_reason_not_dropped(tmp_path):
+    """2026-11-03 发版台换成容器跑:演练包是指向 dist/ 的链接,容器里目标不在,包在列表里**直接消失**、没有任何说法。"""
+    elsewhere = build(tmp_path / "dist", "v1.4.3", with_release=False)
+    rel = tmp_path / "releases" / elsewhere.name
+    rel.mkdir(parents=True)
+    for f in elsewhere.iterdir():
+        (rel / f.name).symlink_to(f)
+    assert [p.ok for p in pk.discover(tmp_path / "releases")] == [True], "目标在:链接照常用"
+    (elsewhere / ("%s-arm64.tar.gz" % elsewhere.name)).rename(tmp_path / "moved")
+    pkgs = pk.discover(tmp_path / "releases")
+    assert [p.tag for p in pkgs] == ["agent-v1.4.3-oc1.18.27"] and not pkgs[0].ok
+    assert any("是链接,指向的" in x and "看不到" in x and "不要用链接" in x for x in pkgs[0].problems), pkgs[0].problems

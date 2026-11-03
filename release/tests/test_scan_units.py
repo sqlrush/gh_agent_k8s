@@ -16,8 +16,9 @@ from release.store import Store  # noqa: E402
 class FakeKube:
     namespace = "gaussdb-agent"
 
-    def __init__(self, probes=None, archs=("arm64",), objects=None, can=True):
+    def __init__(self, probes=None, archs=("arm64",), objects=None, can=True, version=None):
         self.probes, self.archs, self.can = probes or {}, archs, can
+        self.ver = version if version is not None else {"client": 31, "server": 31}
         self.objects = objects if objects is not None else {
             ("namespace", "gaussdb-agent"): {}, ("pvc", "nas"): {"status": {"phase": "Bound"}},
             ("secret", "gateway-auth"): {}, ("secret", "grmp-token-u9500"): {}}
@@ -35,6 +36,9 @@ class FakeKube:
 
     def can_i(self, verb, resource, namespaced=True):
         return self.can
+
+    def version(self):
+        return self.ver
 
     def exec(self, pod, container, argv, stdin="", timeout=60):
         for key, out in self.probes.items():
@@ -93,3 +97,13 @@ def test_before_the_first_deploy_cluster_side_checks_wait(tmp_path):
     items, _ = _scan(tmp_path, kube, {"smoke.user": "u9500"})
     assert items["k8s"].st == "warn" and items["nas"].st == "warn" and items["model"].st == "warn"
     assert items["sso"].st == "bad" and "信任凭据" in items["sso"].msg
+
+
+def test_kubectl_far_from_the_cluster_version_is_a_warning_not_a_blocker(tmp_path):
+    items, _ = _scan(tmp_path, FakeKube(GOOD, version={"client": 31, "server": 36}))
+    assert items["k8s"].st == scan.WARN
+    assert "kubectl 1.31 与集群 1.36 相差 5 个小版本" in items["k8s"].msg and "--kubectl" in items["k8s"].msg
+    items, _ = _scan(tmp_path, FakeKube(GOOD, version={"client": 31, "server": 30}))
+    assert items["k8s"].st == scan.OK, "相差 1 以内不提示"
+    items, _ = _scan(tmp_path, FakeKube(GOOD, version={"client": 31}))
+    assert items["k8s"].st == scan.OK, "读不到集群版本:不猜"

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import pathlib
 import re
 from dataclasses import dataclass, field
@@ -56,10 +57,14 @@ def discover(root: pathlib.Path) -> List[Package]:
     for d in [root] + sorted(p for p in root.iterdir() if p.is_dir()):
         for f in sorted(d.iterdir()):
             m = NAME.match(f.name)
-            if not m or not f.is_file():
+            if not m or not (f.is_file() or f.is_symlink()):
                 continue
             tag, kind = "agent-" + m.group(1), m.group(2)
             pkg = found.setdefault(tag, Package(tag=tag, root=d))
+            if not f.is_file():                 # 链接到发布包目录外:发版台以容器运行时只挂了这个目录,目标看不到
+                pkg.problems.append("%s 是链接,指向的 %s 在发版台里看不到:把文件拷进发布包目录,不要用链接"
+                                    % (f.name, os.readlink(str(f))))
+                continue
             if kind in pkg.files:
                 pkg.problems.append("%s 出现了两份(%s 与 %s)" % (f.name, pkg.files[kind].parent, d))
             pkg.files[kind] = f

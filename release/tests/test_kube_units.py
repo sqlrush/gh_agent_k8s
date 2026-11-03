@@ -118,3 +118,13 @@ def test_a_port_forward_that_never_comes_up_is_an_error():
     with pytest.raises(KubeError, match="not found"):
         with k.port_forward("svc/gateway", 80, popen=lambda *a, **kw: P(), wait_s=1):
             pass
+
+
+def test_version_reads_both_minors_and_tolerates_a_missing_server():
+    both = {"clientVersion": {"major": "1", "minor": "31"}, "serverVersion": {"major": "1", "minor": "27+"}}
+    k, r = _kube([(0, json.dumps(both), ""), (1, json.dumps({"clientVersion": {"minor": "31"}}), "connection refused"),
+                  (1, "", "boom")])
+    assert k.version() == {"client": 31, "server": 27}, "托管集群的 27+ 也认"
+    assert r.calls[0][0][-3:] == ["version", "-o", "json"] and "-n" not in r.calls[0][0]
+    assert k.version() == {"client": 31}, "连不上集群:只有 client,不报错"
+    assert k.version() == {}

@@ -8,9 +8,9 @@
 | 0 | 网关 `/admin/pool` 摘要带 busy / busy_at;池子安静重启的容器 ID 缺陷 | 网关单测;管家单测 + 测试环境重放 | 完成 |
 | 1 | 镜像入库:`release/oci.py` 读 OCI 目录、`release/registry.py` 推 v2(Basic / Bearer、跨仓库挂载、回读 digest) | 假仓库单测;真包(v1.4.3 arm64)推本地 registry:2 + docker 拉回 | 完成 |
 | 2 | release.yaml:`k8s/release/changes.yaml`(v1.4.0 起逐版本变化)+ 同步 `docs/delivery/`(scripts.sql)+ 白名单解析(`release/whitelist.py`,含核对);`package-images.sh` 末尾 `release/pack.py` 合成 release.yaml(含各镜像平台清单 digest、白名单全量) | 合成 / 校验单测;changes.yaml 首版本与清单一致、增量文件存在的守卫;md5 对上增量文件自检 12 条;真包合成(Python 3.9,1 秒)digest 与推送回读一致;mock 中间件库 128 条全部一致 | 完成 |
-| 3 | 发布包目录:发现包、核 sha256、读 release.yaml、核对 digest 与 OCI 一致 | 单测(假包) | |
-| 4 | 状态库 `release/store.py`(SQLite):资源配置版本、密钥指纹、发布 run / step / 日志、操作记录 | 单测 | |
-| 5 | `release/kube.py`:kubectl 子进程封装(get / apply / diff / patch / exec / port-forward / auth can-i) | 假 kubectl 单测 | |
+| 3 | 发布包目录 `release/package.py`:发现包(子目录或平铺)、核 sha256(与 release.yaml 交叉)、digest 与 OCI 一致;旧包(无 release.yaml)可作起点 / 回滚目标 | 单测(假包、旧包) | 完成 |
+| 4 | 状态库 `release/store.py`(SQLite):资源配置版本、密钥指纹、发布 run / step / 日志、操作记录;脱敏;重启后中断与关卡保留 | 单测(含落盘不含集群密钥) | 完成 |
+| 5 | `release/kube.py`:kubectl 子进程封装(get / apply / diff / patch / exec / port-forward / auth can-i);密钥只走 stdin | 假 kubectl 单测;真集群读、can-i、port-forward /healthz | 完成 |
 | 6 | 资源扫描 `release/scan.py`(9 项) | 单测(假集群 / 假仓库 / 假模型) | |
 | 7 | 升级计划 `release/plan.py`:识别当前版本、累计 history、首次部署 vs 升级 | 单测(各起点版本) | |
 | 8 | 配置迁移与渲染 `release/render.py`:ConfigMap 保留现值 + 新增项、镜像前缀与标签、网络策略网段、render-pool;diff | 单测(用 v1.4.3 包里的 k8s/) | |

@@ -246,3 +246,26 @@ def test_an_old_gateway_without_busy_falls_back_to_last_seen(env):
     clock, fp, sw, _e, _g, _l = env
     assert not sw._quiet({"state": "active", "last_seen": clock.t - 20}), "旧网关摘要没有 busy:20 秒前还有动静就不算安静"
     assert sw._quiet({"state": "active", "last_seen": clock.t - 31})
+
+
+def test_gateway_admin_skips_terminating_pods_and_retries(monkeypatch):
+    from release.kube import Result
+    monkeypatch.setattr(pl.time, "sleep", lambda _s: None)
+
+    class K:
+        def __init__(self):
+            self.tried = []
+
+        def list(self, kind, selector="", namespaced=True):
+            return [{"metadata": {"name": "gw-old", "deletionTimestamp": "x"}, "status": {"containerStatuses": [{"ready": True}]}},
+                    {"metadata": {"name": "gw-a"}, "status": {"containerStatuses": [{"ready": True}]}},
+                    {"metadata": {"name": "gw-b"}, "status": {"containerStatuses": [{"ready": True}]}}]
+
+        def exec(self, pod, container, argv, stdin="", timeout=60):
+            self.tried.append(pod)
+            if len(self.tried) == 1:
+                return Result(137, "", "command terminated with exit code 137")
+            return Result(0, json.dumps({"code": 200, "body": {"pods": []}}) + "\n", "")
+    k = K()
+    assert pl.GatewayAdmin(k).call()[0] == 200
+    assert "gw-old" not in k.tried and k.tried == ["gw-a", "gw-b"], "退出中的旧网关不选;失败换一个副本重试"

@@ -45,19 +45,27 @@ class GatewayAdmin:
     """经 kubectl exec 调网关的 /admin/pool。网关有两个副本,任选一个就绪的。"""
     kube: object
 
-    def _pod(self) -> str:
-        for p in self.kube.list("pods", "app=agent-gateway"):
-            if any(c.get("ready") for c in (p.get("status") or {}).get("containerStatuses") or []):
-                return p["metadata"]["name"]
-        raise PoolError("没有就绪的网关 Pod,调不了 /admin/pool")
+    def _pods(self) -> List[str]:
+        """就绪、且不在退出中的网关 Pod。刚滚动更新完时旧 Pod 还短暂显示就绪,exec 进去会被杀(退出码 137)。"""
+        out = [p["metadata"]["name"] for p in self.kube.list("pods", "app=agent-gateway")
+               if not p["metadata"].get("deletionTimestamp")
+               and all(c.get("ready") for c in (p.get("status") or {}).get("containerStatuses") or [{}])]
+        if not out:
+            raise PoolError("没有就绪的网关 Pod,调不了 /admin/pool")
+        return out
 
     def call(self, action: str = "", pod: str = "", slot: int = 0) -> Tuple[int, dict]:
-        res = self.kube.exec(self._pod(), "", ["python3", "-c", ADMIN],
-                             stdin=json.dumps({"action": action, "pod": pod, "slot": slot}), timeout=180)
-        if res.code != 0:
-            raise PoolError("调 /admin/pool 失败:%s" % (res.err.strip().splitlines() or ["?"])[-1])
-        doc = json.loads(res.out.strip().splitlines()[-1])
-        return int(doc["code"]), doc.get("body") or {}
+        last = ""
+        for attempt in range(3):
+            pods = self._pods()
+            res = self.kube.exec(pods[attempt % len(pods)], "", ["python3", "-c", ADMIN],
+                                 stdin=json.dumps({"action": action, "pod": pod, "slot": slot}), timeout=180)
+            if res.code == 0:
+                doc = json.loads(res.out.strip().splitlines()[-1])
+                return int(doc["code"]), doc.get("body") or {}
+            last = (res.err.strip().splitlines() or ["退出码 %d" % res.code])[-1]
+            time.sleep(2 * (attempt + 1))
+        raise PoolError("调 /admin/pool 失败(试了 3 次):%s" % last)
 
     def slots(self) -> Dict[Tuple[str, int], dict]:
         code, body = self.call()

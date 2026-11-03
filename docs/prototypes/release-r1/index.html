@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发版台 · GaussDB 智能体（界面原型）</title>
+<style>
+:root{--ink:#0f172a;--ink2:#334155;--muted:#64748b;--line:#e2e8f0;--bg:#f1f5f9;--card:#fff;
+--blue:#2563eb;--blue-bg:#eff6ff;--green:#047857;--green-bg:#ecfdf5;--amber:#b45309;--amber-bg:#fffbeb;
+--red:#b91c1c;--red-bg:#fef2f2;--gray:#64748b;--gray-bg:#f1f5f9;--side:#0f172a}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+button{font:inherit;cursor:pointer}
+.app{display:flex;min-height:100vh}
+.side{width:212px;background:var(--side);color:#cbd5e1;flex-shrink:0;display:flex;flex-direction:column}
+.logo{padding:18px 18px 14px;border-bottom:1px solid #1e293b}
+.logo b{display:block;color:#fff;font-size:17px;letter-spacing:.5px}
+.logo span{font-size:12px;color:#94a3b8}
+.nav{padding:10px 8px;flex:1}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;margin:2px 0;border:0;border-radius:8px;background:transparent;color:#cbd5e1;text-align:left;font-size:14px}
+.nav button:hover{background:#1e293b}
+.nav button.on{background:#1d4ed8;color:#fff}
+.nav .ic{width:18px;text-align:center;opacity:.9}
+.nav .dot{margin-left:auto;width:8px;height:8px;border-radius:50%;background:#f59e0b;display:none}
+.nav .dot.show{display:block}
+.side-foot{padding:12px 16px;font-size:12px;color:#64748b;border-top:1px solid #1e293b}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{height:56px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 22px;position:sticky;top:0;z-index:5}
+.top h2{margin:0;font-size:16px}
+.envsel{border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:#fff;font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.p-blue{background:var(--blue-bg);color:var(--blue)}.p-green{background:var(--green-bg);color:var(--green)}
+.p-amber{background:var(--amber-bg);color:var(--amber)}.p-red{background:var(--red-bg);color:var(--red)}
+.p-gray{background:var(--gray-bg);color:var(--gray)}
+.spacer{flex:1}
+.local{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px}
+.local i{width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block}
+.page{display:none;padding:18px 22px 40px}
+.page.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+.card h3 .sub,h3 .sub{font-weight:400;color:var(--muted);font-size:12px}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr 1fr}
+@media(max-width:1250px){.g4{grid-template-columns:1fr 1fr}.rel-grid{grid-template-columns:1fr!important}}
+.kpi .v{font-size:22px;font-weight:700;margin:2px 0}
+.kpi .l{color:var(--muted);font-size:12px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 14px;font-size:13px;color:var(--ink);white-space:nowrap}
+.btn:hover{background:#f8fafc}
+.btn.pri{background:var(--blue);border-color:var(--blue);color:#fff}.btn.pri:hover{background:#1d4ed8}
+.btn.warn{background:#fff7ed;border-color:#fdba74;color:#9a3412}
+.btn.danger{background:#fff;border-color:#fca5a5;color:var(--red)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:3px 10px;font-size:12px}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;background:#f8fafc}
+tr.click:hover td{background:#f8fafc;cursor:pointer}
+tr.bad td{background:#fef2f2}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+code{background:#f1f5f9;padding:1px 6px;border-radius:4px}
+.banner{display:flex;align-items:center;gap:14px;background:linear-gradient(90deg,#eff6ff,#ecfdf5);border:1px solid #bfdbfe;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.banner .t{font-weight:600;font-size:15px}
+.muted{color:var(--muted)}.small{font-size:12px}
+.chk{display:flex;flex-direction:column;gap:6px}
+.chk div{display:flex;gap:8px;align-items:center}
+.ok{color:var(--green)}.bad{color:var(--red)}
+.relhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.relhead .ver{font-size:18px;font-weight:700}
+.relhead .arrow{color:var(--muted)}
+.prog{flex:1;min-width:180px;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden}
+.prog i{display:block;height:100%;background:linear-gradient(90deg,#2563eb,#10b981);width:0}
+.rel-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.toolbar label{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes pulse2{0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.35)}50%{box-shadow:0 0 0 6px rgba(37,99,235,0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes halo{0%{box-shadow:0 0 0 0 rgba(37,99,235,.35)}100%{box-shadow:0 0 0 12px rgba(37,99,235,0)}}
+@keyframes halo2{0%{box-shadow:0 0 0 0 rgba(245,158,11,.45)}100%{box-shadow:0 0 0 12px rgba(245,158,11,0)}}
+/* ===== 资源扫描 ===== */
+.scan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:1250px){.scan-grid{grid-template-columns:1fr 1fr}}
+.res{border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;background:#fff}
+.res .ri{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;font-size:13px;font-weight:700;color:#fff;background:#cbd5e1}
+.res.r-ok{border-color:#a7f3d0}.res.r-ok .ri{background:#10b981}
+.res.r-bad{border-color:#fca5a5;background:#fef2f2}.res.r-bad .ri{background:#ef4444}
+.res.r-chk .ri{background:#2563eb;animation:halo 1.4s infinite}
+.res .rn{font-weight:600;font-size:13px}
+.res .ra{font-size:11.5px;color:#64748b;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+.res .rr{font-size:12px;margin-top:2px;color:#64748b}.res.r-ok .rr{color:#047857}.res.r-bad .rr{color:#b91c1c}
+.scan-sum{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+/* ===== 发布流程:地铁线 ===== */
+.pipe{padding:2px 4px}
+.phases,.track{display:grid;grid-template-columns:repeat(12,minmax(0,1fr))}
+.phase{padding:0 8px;text-align:center}
+.phase .pl{font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:.5px}
+.phase .pl span{font-weight:500;margin-left:4px;font-size:11px}
+.phase .br{height:8px;margin-top:4px;border:2px solid #e2e8f0;border-bottom:0;border-radius:8px 8px 0 0}
+.phase.ph-done .pl{color:#059669}.phase.ph-done .br{border-color:#a7f3d0}
+.phase.ph-active .pl{color:#2563eb}.phase.ph-active .br{border-color:#93c5fd}
+.track{margin-top:4px}
+.stg{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;padding:16px 2px 8px;cursor:pointer;border-radius:12px;transition:background .2s}
+.stg:hover{background:#f1f5f9}
+.stg::before,.stg::after{content:"";position:absolute;top:33px;height:4px;width:calc(50% - 22px);border-radius:2px;background:#e2e8f0}
+.stg::before{left:0}.stg::after{right:0}
+.stg:first-child::before,.stg:last-child::after{display:none}
+.stg[data-l=done]::before,.stg[data-r=done]::after{background:#10b981}
+.stg[data-l=active]::before,.stg[data-r=active]::after{background:linear-gradient(90deg,#bfdbfe 0 30%,#2563eb 30% 58%,#bfdbfe 58%) 0 0/36px 4px repeat-x;animation:flowbar .9s linear infinite}
+.stg[data-l=warn]::before,.stg[data-r=warn]::after{background:linear-gradient(90deg,#fde68a 0 30%,#f59e0b 30% 58%,#fde68a 58%) 0 0/36px 4px repeat-x;animation:flowbar 1.6s linear infinite}
+.stg[data-l=err]::before,.stg[data-r=err]::after{background:#fca5a5}
+.stg[data-l=pending]::before,.stg[data-r=pending]::after{background:repeating-linear-gradient(90deg,#cbd5e1 0 5px,transparent 5px 10px)}
+@keyframes flowbar{to{background-position:36px 0}}
+.dot{position:relative;z-index:1;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;background:#fff;border:2px solid #cbd5e1;color:#94a3b8;transition:transform .15s}
+.stg:hover .dot{transform:scale(1.08)}
+.s-done .dot{background:#10b981;border-color:#10b981;color:#fff}
+.s-running .dot{border-color:#bfdbfe;color:#1d4ed8;animation:halo 1.6s ease-out infinite}
+.s-running .dot::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:3px solid transparent;border-top-color:#2563eb;border-right-color:#2563eb;animation:spin 1s linear infinite}
+.s-waiting .dot{background:#f59e0b;border-color:#f59e0b;color:#fff;animation:halo2 1.6s ease-out infinite}
+.s-failed .dot{background:#ef4444;border-color:#ef4444;color:#fff}
+.s-skipped .dot{border-style:dashed;color:#cbd5e1}
+.nm{margin-top:10px;font-size:12.5px;font-weight:600;color:#64748b;line-height:1.3;padding:0 2px}
+.s-done .nm{color:#065f46}.s-running .nm{color:#1d4ed8}.s-waiting .nm{color:#b45309}.s-failed .nm{color:#b91c1c}
+.s-skipped .nm{color:#cbd5e1;text-decoration:line-through}
+.mt{font-size:11px;color:#94a3b8;margin-top:1px;white-space:nowrap}
+.s-running .mt{color:#2563eb}.s-waiting .mt{color:#d97706;font-weight:600}.s-failed .mt{color:#dc2626;font-weight:600}
+.mini{display:flex;gap:3px;margin-top:6px;min-height:4px}
+.mini i{width:9px;height:4px;border-radius:2px;background:#e2e8f0}
+.mini i.done{background:#10b981}.mini i.running{background:#2563eb;animation:blink 1s infinite}.mini i.waiting{background:#f59e0b}.mini i.failed{background:#ef4444}
+.badge{position:absolute;top:-4px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:10.5px;font-weight:700;padding:0 7px;border-radius:999px;white-space:nowrap;display:none;animation:bob 1.2s ease-in-out infinite;z-index:2}
+.s-waiting .badge{display:block}
+@keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,-3px)}}
+.callout{position:relative;margin-top:16px;display:flex;gap:12px;align-items:center;border:1.5px solid #bfdbfe;background:#f8fbff;border-radius:12px;padding:12px 14px}
+.callout::before{content:"";position:absolute;top:-8px;left:var(--px,50%);width:13px;height:13px;transform:translateX(-50%) rotate(45deg);background:inherit;border-left:inherit;border-top:inherit;transition:left .4s}
+.co-idle{border-color:#e2e8f0;background:#f8fafc}.co-run{border-color:#bfdbfe;background:#f8fbff}
+.co-wait{border-color:#fcd34d;background:#fffbeb}.co-fail{border-color:#fca5a5;background:#fef2f2}.co-done{border-color:#a7f3d0;background:#ecfdf5}
+.co-ic{width:34px;height:34px;flex-shrink:0;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;background:#64748b;position:relative}
+.co-run .co-ic{background:#2563eb}.co-wait .co-ic{background:#f59e0b}.co-fail .co-ic{background:#ef4444}.co-done .co-ic{background:#10b981}
+.co-run .co-ic::after{content:"";position:absolute;inset:8px;border-radius:50%;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin 1s linear infinite}
+.co-b{flex:1;min-width:0}
+.co-t{font-weight:700;font-size:14px}
+.co-d{font-size:12.5px;color:#475569;margin-top:2px}
+.co-a{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.chip{font-size:11.5px;padding:1px 9px;border-radius:999px;border:1px solid #e2e8f0;background:#fff;color:#64748b}
+.chip.c-done{border-color:#a7f3d0;background:#ecfdf5;color:#047857}
+.chip.c-running{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}
+.chip.c-waiting{border-color:#fcd34d;background:#fffbeb;color:#b45309}
+.chip.c-failed{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}
+/* ===== k8s 大盘 ===== */
+.k8s{display:flex;flex-direction:column;gap:10px}
+.krow{display:flex;gap:10px;align-items:stretch}
+.kbox{border:1.5px solid #cbd5e1;border-radius:10px;padding:8px 10px;background:#f8fafc;font-size:12px}
+.kbox b{display:block;font-size:13px;color:var(--ink)}
+.kgroup{border:1.5px solid #93c5fd;border-radius:12px;padding:8px 10px;background:#f8fbff}
+.kgroup .kt{font-size:12.5px;font-weight:600;color:#1d4ed8;margin-bottom:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.kgroup .kt span{font-weight:400;color:var(--muted)}
+.pods{display:flex;gap:8px;flex-wrap:wrap}
+.pod{flex:1;min-width:120px;border:2px solid #cbd5e1;border-radius:10px;padding:6px 8px;background:#f8fafc;font-size:11.5px}
+.pod .pn{font-weight:600;font-size:12px;color:#334155}
+.pod .pv{color:var(--muted);font-size:11px}
+.pod.new{border-color:#059669;background:#ecfdf5}.pod.new .pn{color:#047857}
+.pod.updating{border-color:#2563eb;background:#eff6ff;animation:pulse2 1.4s ease-in-out infinite}.pod.updating .pn{color:#1d4ed8}
+.slots{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.slot{border-radius:6px;padding:2px 6px;font-size:11px;text-align:center;border:1px solid #93c5fd;color:#1d4ed8;background:#fff}
+.slot.busy{background:#2563eb;border-color:#2563eb;color:#fff}
+.slot.retain{background:#fffbeb;border-color:#f59e0b;color:#92400e}
+.slot.restart,.slot.verify{border-style:dashed;border-color:#2563eb;background:#fff;animation:blink 1.2s infinite}
+.slot.nv{box-shadow:inset 4px 0 0 #10b981}
+.slot.stw{border-color:#cbd5e1;color:#475569;background:#f1f5f9}
+.slot.stw.nv{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px;border:1px solid}
+.kconn{text-align:center;color:#94a3b8;font-size:11px;line-height:1.2}
+.ext{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ext .kbox{background:#fff}.ext .kbox.nas{background:#ecfdf5;border-color:#6ee7b7}
+/* ===== 日志 ===== */
+.console{background:#0b1220;color:#cbd5e1;border-radius:10px;padding:10px 12px;height:300px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55}
+.console .ln{white-space:pre-wrap}
+.console .t{color:#64748b}.console .s{color:#93c5fd}.console .w{color:#fbbf24}.console .e{color:#f87171}.console .g{color:#6ee7b7}
+/* ===== 步骤明细 ===== */
+.sv-top{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.crumb{font-size:13px;color:var(--muted)}.crumb b{color:var(--ink)}
+.sv-nav{display:flex;gap:4px}
+.sv-nav button{width:26px;height:26px;border-radius:50%;border:1.5px solid #cbd5e1;background:#fff;font-size:11px;font-weight:700;color:#64748b;padding:0}
+.sv-nav button.done{background:#10b981;border-color:#10b981;color:#fff}
+.sv-nav button.running{border-color:#2563eb;color:#1d4ed8;border-width:2.5px}
+.sv-nav button.waiting{background:#f59e0b;border-color:#f59e0b;color:#fff}
+.sv-nav button.failed{background:#ef4444;border-color:#ef4444;color:#fff}
+.sv-nav button.skipped{border-style:dashed;color:#cbd5e1}
+.sv-nav button.cur{outline:2px solid #0f172a;outline-offset:2px}
+.sv-head{display:flex;gap:16px;align-items:center}
+.sv-ic{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:700;color:#fff;background:#94a3b8;flex-shrink:0;position:relative}
+.sv-ic.done{background:#10b981}.sv-ic.running{background:#2563eb}.sv-ic.waiting{background:#f59e0b}.sv-ic.failed{background:#ef4444}.sv-ic.skipped{background:#cbd5e1}
+.sv-ic.running::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:3px solid transparent;border-top-color:#2563eb;animation:spin 1s linear infinite}
+.sv-title{font-size:19px;font-weight:700;display:flex;gap:10px;align-items:center}
+.sv-meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:4px;font-size:12.5px;color:var(--muted)}.sv-meta b{color:var(--ink);font-weight:600}
+.sv-grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:14px}
+.sv-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:1150px){.sv-grid,.sv-grid2{grid-template-columns:1fr}}
+.tl-i{position:relative;display:flex;gap:10px;padding:0 0 16px}
+.tl-i::before{content:"";position:absolute;left:11px;top:26px;bottom:2px;width:2px;background:#e2e8f0}
+.tl-i:last-child::before{display:none}
+.tl-i.done::before{background:#a7f3d0}
+.tl-d{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-size:12px;font-weight:700;background:#fff;border:2px solid #cbd5e1;color:#94a3b8;position:relative;z-index:1}
+.tl-i.done .tl-d{background:#10b981;border-color:#10b981;color:#fff}
+.tl-i.running .tl-d{border-color:#2563eb;color:#2563eb;animation:halo 1.6s ease-out infinite}
+.tl-i.waiting .tl-d{background:#f59e0b;border-color:#f59e0b;color:#fff}
+.tl-i.failed .tl-d{background:#ef4444;border-color:#ef4444;color:#fff}
+.tl-n{font-weight:600;font-size:13px}.tl-s{font-size:12px;color:var(--muted)}
+.tl-i.running .tl-n{color:#1d4ed8}.tl-i.waiting .tl-n{color:#b45309}.tl-i.failed .tl-n{color:#b91c1c}.tl-i.pending .tl-n{color:#94a3b8}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;font-size:13px}.kv>div:nth-child(odd){color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:10px 12px}.tile .n{font-size:22px;font-weight:700}.tile .l{font-size:12px;color:var(--muted)}
+.tile.g .n{color:#047857}.tile.r{border-color:#fca5a5;background:#fef2f2}.tile.r .n{color:#b91c1c}
+.diffv{background:#0b1220;border-radius:10px;padding:10px 12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;color:#cbd5e1;margin-bottom:10px;overflow-x:auto}
+.diffv .h{color:#93c5fd;font-weight:700;display:block}.diffv .m{color:#fca5a5;background:rgba(239,68,68,.12);display:block}.diffv .p{color:#86efac;background:rgba(34,197,94,.12);display:block}
+.bar2{height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;min-width:90px;margin-top:6px}.bar2 i{display:block;height:100%;background:#2563eb}
+.mx{width:100%;border-collapse:separate;border-spacing:6px}
+.mx td,.mx th{border:0;padding:0;background:none}
+.cell{border:1.5px solid #cbd5e1;border-radius:8px;padding:6px 8px;font-size:11.5px;background:#f8fafc;min-height:56px}
+.cell b{display:block;font-size:12px}
+.cell.new{border-color:#10b981;background:#ecfdf5}.cell.busy{border-color:#2563eb;background:#eff6ff}
+.cell.act{border-color:#2563eb;border-style:dashed;background:#fff;animation:pulse2 1.4s infinite}.cell.ret{border-color:#f59e0b;background:#fffbeb}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.chain span{border:1px solid #e2e8f0;border-radius:999px;padding:2px 10px;font-size:12px;background:#f8fafc}
+.chain i{color:#94a3b8;font-style:normal}
+.cmdrow{display:flex;gap:10px;align-items:flex-start;border-bottom:1px dashed var(--line);padding:7px 0}
+.cmdrow code{flex:1;white-space:pre-wrap;word-break:break-all;background:none;padding:0}
+.ok2{color:#047857;font-size:12px;white-space:nowrap}.run2{color:#2563eb;font-size:12px;white-space:nowrap}
+.check{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.check .ci{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700;background:#cbd5e1;flex-shrink:0}
+.check.c-ok .ci{background:#10b981}.check.c-bad{border-color:#fca5a5;background:#fef2f2}.check.c-bad .ci{background:#ef4444}.check.c-run .ci{background:#2563eb;animation:halo 1.4s infinite}
+.chat{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-top:6px;background:#f8fafc;font-size:13px}
+.chat .a{color:#334155;margin-top:4px}
+/* ===== 表单与其他 ===== */
+.form{display:grid;grid-template-columns:180px 1fr auto;gap:10px 14px;align-items:center}
+.form label{color:var(--ink2);font-size:13px}
+.form label small{display:block;color:var(--muted);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+.form input,.form select,.form textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;background:#fff}
+.form textarea{min-height:56px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.secret{display:flex;gap:8px;align-items:center}
+.secret .mask{flex:1;border:1px dashed #cbd5e1;border-radius:8px;padding:6px 10px;color:var(--muted);background:#f8fafc;font-size:13px}
+.req{color:var(--red)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;flex-wrap:wrap}
+.tabs button{border:0;background:transparent;padding:8px 14px;border-bottom:2px solid transparent;color:var(--muted)}
+.tabs button.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+.cfgsec{display:none}.cfgsec.on{display:block}
+.savebar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;display:flex;align-items:center;gap:12px;margin-top:10px}
+.gatebox{border:1.5px solid #fcd34d;background:#fffbeb;border-radius:10px;padding:10px 12px;margin:8px 0}
+.gatebox.err{border-color:#fca5a5;background:#fef2f2}
+.plan li{margin:4px 0}
+.bars{display:flex;flex-direction:column;gap:3px}
+.bar{display:flex;align-items:center;gap:8px;font-size:12px}
+.bar span{width:120px;color:var(--muted)}
+.bar i{display:block;height:10px;background:#93c5fd;border-radius:3px}
+.mask-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:50}
+.mask-bg.on{display:flex}
+.modal{background:#fff;border-radius:14px;width:min(720px,92vw);max-height:86vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.modal .mh{padding:14px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:16px}
+.modal .mb{padding:14px 18px}
+.modal .mf{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+.toast{position:fixed;right:22px;bottom:22px;background:#0f172a;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transform:translateY(10px);transition:all .3s;z-index:60;max-width:420px}
+.toast.on{opacity:1;transform:none}
+.proto{font-size:11px;color:#94a3b8}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo"><b>发版台</b><span>GaussDB 智能体 · 部署与发布</span></div>
+    <nav class="nav" id="nav">
+      <button data-page="overview"><span class="ic">◧</span>总览</button>
+      <button data-page="release"><span class="ic">▶</span>发布<span class="dot" id="navdot"></span></button>
+      <button data-page="packages"><span class="ic">▤</span>发布包</button>
+      <button data-page="config"><span class="ic">⚙</span>资源配置</button>
+      <button data-page="history"><span class="ic">↺</span>历史与回滚</button>
+      <button data-page="audit"><span class="ic">☰</span>操作记录</button>
+    </nav>
+    <div class="side-foot">发版台 v0.1（原型）<br>独立程序 · 运行在跳板机<br>封闭环境使用 · 不需要登录<br><span class="proto">界面原型，数据为示例</span></div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <h2 id="ptitle">发布</h2>
+      <select class="envsel" id="envsel">
+        <option value="test">测试环境 · OrbStack · gaussdb-agent</option>
+        <option value="prod">生产环境 · gaussdb-agent</option>
+      </select>
+      <span class="pill p-gray" id="curver">当前 agent-v1.4.3</span>
+      <span class="spacer"></span>
+      <div class="local"><i></i>本机访问 · 127.0.0.1:8090</div>
+    </header>
+
+    <!-- ================= 总览 ================= -->
+    <section class="page" id="page-overview">
+      <div class="banner">
+        <div style="font-size:26px">📦</div>
+        <div><div class="t">发现新版本 agent-v1.4.4（发布包目录）</div>
+          <div class="muted small">相对当前 agent-v1.4.3：换 4 个镜像 · 白名单应有 130 条（示例：新增 2 条）· 新增 1 项可选配置 · 可与旧版本混跑（池子按槽位在线替换）</div></div>
+        <span class="spacer"></span>
+        <button class="btn" onclick="go('packages')">查看升级计划</button>
+        <button class="btn pri" onclick="go('release')">去发布</button>
+      </div>
+      <div class="grid g4">
+        <div class="card kpi"><div class="l">当前版本</div><div class="v" id="ov-ver">agent-v1.4.3</div><div class="l">技能 skills-v12.22 · 2026-10-30 发布</div></div>
+        <div class="card kpi"><div class="l">诊断容器池</div><div class="v">3 × 3</div><div class="l">3 Pod × 3 槽位 · 在用 <b id="ov-busy">4</b> / 9</div></div>
+        <div class="card kpi"><div class="l">网关</div><div class="v">2 / 2</div><div class="l">就绪 · 与用户镜像标签同版本</div></div>
+        <div class="card kpi"><div class="l">最近一次发布</div><div class="v" style="font-size:18px">成功 · 18 分</div><div class="l">#12 agent-v1.4.3</div></div>
+      </div>
+      <div class="grid g2">
+        <div class="card"><h3>资源状态 <span class="sub">与发布前扫描同一套检查 · 每 5 分钟自动一次</span></h3>
+          <table><tr><th>资源</th><th>状态</th><th>说明</th></tr>
+          <tr><td>发布包目录</td><td><span class="pill p-green">可用</span></td><td class="muted">发现 3 个发布包</td></tr>
+          <tr><td>Kubernetes</td><td><span class="pill p-green">可用</span></td><td class="muted">命名空间 gaussdb-agent · 权限完整</td></tr>
+          <tr><td>内网镜像仓库</td><td><span class="pill p-green">可用</span></td><td class="muted">可推送</td></tr>
+          <tr><td>NAS</td><td><span class="pill p-green">可用</span></td><td class="muted">uid 1000 可写 · 剩余 459 GiB</td></tr>
+          <tr><td>模型服务</td><td><span class="pill p-green">可用</span></td><td class="muted">响应 0.4 秒</td></tr>
+          <tr><td>中间件 · 白名单</td><td><span class="pill p-green">可用</span></td><td class="muted">签名校验通过 · 白名单 <span id="ov-wl">128</span> 条</td></tr>
+          </table></div>
+        <div class="card"><h3>集群架构 <span class="sub">实时</span></h3><div id="k8s-mini"></div></div>
+      </div>
+    </section>
+
+    <!-- ================= 发布 ================= -->
+    <section class="page" id="page-release">
+      <div class="card">
+        <div class="relhead">
+          <span class="ver">agent-v1.4.3</span><span class="arrow">→</span><span class="ver" style="color:#047857">agent-v1.4.4</span>
+          <span class="pill p-gray" id="rstatus">未开始</span>
+          <div class="prog"><i id="rprog"></i></div>
+          <span class="muted small" id="rcount">0 / 12</span>
+          <span class="muted small" id="relapsed">用时 00:00</span>
+        </div>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn" id="b-scan">⟳ 扫描资源</button>
+          <button class="btn pri" id="b-start" disabled>▶ 开始发布</button>
+          <button class="btn" id="b-pause" disabled>⏸ 暂停</button>
+          <button class="btn" id="b-resume" disabled>⏵ 续跑</button>
+          <button class="btn danger" id="b-rollback" disabled>↺ 回滚到 agent-v1.4.3</button>
+          <span class="spacer"></span>
+          <label>演示速度 <select id="speed" class="envsel"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option></select></label>
+          <label><input type="checkbox" id="scanbad"> 演示：资源扫描发现问题</label>
+          <label><input type="checkbox" id="failonce"> 演示：冒烟验证失败一次</label>
+          <button class="btn sm" id="b-reset">重置演示</button>
+        </div>
+      </div>
+      <div id="relmain">
+        <div class="card" id="scancard"></div>
+        <div class="card"><h3>发布流程 <span class="sub">由 release.yaml 与当前版本生成 · 点任一步进入明细</span></h3><div id="flow"></div></div>
+        <div class="rel-grid">
+          <div class="card"><h3>集群架构大盘 <span class="sub">k8s 实时监听 + 网关 /admin/pool</span></h3><div id="k8s"></div></div>
+          <div class="card"><h3>实时日志 <span class="sub">全部步骤</span></h3><div class="console" id="console" style="height:452px"></div></div>
+        </div>
+      </div>
+      <div id="stepview" style="display:none"></div>
+    </section>
+
+    <!-- ================= 发布包 ================= -->
+    <section class="page" id="page-packages">
+      <div class="card"><h3>发布包目录里的发布包 <span class="sub">/opt/gaussdb-release/releases · 把下载的离线包拷进这个目录，发版台自动发现并校验</span></h3>
+        <table>
+          <tr><th>版本</th><th>技能</th><th>架构</th><th>大小</th><th>校验</th><th>相对当前的变化</th><th>状态</th><th></th></tr>
+          <tr><td><b>agent-v1.4.4</b></td><td>skills-v12.23</td><td>arm64 · amd64</td><td>1.0 GB</td><td><span class="pill p-green">sha256 一致</span></td><td class="small">4 镜像 · 白名单 130 条（示例）· 配置 +1 可选 · 可混跑</td><td><span class="pill p-blue">可发布</span></td><td><button class="btn pri sm" onclick="go('release')">发布</button></td></tr>
+          <tr><td>agent-v1.4.3</td><td>skills-v12.22</td><td>arm64 · amd64</td><td>1.0 GB</td><td><span class="pill p-green">sha256 一致</span></td><td class="small muted">—</td><td><span class="pill p-gray">当前运行</span></td><td></td></tr>
+          <tr><td>agent-v1.4.2</td><td>skills-v12.21</td><td>arm64 · amd64</td><td>1.0 GB</td><td><span class="pill p-green">sha256 一致</span></td><td class="small muted">旧版本（可作回滚目标）</td><td><span class="pill p-gray">历史</span></td><td></td></tr>
+        </table>
+      </div>
+      <div class="card"><h3>升级计划预览：agent-v1.4.4 <span class="sub">发版台按「当前版本 → 目标版本」自动拼接，切换起点版本看差别</span></h3>
+        <div class="toolbar" style="margin-bottom:10px">起点版本：
+          <button class="btn sm pfrom" data-from="v1.4.3">agent-v1.4.3（当前）</button>
+          <button class="btn sm pfrom" data-from="v1.4.0">agent-v1.4.0</button>
+          <button class="btn sm pfrom" data-from="v1.3.2">agent-v1.3.2</button>
+        </div>
+        <div id="planview"></div>
+      </div>
+    </section>
+
+    <!-- ================= 资源配置 ================= -->
+    <section class="page" id="page-config">
+      <div class="card">
+        <h3>资源配置 <span class="sub">一次性配好，发布前自动逐项扫描 · 配置版本 #6 · 密钥只能更换、不能查看</span></h3>
+        <div class="tabs" id="cfgtabs">
+          <button data-sec="dir" class="on">发布包目录</button><button data-sec="reg">镜像仓库</button><button data-sec="k8s">Kubernetes</button><button data-sec="nas">NAS</button>
+          <button data-sec="model">模型</button><button data-sec="grmp">中间件与白名单</button><button data-sec="sso">统一认证</button>
+          <button data-sec="pool">池子规模</button><button data-sec="policy">发布策略</button>
+        </div>
+        <div class="cfgsec on" data-sec="dir"><div class="form">
+          <label>镜像读取路径</label><input value="/opt/gaussdb-release/releases"><button class="btn sm test" data-ok="发现 3 个发布包 · 校验文件齐全">测试读取</button>
+          <label>说明</label><div class="muted small">启动命令里挂载进来的目录（例：<code>-v /data/releases:/opt/gaussdb-release/releases</code>）。把下载的离线包原样拷进来即可。</div><span></span>
+        </div></div>
+        <div class="cfgsec" data-sec="reg"><div class="form">
+          <label>仓库地址</label><input value="registry.example.internal/gaussdb-agent"><span></span>
+          <label>账号</label><input value="release-bot"><span></span>
+          <label>密码</label><div class="secret"><span class="mask">●●●●●●●●（已设置 · 2026-10-20）</span><button class="btn sm" onclick="changeSecret('镜像仓库密码')">更换</button></div><button class="btn sm test" data-ok="可推送 · 已有 agent-v1.4.3 的 4 个镜像">测试连通</button>
+        </div></div>
+        <div class="cfgsec" data-sec="k8s"><div class="form">
+          <label>API 地址</label><input value="https://10.0.0.20:6443"><span></span>
+          <label>命名空间</label><input value="gaussdb-agent"><span></span>
+          <label>访问凭据</label><div class="secret"><span class="mask">kubeconfig（命名空间级账号 release-bot · 已上传）</span><button class="btn sm" onclick="changeSecret('kubeconfig')">更换</button></div><button class="btn sm test" data-ok="权限完整 · 3 个节点 arm64 · NetworkPolicy 生效">测试连通</button>
+        </div></div>
+        <div class="cfgsec" data-sec="nas"><div class="form">
+          <label>NFS 地址 / 路径</label><input value="10.0.0.30:/export/gaussdb-agent"><span></span>
+          <label>PVC 名称</label><input value="nas"><button class="btn sm test" data-ok="uid 1000 可写 · 剩余 459 GiB">测试读写</button>
+        </div></div>
+        <div class="cfgsec" data-sec="model"><div class="form">
+          <label>服务地址<small>MODEL_BASE_URL</small></label><input value="https://api.deepseek.com/v1"><span></span>
+          <label>模型 ID<small>MODEL_ID</small></label><input value="deepseek-flash"><span></span>
+          <label>输入类型<small>MODEL_INPUT_MODALITIES</small></label><input value="text,image"><span></span>
+          <label>API Key</label><div class="secret"><span class="mask">●●●●●●●●（已设置 · 存在 Secret model-api）</span><button class="btn sm" onclick="changeSecret('模型 API Key')">更换</button></div><button class="btn sm test" data-ok="连通 · 响应 0.4 秒">测试连通</button>
+        </div></div>
+        <div class="cfgsec" data-sec="grmp"><div class="form">
+          <label>地址<small>GRMP_API_HOST / PORT</small></label><input value="10.0.0.40 : 8080"><span></span>
+          <label>路径前缀 <span class="req">*</span><small>GRMP_PATH_PREFIX</small></label><div class="secret"><span class="mask">●●●●●●（已设置 · 不回显）</span><button class="btn sm" onclick="changeSecret('中间件路径前缀')">更换</button></div><span></span>
+          <label>Appkey · 签名<small>GRMP_APPKEY / SIGN_MODE</small></label><input value="gaussdb-agent · full"><span></span>
+          <label>SM2 私钥</label><div class="secret"><span class="mask">●●●●●●●●（已设置）</span><button class="btn sm" onclick="changeSecret('SM2 私钥')">更换</button></div><span></span>
+          <label>白名单核对方式</label><select><option>只读账号直连中间件脚本库（推荐）</option><option>导入白名单团队提供的导出文件</option></select><span></span>
+          <label>只读账号</label><div class="secret"><span class="mask">release-ro（只授予 SELECT grmp.script_config）</span><button class="btn sm" onclick="changeSecret('白名单只读账号')">更换</button></div><button class="btn sm test" data-ok="可读取脚本库 · scene=AGENT 128 条">测试读取</button>
+        </div><p class="muted small">白名单由白名单团队手工执行，发版台只核对：本版本应有的每条脚本是否都已登记、内容是否一致，没进去的逐条标出。</p></div>
+        <div class="cfgsec" data-sec="sso"><div class="form">
+          <label>工号 / 角色请求头</label><input value="X-Agent-User · X-Agent-Roles"><span></span>
+          <label>信任凭据</label><div class="secret"><span class="mask">●●●●●●●●（已设置 · 存在 Secret gateway-auth）</span><button class="btn sm" onclick="changeSecret('信任凭据')">更换</button></div><button class="btn sm test" data-ok="模拟登录 u9500 → 200">测试登录</button>
+        </div></div>
+        <div class="cfgsec" data-sec="pool"><div class="form">
+          <label>Pod 数</label><input id="cap-pods" type="number" value="3" min="1"><span></span>
+          <label>每 Pod 槽位数</label><input id="cap-slots" type="number" value="3" min="1"><span></span>
+          <label>峰值同时在用人数</label><input id="cap-peak" type="number" value="12" min="1"><span></span>
+        </div><div class="gatebox" id="capbox" style="margin-top:12px"></div></div>
+        <div class="cfgsec" data-sec="policy"><div class="form">
+          <label>池子替换方式</label><select><option>按槽位在线替换（版本声明可混跑时）</option><option>按 Pod 整体替换（不可混跑时自动改用）</option></select><span></span>
+          <label>请求一直不结束</label><select><option>30 分钟后请运维选择：继续等 / 强制转保留</option></select><span></span>
+          <label>冒烟验证</label><div class="chk"><div><input type="checkbox" checked> 模拟登录</div><div><input type="checkbox" checked> 一次真实对话（经模型与技能，只读）</div><div><input type="checkbox" checked> 只读诊断报告</div><div><input type="checkbox" checked> 知识库检索</div></div><span></span>
+        </div></div>
+        <div class="savebar"><span class="muted small">有 0 项未保存的修改</span><span class="spacer"></span><button class="btn">放弃</button><button class="btn pri" onclick="toast('（原型）保存为配置版本 #7；修改写入操作记录，密钥的值不记录')">保存为配置版本 #7</button></div>
+      </div>
+    </section>
+
+    <!-- ================= 历史与回滚 ================= -->
+    <section class="page" id="page-history">
+      <div class="card"><h3>发布历史 <span class="sub">点一行看每步耗时；任一历史版本可一键回滚（回滚同样走流程图）</span></h3>
+        <table id="histtab"><tr><th>#</th><th>版本</th><th>环境</th><th>开始</th><th>用时</th><th>结果</th><th></th></tr></table>
+      </div>
+    </section>
+
+    <!-- ================= 操作记录 ================= -->
+    <section class="page" id="page-audit">
+      <div class="card"><h3>操作记录 <span class="sub">本机操作留痕；不记录任何密钥的值</span></h3>
+        <table id="audtab"><tr><th style="width:160px">时间</th><th style="width:150px">动作</th><th>对象与说明</th></tr></table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="mask-bg" id="mask"><div class="modal"><div class="mh" id="mh"></div><div class="mb" id="mb"></div><div class="mf" id="mf"></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+const P = Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
+const REG = "registry.example.internal/gaussdb-agent";
+const FROM = "agent-v1.4.3", TO = "agent-v1.4.4";
+const tag = v => v + "-oc1.18.27";
+const short = v => v.replace("agent-", "");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const setIf = (el, prop, v) => { if (el && el[prop] !== v) el[prop] = v; };
+const setHtml = (el, v) => { if (el && el._v !== v) { el._v = v; el.innerHTML = v; } };   // 内容变了才重画:动画不被打断
+function hashHex(seed) { let h = 2166136261; for (const c of seed) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, "0"); }
+
+/* ---------------- 计划与资源 ---------------- */
+const PLAN = [
+  { id: "pkg", name: "读包与校验", detail: "sha256 · 架构" },
+  { id: "plan", name: "生成升级计划", detail: "识别当前版本" },
+  { id: "images", name: "镜像入库", detail: "4 个镜像" },
+  { id: "config", name: "配置迁移", detail: "配置版本 → 渲染清单" },
+  { id: "review", name: "变更预览 · 确认", detail: "需运维确认" },
+  { id: "whitelist", name: "白名单核对", detail: "应有 130 条" },
+  { id: "gateway", name: "网关滚动更新", detail: "2 个副本" },
+  { id: "pool", name: "池子在线替换", detail: "按槽位 · 不停服务" },
+  { id: "kbimport", name: "导入环境", detail: "本版本不需要重建", skip: true },
+  { id: "kbstd", name: "知识库标准包", detail: "kbstd 安装 Job" },
+  { id: "smoke", name: "冒烟验证", detail: "登录 · 对话 · 诊断 · 检索" },
+  { id: "done", name: "完成", detail: "发布报告" },
+];
+const PHASES = [["准备", 0, 4], ["确认", 4, 6], ["替换", 6, 10], ["验证", 10, 12]];
+const SUBSTEPS = {
+  pkg: ["发现发布包", "校验 sha256", "读取 release.yaml", "核对节点架构"],
+  plan: ["识别当前版本", "累计各版本的变化", "生成本次计划"],
+  images: ["runtime", "kb-import", "gateway", "kbstd"],
+  config: ["读取配置版本 #6", "应用版本变化", "检查必填项", "渲染清单", "生成差异"],
+  review: ["生成差异", "等待运维确认", "已确认"],
+  whitelist: ["生成应有清单", "读取已登记脚本", "逐条比对", "核对结果"],
+  gateway: ["更新用户镜像标签", "gateway-a", "gateway-b"],
+  pool: ["agent-pool-0", "agent-pool-1", "agent-pool-2"],
+  kbimport: ["判断是否需要重建", "跳过"],
+  kbstd: ["创建 Job", "unpack：取出知识包", "install：校验并安装", "核对结果"],
+  smoke: ["模拟登录", "真实对话", "只读诊断", "知识库检索"],
+  done: ["记录版本", "生成发布报告"],
+};
+const WHY = {
+  pkg: "每次都做", plan: "每次都做", images: "release.yaml 列出 4 个镜像", config: "USER_IMAGE_TAG 换新；新增 1 项可选配置",
+  review: "改动集群前必须由运维确认", whitelist: "本版本应有 130 条（新增 2 条），由白名单团队手工执行，这里只核对",
+  gateway: "网关镜像换新", pool: "池子镜像换新；release.yaml 声明可与 agent-v1.4.3 混跑 → 按槽位在线替换",
+  kbimport: "只有从 agent-v1.4.0 及以前升级才需要重建", kbstd: "每个版本都带安装 Job（内容相同会跳过）",
+  smoke: "每次都做", done: "每次都做",
+};
+const CMDS = {
+  pkg: ["ls /opt/gaussdb-release/releases/gaussdb-agent-v1.4.4-oc1.18.27-*", "sha256sum -c gaussdb-agent-v1.4.4-oc1.18.27-*.sha256", "读取 release.yaml"],
+  plan: ["kubectl -n gaussdb-agent get deploy/gateway sts/agent-pool cm/gateway-config -o yaml", "SELECT … FROM grmp.script_config WHERE scene='AGENT'（只读账号）", "按 agent-v1.4.3 → agent-v1.4.4 累计各版本 release.yaml"],
+  images: ["从离线包直接推送 4 个镜像到 " + REG, "按 release.yaml 的 digest 逐个核对"],
+  config: ["配置版本 #6 + release.yaml 配置变化 → 配置版本 #7", "kustomize build k8s/base", "k8s/tools/render-pool.py --pool-size 3 --slots-per-pod 3 --image …:" + tag(TO), "kubectl diff -k k8s/base"],
+  review: ["展示 kubectl diff 的结果，等待运维确认"],
+  whitelist: ["生成 agent-v1.4.4 应有的白名单（脚本名 + 内容指纹）", "SELECT script_name, md5(script) FROM grmp.script_config WHERE scene='AGENT'", "逐条比对，列出未登记 / 内容不一致的脚本"],
+  gateway: ["kubectl -n gaussdb-agent patch configmap gateway-config  USER_IMAGE_TAG=" + tag(TO), "kubectl -n gaussdb-agent set image deploy/gateway gateway=" + REG + "/gaussdb-agent-gateway:" + tag(TO), "kubectl -n gaussdb-agent rollout status deploy/gateway"],
+  pool: ["kubectl apply -f pool.yaml（OnDelete：现有 Pod 不会被整体重建）", "每个槽位：等不忙 → /admin/pool retain → evict → 紧接着 kubectl patch pod（只换这个容器的镜像）→ verify", "每个 Pod 最后、本 Pod 所有槽位都不忙时换管家容器"],
+  kbimport: ["本版本的升级计划不要求重建（从 agent-v1.4.0 及以前升级时才需要）"],
+  kbstd: ["kubectl apply -f k8s/base/kbstd-install.yaml（Job kbstd-install-v1-4-4）", "kubectl -n gaussdb-agent logs job/kbstd-install-v1-4-4 -c install"],
+  smoke: ["sso-sim.py 模拟登录 u9500", "发一条真实对话（只读健康检查）", "核对诊断报告已存档", "kb.py query --q 死锁"],
+  done: ["记录当前版本 agent-v1.4.4 与配置版本 #7", "生成发布报告"],
+};
+const IMGS = [{ name: "runtime", pushed: 4, existing: 9, size: "212 MB" }, { name: "kb-import", pushed: 3, existing: 9, size: "186 MB" },
+  { name: "gateway", pushed: 2, existing: 6, size: "41 MB" }, { name: "kbstd", pushed: 0, existing: 6, size: "255 MB" }];
+const RES = [
+  { id: "dir", name: "发布包目录", addr: "/opt/gaussdb-release/releases", ok: "发现 3 个发布包，agent-v1.4.4 校验文件齐全" },
+  { id: "reg", name: "内网镜像仓库", addr: REG, ok: "可推送 · 已有 agent-v1.4.3 的 4 个镜像" },
+  { id: "k8s", name: "Kubernetes", addr: "https://10.0.0.20:6443 · gaussdb-agent", ok: "权限完整 · 3 个节点 arm64" },
+  { id: "nas", name: "NAS", addr: "10.0.0.30:/export/gaussdb-agent", ok: "uid 1000 可写 · 剩余 459 GiB", bad: "uid 1000 写入被拒绝（Permission denied）· 请存储团队把 kb/ 与 users/ 的属主改为 1000" },
+  { id: "model", name: "模型服务", addr: "https://api.deepseek.com/v1 · deepseek-flash", ok: "连通 · 响应 0.4 秒" },
+  { id: "grmp", name: "中间件", addr: "10.0.0.40:8080", ok: "签名校验通过" },
+  { id: "wl", name: "白名单核对", addr: "脚本库只读账号 release-ro", ok: "可读取 · scene=AGENT 128 条" },
+  { id: "sso", name: "统一认证", addr: "信任凭据", ok: "模拟登录 u9500 → 200" },
+  { id: "cap", name: "集群余量", addr: "3 个节点 · 可用内存 22 GiB", ok: "滚动替换期间余量足够" },
+];
+const WL_SAMPLE = ["config.settings", "explain.active_pid", "explain.from_history", "health.overview", "health.slow_sql", "health.long_xact",
+  "health.replication", "lockwait.asp_pairs", "lockwait.asp_sessions", "procinfo.source_adm", "proctune.source_adm"];
+const WL_NEW = ["health.example_new_a", "lockwait.example_new_b"];
+
+let S;
+function mkPod(k, ss) { return { name: "agent-pool-" + k, steward: { v: FROM, s: "ok" }, slots: ss.map(s => ({ s, v: FROM })) }; }
+function fresh() {
+  return {
+    speed: Number($("#speed").value), status: "idle", idx: 0, t0: 0, t1: 0, gate: null, failedOnce: false, view: null,
+    scan: { status: "idle", at: "", open: true, items: RES.map(r => ({ ...r, st: "pending", msg: "" })) },
+    steps: PLAN.map(p => ({ ...p, status: "pending", logs: [], start: 0, end: 0, tries: 0, err: "",
+      sub: (SUBSTEPS[p.id] || []).map(label => ({ label, st: "pending", note: "" })) })),
+    logs: [], wl: { round: 0, missing: [] },
+    k8s: {
+      cur: FROM, userTag: FROM, wl: 128, cfg: 6,
+      gw: [{ name: "gateway-a", ver: FROM, st: "ok" }, { name: "gateway-b", ver: FROM, st: "ok" }],
+      pool: [mkPod(0, ["busy", "free", "free"]), mkPod(1, ["busy", "busy", "free"]), mkPod(2, ["busy", "free", "free"])],
+      kbimport: { ver: FROM }, kbstd: { name: "kbstd-install-v1-4-3", st: "completed" },
+    },
+  };
+}
+
+/* ---------------- 工具 ---------------- */
+function clock() { return new Date().toTimeString().slice(0, 8); }
+function log(id, text, lv = "") {
+  const ln = { t: clock(), id, text, lv };
+  S.logs.push(ln);
+  const st = S.steps.find(s => s.id === id);
+  if (st) st.logs.push(ln);
+  render();
+}
+function sub(st, k, state, note) { st.sub[k].st = state; if (note !== undefined) st.sub[k].note = note; render(); }
+async function wait(ms) {
+  const me = S;                      // 重置演示后 S 换成新的一份:旧的那次运行在这里退出
+  let left = ms / S.speed;
+  while (left > 0) {
+    if (me !== S || S.status === "rolling" || S.status === "rolledback") throw new Error("__reset__");   // 暂停中回滚:原来那次运行就此结束
+    if (S.status === "paused") { await sleep(150); continue; }
+    const d = Math.min(100, left); await sleep(d); left -= d;
+  }
+  if (me !== S) throw new Error("__reset__");
+}
+function gate(i, kind, extra = {}) {
+  return new Promise(res => {
+    S.gate = { i, kind, res, extra };
+    S.steps[i].status = "waiting"; S.status = "waiting";
+    render();
+    // auto=1 自动放行所有关卡;stop=<步骤id> 只放行这一步之前的关卡(截图用)
+    const auto = P.auto || (P.stop && PLAN.findIndex(p => p.id === P.stop) > i);
+    if (auto) setTimeout(() => resolveGate(kind === "drain" ? "wait" : "ok"), 300);
+    else toast({ review: "需要确认：变更预览", whitelist: "白名单核对未通过：有脚本没进白名单", drain: "需要选择：请求长时间未结束" }[kind]);
+  });
+}
+function resolveGate(choice) {
+  const g = S.gate; if (!g) return;
+  S.gate = null; S.steps[g.i].status = "running"; S.status = "running";
+  render(); g.res(choice);
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 3200); }
+
+/* ---------------- 资源扫描(开跑前的关卡) ---------------- */
+async function runScan() {
+  if (S.scan.status === "running" || !(S.status === "idle")) return;
+  const me = S;
+  S.scan.status = "running"; S.scan.open = true;
+  S.scan.items.forEach(r => { r.st = "pending"; r.msg = ""; });
+  render();
+  for (const r of S.scan.items) {
+    r.st = "chk"; render(); await sleep(260 / S.speed);
+    if (me !== S) return;
+    const fail = $("#scanbad").checked && r.id === "nas";
+    r.st = fail ? "bad" : "ok"; r.msg = fail ? r.bad : r.ok; render();
+  }
+  const bad = S.scan.items.filter(r => r.st === "bad");
+  S.scan.at = clock(); S.scan.status = bad.length ? "bad" : "ok"; S.scan.open = !!bad.length;
+  log("scan", bad.length ? `资源扫描未通过：${bad.map(r => r.name).join("、")} 不可用，不能开始发布` : `资源扫描通过：${S.scan.items.length}/${S.scan.items.length} 项可用，可以开始发布`, bad.length ? "e" : "g");
+}
+function renderScan() {
+  const sc = S.scan, n = sc.items.length, okN = sc.items.filter(r => r.st === "ok").length;
+  const head = { idle: ["p-gray", "未扫描"], running: ["p-blue", "扫描中"], ok: ["p-green", "全部可用"], bad: ["p-red", "有资源不可用"] }[sc.status];
+  const tiles = sc.items.map(r => `<div class="res r-${r.st}"><div class="ri">${{ ok: "✓", bad: "✕", chk: "" }[r.st] || ""}</div><div style="min-width:0"><div class="rn">${esc(r.name)}</div><div class="ra">${esc(r.addr)}</div><div class="rr">${esc(r.msg || (r.st === "chk" ? "检查中…" : "未检查"))}</div></div></div>`).join("");
+  const sum = sc.status === "ok" ? `${okN}/${n} 项资源可用 · ${sc.at} 扫描` : sc.status === "bad" ? `${okN}/${n} 项可用 · 不可用的资源修好之前不能开始发布` : sc.status === "running" ? `已检查 ${okN}/${n}` : "开始发布前，发版台会把下面的资源逐项检查一遍，全部可用才允许开跑";
+  const acts = sc.status === "bad" ? `<button class="btn sm" onclick="go('config')">去资源配置</button><button class="btn pri sm" onclick="runScan()">重新扫描</button>`
+    : sc.status === "ok" ? `<button class="btn sm" onclick="S.scan.open=!S.scan.open;render()">${sc.open ? "收起" : "展开"}</button><button class="btn sm" onclick="runScan()" ${S.status !== "idle" ? "disabled" : ""}>重新扫描</button>`
+    : sc.status === "idle" ? `<button class="btn pri sm" onclick="runScan()">扫描资源</button>` : "";
+  setHtml($("#scancard"), `<div class="scan-sum"><h3 style="margin:0">发布前资源扫描</h3><span class="pill ${head[0]}">${head[1]}</span><span class="muted small">${sum}</span><span class="spacer"></span>${acts}</div>
+    ${sc.open ? `<div class="scan-grid" style="margin-top:12px">${tiles}</div>` : ""}`);
+}
+
+/* ---------------- 每一步的执行(演示) ---------------- */
+const RUN = {
+  async pkg(st) {
+    sub(st, 0, "running"); log("pkg", "发现 agent-v1.4.4 的 6 个文件（两种架构的镜像包、k8s 清单、MANIFEST、release.yaml、校验文件）"); await wait(500); sub(st, 0, "done", "6 个文件");
+    sub(st, 1, "running"); await wait(700); log("pkg", "sha256：6 个文件全部一致", "g"); sub(st, 1, "done", "全部一致");
+    sub(st, 2, "running"); await wait(400); log("pkg", "release.yaml：agent-v1.4.4 · skills-v12.23 · 声明可与 agent-v1.4.3 混跑"); sub(st, 2, "done", "可混跑");
+    sub(st, 3, "running"); await wait(300); log("pkg", "节点架构 arm64，包内含 arm64 / amd64", "g"); sub(st, 3, "done", "arm64"); st.detail = "校验通过 · arm64";
+  },
+  async plan(st) {
+    sub(st, 0, "running"); await wait(600); log("plan", "当前版本：网关 / 用户镜像标签 / 池子都是 agent-v1.4.3 · 白名单 128 条 · 配置版本 #6"); sub(st, 0, "done", FROM);
+    sub(st, 1, "running"); await wait(500); log("plan", "累计变化：4 个镜像、白名单应有 130 条、新增 1 项可选配置"); sub(st, 1, "done");
+    sub(st, 2, "running"); await wait(400); log("plan", "生成计划：12 步（导入环境本版本跳过；池子按槽位在线替换）", "g"); sub(st, 2, "done", "12 步"); st.detail = "12 步 · 1 步跳过";
+  },
+  async images(st) {
+    st.prog = [0, 0, 0, 0];
+    for (const [k, m] of IMGS.entries()) {
+      sub(st, k, "running", "推送中"); log("images", `推送 gaussdb-agent-${m.name}:${tag(TO)} → ${REG}`);
+      for (const p of [0.35, 0.7, 1]) { await wait(280); st.prog[k] = p; render(); }
+      sub(st, k, "done", m.pushed ? `推 ${m.pushed} 层 · 复用 ${m.existing} 层` : `层全部已存在`);
+      log("images", `  digest sha256:${hashHex(m.name + TO)}… 与 release.yaml 一致`, "g"); st.detail = `${k + 1}/4 已入库`;
+    }
+  },
+  async config(st) {
+    const L = ["读取配置版本 #6（上次发布使用）", "应用 release.yaml 的配置变化：新增 1 项可选配置（示例），按默认值补齐", "必填项齐全（本版本没有新增必填项）", "渲染清单：k8s/base + pool.yaml（3 Pod × 3 槽位）+ kbstd-install.yaml", "kubectl diff：3 个对象有变化"];
+    for (const [k, t] of L.entries()) { sub(st, k, "running"); await wait(380); log("config", t, k === 4 ? "s" : ""); sub(st, k, "done"); }
+    st.detail = "配置版本 #7 · 3 个对象变化";
+  },
+  async review(st, i) {
+    sub(st, 0, "done", "3 个对象"); sub(st, 1, "waiting", "等待确认"); log("review", "等待运维确认变更", "w");
+    await gate(i, "review"); sub(st, 1, "done"); sub(st, 2, "done", "已确认");
+    log("review", "运维确认了变更（已写入操作记录）", "g"); st.detail = "已确认";
+  },
+  async whitelist(st, i) {
+    sub(st, 0, "running"); await wait(400); log("whitelist", "应有清单：agent-v1.4.4 的白名单 130 条（含新增 2 条）"); sub(st, 0, "done", "130 条");
+    sub(st, 1, "running"); await wait(500); log("whitelist", "读取中间件脚本库（只读账号）：scene=AGENT 已登记 128 条"); sub(st, 1, "done", "128 条");
+    sub(st, 2, "running"); await wait(600); S.wl = { round: 1, missing: WL_NEW.slice() };
+    log("whitelist", "比对：128 条已登记且内容一致；2 条未登记：" + WL_NEW.join("、"), "w"); sub(st, 2, "done");
+    sub(st, 3, "waiting", "2 条未登记"); st.detail = "2 条未进入白名单";
+    await gate(i, "whitelist");
+    sub(st, 3, "running", "重新核对"); log("whitelist", "白名单团队已补登记，重新核对…"); await wait(700);
+    S.wl = { round: 2, missing: [] }; S.k8s.wl = 130;
+    sub(st, 3, "done", "130/130"); log("whitelist", "核对通过：130 条全部已登记，内容与包内一致", "g"); st.detail = "130/130 核对通过";
+  },
+  async gateway(st) {
+    sub(st, 0, "running"); S.k8s.userTag = TO; log("gateway", `gateway-config USER_IMAGE_TAG → ${tag(TO)}（与网关镜像同版本，自动保证）`); await wait(400); sub(st, 0, "done");
+    for (const [k, g] of S.k8s.gw.entries()) {
+      g.st = "updating"; sub(st, k + 1, "running", "替换中"); log("gateway", `滚动更新 ${g.name}`); st.detail = `${g.name} 替换中`; await wait(1100);
+      g.ver = TO; g.st = "ok"; sub(st, k + 1, "done", "就绪"); log("gateway", `${g.name} 就绪 · 镜像 ${tag(TO)}`, "g");
+    }
+    st.detail = "2/2 就绪";
+  },
+  async pool(st, i) {
+    log("pool", "kubectl apply -f pool.yaml（模板换成 " + tag(TO) + "；OnDelete：现有 Pod 不会被整体重建）"); await wait(400);
+    for (const [k, pod] of S.k8s.pool.entries()) {
+      sub(st, k, "running", "进行中"); st.detail = `${pod.name} · 已完成 ${k}/3 个 Pod`;
+      for (const [j, sl] of pod.slots.entries()) {
+        if (sl.s === "busy") {
+          sub(st, k, "running", `槽位 ${j} 等请求结束`); log("pool", `${pod.name} 槽位 ${j} 正在执行请求，等这次请求结束`);
+          let waited = 0, forced = false;
+          for (;;) {
+            await wait(1000); waited++;
+            if (k === 2 && j === 0 && waited === 2) {
+              log("pool", `${pod.name} 槽位 ${j} 的请求 30 分钟还没结束（演示加速）`, "w");
+              sub(st, k, "waiting", `槽位 ${j} 请求 30 分钟未结束`);
+              const c = await gate(i, "drain", { pod: pod.name, slot: j });
+              sub(st, k, "running", `槽位 ${j} 等请求结束`);
+              if (c === "force") { forced = true; log("pool", "运维选择强制转保留：中断当前请求（数据先写回 NAS，已写入操作记录）", "w"); break; }
+              log("pool", "运维选择继续等待");
+            }
+            if (k === 2 && j === 0 && waited < 4) continue;
+            break;
+          }
+          if (!forced) log("pool", `${pod.name} 槽位 ${j} 的请求结束`);
+          sl.s = "retain"; sub(st, k, "running", `槽位 ${j} 转保留`); log("pool", `槽位 ${j} 转保留：停 opencode → 最终快照 → 写回 NAS → 释放独占`); await wait(900);
+        }
+        sl.s = "restart"; sub(st, k, "running", `槽位 ${j} 换镜像`); log("pool", `腾挪槽位 ${j}（不再接受绑定与恢复），紧接着 kubectl patch pod ${pod.name}：slot-${j} 镜像 → ${tag(TO)}（只重启这一个容器）`); await wait(900);
+        sl.s = "verify"; log("pool", `核验 slot-${j}：containerID 已变 · 新 boot 握手 · 盘是空的`); await wait(600);
+        sl.s = "free"; sl.v = TO; log("pool", `${pod.name} 槽位 ${j} → 空闲（${short(TO)}）`, "g");
+        if (k === 0 && j === 0) { await wait(300); sl.s = "busy"; log("pool", "刚才被转保留的用户再次提问 → 恢复到 agent-pool-0 槽位 0（新版本），会话数据完整"); }
+      }
+      pod.steward.s = "restart"; sub(st, k, "running", "换管家"); log("pool", `${pod.name} 所有槽位都不忙，换管家容器（在用的人被转保留，下一句自动恢复，约 3 秒）`); await wait(900);
+      pod.steward.v = TO; pod.steward.s = "ok"; sub(st, k, "done", "已换"); log("pool", `${pod.name}：3 个槽位 + 管家都已是 ${short(TO)}`, "g");
+    }
+    st.detail = "3/3 Pod · 9 个槽位已换";
+  },
+  async kbstd(st) {
+    sub(st, 0, "running"); S.k8s.kbstd = { name: "kbstd-install-v1-4-4", st: "running" }; log("kbstd", "创建 Job kbstd-install-v1-4-4"); await wait(600); sub(st, 0, "done");
+    sub(st, 1, "running"); await wait(600); log("kbstd", "unpack：拷出 kb-std-G25132C-ebd6bf6b5f294395.tar.gz（255 MB）"); sub(st, 1, "done", "255 MB");
+    sub(st, 2, "running"); await wait(600); log("kbstd", "[skipped] G25132C 已是这个版本(ebd6bf6b5f294395-2026-10-25T12:24:53),不动", "g"); sub(st, 2, "done", "同版本跳过");
+    S.k8s.kbstd.st = "completed"; sub(st, 3, "done", "Completed"); st.detail = "同版本跳过 · Completed";
+  },
+  async smoke(st) {
+    st.sub.forEach(x => { x.st = "pending"; x.note = ""; });
+    sub(st, 0, "running"); await wait(500); log("smoke", "模拟登录 u9500 → 200 · 分配到 agent-pool-0 槽位 1（新版本）", "g"); sub(st, 0, "done", "200");
+    sub(st, 1, "running", "等模型回答"); log("smoke", "发真实对话：帮我对 og5 做一次只读健康检查，只列最严重的 3 个问题"); await wait(1200);
+    if ($("#failonce").checked && !S.failedOnce) { S.failedOnce = true; sub(st, 1, "failed", "90 秒没有返回"); throw new Error("真实对话 90 秒没有返回（演示注入的失败）"); }
+    log("smoke", "模型回答完成：调用技能 gaussdb-health，结论 3 条，用时 48 秒", "g"); sub(st, 1, "done", "48 秒");
+    sub(st, 2, "running"); await wait(500); log("smoke", "诊断报告已存档 /nas/me/reports/health-20261103-1412.md", "g"); sub(st, 2, "done");
+    sub(st, 3, "running"); await wait(500); log("smoke", "知识库检索「死锁」→ 命中 3 条", "g"); sub(st, 3, "done", "3 条"); st.detail = "4 项全部通过";
+  },
+  async done(st) {
+    sub(st, 0, "running"); S.k8s.cur = TO; S.k8s.cfg = 7; log("done", "记录当前版本 agent-v1.4.4 · 配置版本 #7", "g"); await wait(300); sub(st, 0, "done");
+    sub(st, 1, "done", "已存档"); st.detail = "发布报告已生成";
+  },
+};
+
+async function runAll() {
+  if (S.status === "running") return;
+  if (S.scan.status !== "ok") { toast("先扫描资源：全部可用才能开始发布"); return; }
+  if (!S.t0) S.t0 = Date.now();
+  S.status = "running"; render();
+  for (let i = S.idx; i < S.steps.length; i++) {
+    S.idx = i; const st = S.steps[i];
+    if (st.status === "done" || st.status === "skipped") continue;
+    if (st.skip) { st.status = "skipped"; st.sub.forEach((x, k) => { x.st = "done"; x.note = k ? "本版本不需要" : "不需要"; }); log(st.id, "跳过：" + CMDS[st.id][0]); continue; }
+    st.status = "running"; st.start = st.start || Date.now(); st.tries++; render();
+    try { await RUN[st.id](st, i); }
+    catch (e) {
+      if (e.message === "__reset__") return;
+      st.status = "failed"; S.status = "failed"; st.err = e.message; st.end = Date.now();
+      log(st.id, "失败：" + e.message, "e"); return;
+    }
+    st.status = "done"; st.end = Date.now(); render();
+  }
+  S.status = "done"; S.t1 = Date.now(); render(); if (!P.open) openDone();
+}
+function retry() { const st = S.steps[S.idx]; st.status = "pending"; st.err = ""; st.end = 0; log(st.id, "运维选择从这一步续跑"); runAll(); }
+function resume() { if (S.status === "failed") retry(); else { S.status = S.gate ? "waiting" : "running"; render(); } }
+
+async function rollback() {
+  closeModal(); S.status = "rolling"; render();
+  log("done", "开始回滚到 agent-v1.4.3：还原配置版本 #6 → 镜像标签 → 池子按槽位换回旧版本", "w");
+  S.k8s.userTag = FROM; await sleep(400);
+  for (const g of S.k8s.gw) { g.st = "updating"; render(); await sleep(600); g.ver = FROM; g.st = "ok"; log("done", `${g.name} 回到 ${tag(FROM)}`, "g"); }
+  for (const pod of S.k8s.pool) {
+    for (const sl of pod.slots) { if (sl.v === FROM) continue; sl.s = "restart"; render(); await sleep(300); sl.v = FROM; sl.s = "free"; }
+    pod.steward.v = FROM; log("done", `${pod.name} 回到 ${tag(FROM)}`, "g");
+  }
+  S.k8s.cur = FROM; S.k8s.cfg = 6;
+  log("done", "回滚完成：白名单只增不删，不用动；冒烟验证通过", "g");
+  S.status = "rolledback"; render(); toast("已回滚到 agent-v1.4.3");
+}
+
+/* ---------------- 渲染:流程图 ---------------- */
+const NUM = "①②③④";
+function segState(i) {
+  const s2 = S.steps[i + 1].status;
+  return s2 === "done" || s2 === "skipped" ? "done" : s2 === "running" ? "active" : s2 === "waiting" ? "warn" : s2 === "failed" ? "err" : "pending";
+}
+function secs(st) { return st.start ? Math.max(0, Math.round(((st.end || Date.now()) - st.start) / 1000)) : 0; }
+function fmt(n) { return n >= 60 ? `${Math.floor(n / 60)} 分 ${n % 60} 秒` : `${n} 秒`; }
+function metaOf(st) {
+  return { pending: "未开始", running: (S.status === "paused" ? "已暂停 · " : "") + fmt(secs(st)), waiting: "等待处理",
+    done: fmt(secs(st)), skipped: "本版本跳过", failed: "失败" }[st.status];
+}
+function buildPipe() {
+  const el = $("#flow");
+  el.innerHTML = `<div class="pipe">
+    <div class="phases">${PHASES.map(([name, a, b], k) => `<div class="phase" style="grid-column:${a + 1} / span ${b - a}"><div class="pl">${NUM[k]} ${name}<span></span></div><div class="br"></div></div>`).join("")}</div>
+    <div class="track">${S.steps.map((st, i) => `<div class="stg" data-i="${i}" title="点击进入明细"><span class="badge">需处理</span><div class="dot"></div><div class="nm"></div><div class="mt"></div><div class="mini"></div></div>`).join("")}</div>
+    <div class="callout"></div></div>`;
+  $$("#flow .stg").forEach(e => e.addEventListener("click", () => openStep(Number(e.dataset.i))));
+  el._built = true;
+}
+function gateButtons(st, i, big) {
+  const sm = big ? "" : " sm";
+  const g = S.gate && S.gate.i === i ? S.gate.kind : "";
+  if (g === "review") return big ? `<button class="btn${sm}" onclick="toast('（原型）取消后停在这一步，可稍后续跑')">取消发布</button><button class="btn pri${sm}" onclick="resolveGate('ok')">确认并继续</button>`
+    : `<button class="btn pri${sm}" onclick="openStep(${i})">查看变更并确认</button>`;
+  if (g === "whitelist") return `<button class="btn${sm}" onclick="toast('（原型）导出未成功清单 whitelist-missing.csv，交白名单团队')">导出未成功清单</button>${big ? "" : `<button class="btn${sm}" onclick="openStep(${i})">查看明细</button>`}<button class="btn pri${sm}" onclick="resolveGate('ok')">已补登记，重新核对</button>`;
+  if (g === "drain") return `<button class="btn${sm}" onclick="resolveGate('wait')">继续等待</button><button class="btn warn${sm}" onclick="resolveGate('force')">强制转保留</button>`;
+  if (st.status === "failed") return `<button class="btn pri${sm}" onclick="retry()">从这一步续跑</button><button class="btn danger${sm}" onclick="askRollback()">回滚</button>`;
+  if (S.status === "paused" && i === S.idx) return `<button class="btn pri${sm}" onclick="resume()">续跑</button>`;
+  return "";
+}
+function callout() {
+  const n = S.steps.length, cur = S.steps[Math.min(S.idx, n - 1)];
+  let i = S.idx, cls, icon = "", title, body = "", acts = "";
+  if (S.status === "idle") {
+    cls = "co-idle"; i = 0; icon = "▶"; title = "准备就绪 · " + FROM + " → " + TO;
+    const bad = S.scan.items.filter(r => r.st === "bad").map(r => r.name);
+    body = S.scan.status === "ok" ? `资源扫描已通过。共 ${n} 步自动执行；需要人参与的：变更预览确认、白名单核对未通过时、请求长时间不结束时。`
+      : S.scan.status === "bad" ? `资源扫描未通过：${esc(bad.join("、"))} 不可用。按上方提示修好后重新扫描，全部可用才能开始发布。`
+      : "先完成上方的资源扫描：发布包目录、镜像仓库、Kubernetes、NAS、模型、中间件等全部可用，才能开始发布。";
+    if (S.scan.status === "bad") { cls = "co-fail"; icon = "✕"; title = "不能开始 · 资源扫描未通过"; }
+    acts = S.scan.status === "ok" ? `<button class="btn pri sm" onclick="runAll()">开始发布</button>`
+      : S.scan.status === "bad" ? `<button class="btn sm" onclick="go('config')">去资源配置</button><button class="btn pri sm" onclick="runScan()">重新扫描</button>`
+      : `<button class="btn pri sm" onclick="runScan()">扫描资源</button>`;
+  } else if (S.status === "done") {
+    cls = "co-done"; i = n - 1; icon = "✓"; title = "发布完成 · " + TO;
+    body = `用时 ${fmt(Math.round((S.t1 - S.t0) / 1000))} · 网关 2/2、池子 9 个槽位已是新版本 · 白名单 ${S.k8s.wl} 条 · 冒烟验证通过`;
+    acts = `<button class="btn sm" onclick="openStep(${n - 1})">发布报告</button>`;
+  } else if (S.status === "rolling" || S.status === "rolledback") {
+    cls = "co-wait"; i = n - 1; icon = "↺"; title = (S.status === "rolling" ? "正在回滚到 " : "已回滚到 ") + FROM;
+    body = "还原配置版本 #6 → 网关与用户镜像标签 → 池子按槽位换回旧版本；白名单只增不删，不用动。";
+  } else {
+    const kind = cur.status === "failed" ? "fail" : cur.status === "waiting" ? "wait" : "run";
+    cls = "co-" + kind; icon = { fail: "✕", wait: "!", run: "" }[kind];
+    title = `${{ fail: "失败", wait: "需要处理", run: S.status === "paused" ? "已暂停" : "进行中" }[kind]} · 第 ${S.idx + 1} 步 · ${cur.name}`;
+    body = esc(kind === "fail" ? cur.err : cur.detail);
+    if (cur.sub.length) body += `<div class="chips">${cur.sub.map(x => `<span class="chip c-${x.st}">${esc(x.label)}${x.note ? " · " + esc(x.note) : ""}</span>`).join("")}</div>`;
+    acts = gateButtons(cur, S.idx, false) || `<button class="btn sm" onclick="openStep(${S.idx})">查看明细 ›</button>`;
+  }
+  return { cls, px: ((i + 0.5) / n * 100).toFixed(2) + "%",
+    html: `<div class="co-ic">${icon}</div><div class="co-b"><div class="co-t">${title}</div><div class="co-d">${body}</div></div><div class="co-a">${acts}</div>` };
+}
+function renderPipe() {
+  if (!$("#flow")._built) buildPipe();
+  const n = S.steps.length;
+  $$("#flow .phase").forEach((ph, k) => {
+    const ss = S.steps.slice(PHASES[k][1], PHASES[k][2]);
+    const cnt = ss.filter(x => x.status === "done" || x.status === "skipped").length;
+    setIf(ph, "className", cnt === ss.length ? "phase ph-done" : ss.some(x => ["running", "waiting", "failed"].includes(x.status)) ? "phase ph-active" : "phase");
+    setIf(ph.querySelector(".pl span"), "textContent", ` ${cnt}/${ss.length}`);
+  });
+  $$("#flow .stg").forEach((e, i) => {
+    const st = S.steps[i];
+    setIf(e, "className", `stg s-${st.status}`);
+    if (i > 0 && e.dataset.l !== segState(i - 1)) e.dataset.l = segState(i - 1);
+    if (i < n - 1 && e.dataset.r !== segState(i)) e.dataset.r = segState(i);
+    setIf(e.querySelector(".dot"), "textContent", { done: "✓", waiting: "!", failed: "✕", skipped: "–" }[st.status] || String(i + 1));
+    setIf(e.querySelector(".nm"), "textContent", st.name);
+    setIf(e.querySelector(".mt"), "textContent", metaOf(st));
+    setHtml(e.querySelector(".mini"), st.sub.map(x => `<i class="${x.st}"></i>`).join(""));
+  });
+  const co = $("#flow .callout"), c = callout();
+  setIf(co, "className", "callout " + c.cls); co.style.setProperty("--px", c.px); setHtml(co, c.html);
+}
+
+/* ---------------- 渲染:k8s 大盘 ---------------- */
+const SLOT_TXT = { busy: "在用", free: "空闲", retain: "转保留中", restart: "换镜像中", verify: "核验中" };
+function podInfo(p) {
+  const nNew = p.slots.filter(s => s.v === TO).length + (p.steward.v === TO ? 1 : 0), total = p.slots.length + 1;
+  const act = p.slots.some(s => ["retain", "restart", "verify"].includes(s.s)) || p.steward.s === "restart";
+  return { cls: nNew === total ? "new" : act ? "updating" : "", txt: nNew === total ? `${short(TO)} · 已全部替换` : nNew ? `新旧混跑 · 新 ${nNew}/${total}` : `${short(FROM)} · 运行中` };
+}
+function renderK8s(el, compact) {
+  const k = S.k8s;
+  const gw = k.gw.map(g => `<div class="pod ${g.st === "updating" ? "updating" : g.ver === TO ? "new" : ""}"><div class="pn">${g.name}</div><div class="pv">${short(g.ver)} · ${g.st === "updating" ? "替换中" : "运行中"}</div></div>`).join("");
+  const pods = k.pool.map(p => { const f = podInfo(p); return `<div class="pod ${f.cls}"><div class="pn">${p.name}</div><div class="pv">${f.txt}</div>
+     <div class="slots">${p.slots.map((s, j) => `<div class="slot ${s.s}${s.v === TO ? " nv" : ""}">槽位 ${j} · ${SLOT_TXT[s.s]}</div>`).join("")}
+     <div class="slot stw${p.steward.v === TO ? " nv" : ""}${p.steward.s === "restart" ? " restart" : ""}">管家 · ${p.steward.s === "restart" ? "换镜像中" : short(p.steward.v)}</div></div></div>`; }).join("");
+  const busy = k.pool.reduce((n, p) => n + p.slots.filter(s => s.s === "busy").length, 0);
+  const job = k.kbstd;
+  setHtml(el, `<div class="k8s">
+    <div class="krow">
+      <div class="kbox" style="width:128px"><b>统一认证 / 前端</b>集群外</div>
+      <div class="kconn" style="align-self:center">→</div>
+      <div class="kgroup" style="flex:1"><div class="kt">网关 gateway <span>用户镜像标签 ${short(k.userTag)}</span></div><div class="pods">${gw}</div></div>
+    </div>
+    <div class="kconn">↓ 按槽位分配会话</div>
+    <div class="kgroup"><div class="kt">诊断容器池 agent-pool <span>3 Pod × 3 槽位 + 管家 · 在用 ${busy}/9</span></div><div class="pods">${pods}</div></div>
+    ${compact ? "" : `<div class="krow">
+      <div class="kbox" style="flex:1"><b>知识库导入环境</b>每个知识库管理员一个 · ${short(k.kbimport.ver)}<br>${k.userTag === TO ? "下次登录时用新标签" : "空闲"}</div>
+      <div class="kbox" style="flex:1;${job.st === "running" ? "border-color:#2563eb;background:#eff6ff" : ""}"><b>知识库标准包 Job</b>${job.name} · ${job.st === "running" ? "运行中" : "Completed"}</div>
+    </div>`}
+    <div class="ext">
+      <div class="kbox nas"><b>NAS</b>会话 · 报告 · 知识库</div>
+      <div class="kbox"><b>中间件 · 白名单</b>${k.wl} 条</div>
+      <div class="kbox"><b>模型服务</b>deepseek-flash</div>
+    </div>
+    ${compact ? "" : `<div class="legend"><span><i style="background:#fff;border-color:#93c5fd;box-shadow:inset 3px 0 0 #10b981"></i>绿边 = 新版本</span><span><i style="background:#2563eb;border-color:#2563eb"></i>在用</span><span><i style="background:#fffbeb;border-color:#f59e0b"></i>转保留中</span><span><i style="background:#fff;border-color:#2563eb;border-style:dashed"></i>换镜像 / 核验中</span><span>工号不在大盘显示</span></div>`}
+  </div>`);
+}
+
+/* ---------------- 渲染:步骤明细 ---------------- */
+const ST_PILL = { pending: ["p-gray", "未开始"], running: ["p-blue", "进行中"], waiting: ["p-amber", "需要处理"], done: ["p-green", "已完成"], skipped: ["p-gray", "已跳过"], failed: ["p-red", "失败"] };
+function openStep(i) { S.view = i; render(); window.scrollTo(0, 0); }
+function closeStep() { S.view = null; render(); }
+function pillOf(ok, txt) { return `<span class="pill ${ok ? "p-green" : "p-gray"}">${txt}</span>`; }
+const MAIN = {
+  pkg(st) {
+    const chk = st.sub[1].st === "done";
+    const files = [["gaussdb-agent-v1.4.4-oc1.18.27-arm64.tar.gz", "512 MB"], ["gaussdb-agent-v1.4.4-oc1.18.27-amd64.tar.gz", "509 MB"], ["gaussdb-agent-v1.4.4-oc1.18.27-k8s.tar.gz", "0.8 MB"], ["MANIFEST.txt", "2 KB"], ["release.yaml", "3 KB"], ["gaussdb-agent-v1.4.4-oc1.18.27-*.sha256", "3 个"]];
+    return `<h3>发布包文件 <span class="sub">/opt/gaussdb-release/releases</span></h3><table><tr><th>文件</th><th>大小</th><th>sha256 期望</th><th>sha256 实际</th><th>结果</th></tr>
+      ${files.map(([f, sz]) => `<tr><td class="mono">${f}</td><td>${sz}</td><td class="mono">${hashHex(f)}…</td><td class="mono">${chk ? hashHex(f) + "…" : "—"}</td><td>${pillOf(chk, chk ? "一致" : "待校验")}</td></tr>`).join("")}</table>
+      <h3 style="margin-top:14px">release.yaml 摘要</h3><div class="kv"><div>目标版本</div><div>agent-v1.4.4 · 技能 skills-v12.23</div><div>镜像</div><div>runtime · kb-import · gateway · kbstd（arm64 / amd64）</div>
+      <div>兼容性</div><div>可与 agent-v1.4.3 混跑 → 池子按槽位在线替换</div><div>白名单</div><div>应有 130 条（示例：新增 2 条）</div><div>配置变化</div><div>新增 1 项可选配置（示例，有默认值）</div><div>特有步骤</div><div>无（导入环境不需要重建）</div></div>`;
+  },
+  plan(st) {
+    const known = st.sub[0].st === "done";
+    const rows = [["网关镜像", "deploy/gateway", short(FROM), short(TO)], ["用户镜像标签", "gateway-config · USER_IMAGE_TAG", short(FROM), short(TO)], ["池子镜像", "sts/agent-pool", short(FROM), short(TO)], ["白名单", "中间件脚本库（只读）", "128 条", "应有 130 条"], ["配置版本", "发版台配置库", "#6", "#7"]];
+    return `<h3>当前版本识别</h3><table><tr><th>对象</th><th>从哪里读</th><th>当前</th><th>目标</th></tr>${rows.map(r => `<tr><td>${r[0]}</td><td class="muted small">${r[1]}</td><td>${known ? r[2] : "—"}</td><td>${r[3]}</td></tr>`).join("")}</table>
+      <h3 style="margin-top:14px">本次计划 <span class="sub">由 release.yaml 累计 ${FROM} → ${TO} 的变化生成</span></h3>
+      <table><tr><th style="width:36px">#</th><th style="width:150px">步骤</th><th>为什么</th></tr>${S.steps.map((s, k) => `<tr><td>${k + 1}</td><td>${esc(s.name)}${s.skip ? ' <span class="pill p-gray">跳过</span>' : ""}</td><td class="small muted">${esc(WHY[s.id])}</td></tr>`).join("")}</table>`;
+  },
+  images(st) {
+    const pr = st.prog || [0, 0, 0, 0];
+    return `<h3>镜像入库 <span class="sub">从离线包直接推到内网仓库，不需要 Docker</span></h3><table><tr><th>镜像</th><th style="width:140px">进度</th><th>层（推送 / 复用）</th><th>大小</th><th>digest</th></tr>
+      ${IMGS.map((m, k) => `<tr><td class="mono">gaussdb-agent-${m.name}<br><span class="muted">${tag(TO)}</span></td><td><div class="bar2"><i style="width:${Math.round(pr[k] * 100)}%"></i></div><span class="small muted">${Math.round(pr[k] * 100)}%</span></td><td>${m.pushed} / ${m.existing}</td><td>${m.size}</td><td>${pillOf(st.sub[k].st === "done", st.sub[k].st === "done" ? "一致" : "—")}</td></tr>`).join("")}</table>
+      <p class="small muted">kbstd 的知识内容与上一版相同，镜像层全部已在仓库里，只推了清单（manifest）。</p>`;
+  },
+  config() {
+    return `<h3>配置变化 <span class="sub">配置版本 #6 → #7</span></h3><table><tr><th>配置项</th><th>原值</th><th>新值</th><th>来源</th></tr>
+      <tr><td class="mono">USER_IMAGE_TAG</td><td class="mono">${tag(FROM)}</td><td class="mono">${tag(TO)}</td><td>版本</td></tr>
+      <tr><td>网关镜像</td><td class="mono">gateway:${short(FROM)}</td><td class="mono">gateway:${short(TO)}</td><td>版本</td></tr>
+      <tr><td>池子镜像（模板）</td><td class="mono">runtime:${short(FROM)}</td><td class="mono">runtime:${short(TO)}</td><td>版本</td></tr>
+      <tr><td>（示例）新增可选配置</td><td>—</td><td>默认值</td><td>release.yaml</td></tr>
+      <tr><td>模型 Key · 信任凭据 · SM2 私钥</td><td colspan="2" class="muted">已设置（不显示）· 不变</td><td>资源配置</td></tr></table>
+      <h3 style="margin-top:14px">必填项检查</h3><div class="chk small"><div class="ok">✓ GRMP_PATH_PREFIX 已填写</div><div class="ok">✓ 镜像仓库、命名空间、NAS 已填写</div><div class="ok">✓ 本版本没有新增必填项</div></div>
+      <h3 style="margin-top:14px">渲染出的清单</h3><table><tr><th>清单</th><th>对象数</th><th>相对上一版</th></tr><tr><td class="mono">k8s/base</td><td>18</td><td>2 个有变化</td></tr><tr><td class="mono">pool.yaml（3 Pod × 3 槽位）</td><td>3</td><td>模板镜像变化</td></tr><tr><td class="mono">kbstd-install.yaml</td><td>1</td><td>新建 kbstd-install-v1-4-4</td></tr></table>`;
+  },
+  review() {
+    return `<h3>变更预览 <span class="sub">kubectl diff · 确认后才会改动集群</span></h3>
+      <div class="diffv"><span class="h">Deployment gaussdb-agent/gateway</span><span class="m">-        image: ${REG}/gaussdb-agent-gateway:${tag(FROM)}</span><span class="p">+        image: ${REG}/gaussdb-agent-gateway:${tag(TO)}</span></div>
+      <div class="diffv"><span class="h">ConfigMap gaussdb-agent/gateway-config</span><span class="m">-  USER_IMAGE_TAG: "${tag(FROM)}"</span><span class="p">+  USER_IMAGE_TAG: "${tag(TO)}"</span></div>
+      <div class="diffv"><span class="h">StatefulSet gaussdb-agent/agent-pool（slot-0 / slot-1 / slot-2 / steward）</span><span class="m">-        image: ${REG}/gaussdb-agent-runtime:${tag(FROM)}</span><span class="p">+        image: ${REG}/gaussdb-agent-runtime:${tag(TO)}</span></div>
+      <div class="diffv"><span class="h">Job gaussdb-agent/kbstd-install-v1-4-4（新建）</span><span class="p">+  知识库标准包安装：内容与当前相同，将跳过</span></div>
+      <p class="small muted">Secret、网络策略、NAS 不变。池子按槽位在线替换，正在执行的请求不会被打断。</p>`;
+  },
+  whitelist() {
+    const checked = S.wl.round > 0, miss = S.wl.missing, total = 130;
+    const rows = WL_NEW.map(n => ({ n, isNew: true, st: !checked ? "pend" : miss.includes(n) ? "miss" : "ok" })).concat(WL_SAMPLE.map(n => ({ n, st: checked ? "ok" : "pend" })));
+    const tag2 = r => r.st === "miss" ? '<span class="pill p-red">未登记</span>' : r.st === "ok" ? '<span class="pill p-green">已登记 · 一致</span>' : '<span class="pill p-gray">待核对</span>';
+    return `<div class="tiles"><div class="tile"><div class="n">${total}</div><div class="l">本版本应有</div></div><div class="tile g"><div class="n">${checked ? total - miss.length : "—"}</div><div class="l">已登记且内容一致</div></div>
+      <div class="tile ${miss.length ? "r" : ""}"><div class="n">${checked ? miss.length : "—"}</div><div class="l">未登记</div></div><div class="tile"><div class="n">${checked ? 0 : "—"}</div><div class="l">内容不一致</div></div></div>
+      ${miss.length ? `<div class="gatebox err"><b>${miss.length} 条脚本没进白名单</b>：${miss.map(esc).join("、")}。白名单由白名单团队手工执行；补登记后点「已补登记，重新核对」。</div>` : checked ? `<div class="gatebox" style="border-color:#a7f3d0;background:#ecfdf5"><b class="ok">核对通过</b>：本版本应有的 130 条全部已登记，内容一致。</div>` : ""}
+      <h3 style="margin-top:6px">逐条核对 <span class="sub">有问题的排在前面 · 核对方式：脚本库只读账号（按脚本名与内容指纹比对）</span></h3>
+      <table><tr><th>脚本</th><th>来源</th><th>结果</th></tr>${rows.map(r => `<tr class="${r.st === "miss" ? "bad" : ""}"><td class="mono">${r.n}${r.isNew ? ' <span class="muted">（示例）</span>' : ""}</td><td class="small muted">${r.isNew ? "本版本新增" : "已有"}</td><td>${tag2(r)}</td></tr>`).join("")}
+      <tr><td colspan="3" class="muted small">其余 117 条：${checked ? "已登记且内容一致" : "待核对"}（已折叠）</td></tr></table>`;
+  },
+  gateway() {
+    return `<h3>网关副本</h3><table><tr><th>副本</th><th>原镜像</th><th>新镜像</th><th>状态</th></tr>${S.k8s.gw.map(g => `<tr><td>${g.name}</td><td class="mono">${short(FROM)}</td><td class="mono">${short(TO)}</td><td>${g.ver === TO ? '<span class="pill p-green">就绪</span>' : g.st === "updating" ? '<span class="pill p-blue">替换中</span>' : '<span class="pill p-gray">等待</span>'}</td></tr>`).join("")}</table>
+      <h3 style="margin-top:14px">滚动方式</h3><div class="kv"><div>方式</div><div>一次换 1 个副本，另一个继续服务</div><div>就绪判断</div><div>/healthz 返回 200，日志出现「就绪」</div><div>用户镜像标签</div><div>${short(S.k8s.userTag)}（与网关镜像同版本，发版台自动保证）</div></div>`;
+  },
+  pool() {
+    const cls = s => s.s === "busy" ? (s.v === TO ? "new busy" : "busy") : s.s === "free" ? (s.v === TO ? "new" : "") : s.s === "retain" ? "ret" : "act";
+    const txt = { busy: "在用", free: "空闲", retain: "转保留中 · 写回 NAS", restart: "换镜像 · 重启中", verify: "核验中" };
+    const rows = S.k8s.pool.map(p => `<tr><td style="vertical-align:middle"><b>${p.name}</b><div class="small muted">${podInfo(p).txt}</div></td>${p.slots.map((s, j) => `<td><div class="cell ${cls(s)}"><b>槽位 ${j}</b>${txt[s.s]}<br><span class="muted">${short(s.v)}</span></div></td>`).join("")}
+      <td><div class="cell ${p.steward.s === "restart" ? "act" : p.steward.v === TO ? "new" : ""}"><b>管家</b>${p.steward.s === "restart" ? "换镜像中" : "正常"}<br><span class="muted">${short(p.steward.v)}</span></div></td></tr>`).join("");
+    return `<h3>池子在线替换 <span class="sub">按槽位逐个换，服务不中断</span></h3><table class="mx"><tr><th></th><th>槽位 0</th><th>槽位 1</th><th>槽位 2</th><th>管家</th></tr>${rows}</table>
+      <h3 style="margin-top:12px">每个槽位怎么换</h3><div class="chain">${["在用？等不忙", "转保留：写回 NAS", "腾挪", "换这个容器的镜像", "核验：新容器 ID · 握手 · 空盘", "空闲（新版本）"].map(x => `<span>${x}</span>`).join("<i>→</i>")}</div>
+      <div class="kv" style="margin-top:12px"><div>依据</div><div>release.yaml 声明可与 ${FROM} 混跑；不可混跑的版本自动改为按整个 Pod 替换</div>
+      <div>被转保留的人</div><div>下次提问自动恢复到新版本槽位，会话数据已在 NAS</div><div>请求一直不结束</div><div>30 分钟后由运维选择继续等待或强制转保留</div><div>管家容器</div><div>每个 Pod 的槽位换完、且本 Pod 所有槽位都不忙时再换；在用的人会被转保留，下一句自动恢复（约 3 秒）</div></div>`;
+  },
+  kbimport() {
+    return `<h3>知识库导入环境</h3><table><tr><th>环境</th><th>当前版本</th><th>本次动作</th></tr><tr><td class="mono">kb-import-u9500</td><td>${short(FROM)}</td><td>无需重建：下次登录时按新标签（${short(TO)}）创建</td></tr></table>
+      <p class="small muted">从 agent-v1.4.0 及以前升级时，这一步会删除旧的导入环境（NAS 上的数据不动），让它下次按新模板建。</p>`;
+  },
+  kbstd(st) {
+    const done = st.status === "done";
+    return `<h3>安装 Job</h3><table><tr><th>容器</th><th>镜像</th><th>做什么</th><th>状态</th></tr>
+      <tr><td>unpack（init）</td><td class="mono">kbstd:${short(TO)}</td><td>拷出知识包到临时卷</td><td>${pillOf(st.sub[1].st === "done", st.sub[1].st === "done" ? "完成" : "—")}</td></tr>
+      <tr><td>install</td><td class="mono">kb-import:${short(TO)}</td><td>逐个文件核对 sha256，整体换入 kb/docsets/</td><td>${pillOf(st.sub[2].st === "done", st.sub[2].st === "done" ? "完成" : "—")}</td></tr></table>
+      <h3 style="margin-top:14px">文档集版本</h3><div class="kv"><div>已装</div><div>G25132C · ebd6bf6b5f294395 · 6023 条</div><div>包内</div><div>G25132C · ebd6bf6b5f294395</div><div>结论</div><div>${done ? "内容相同，跳过，一个文件都不写" : "—"}</div></div>`;
+  },
+  smoke(st) {
+    const c = st.sub, ic = x => x.st === "done" ? "c-ok" : x.st === "failed" ? "c-bad" : x.st === "running" ? "c-run" : "";
+    return `<h3>冒烟验证</h3>
+      <div class="check ${ic(c[0])}"><div class="ci">1</div><div><b>模拟登录</b><div class="small muted">sso-sim · u9500 → 网关 → 分配槽位</div>${c[0].st === "done" ? '<div class="small">HTTP 200 · 分配到 agent-pool-0 槽位 1（新版本）</div>' : ""}</div></div>
+      <div class="check ${ic(c[1])}"><div class="ci">2</div><div style="flex:1"><b>一次真实对话</b><div class="small muted">经模型与技能，只读</div>
+        <div class="chat"><div><b>问：</b>帮我对 og5 做一次只读健康检查，只列最严重的 3 个问题</div>
+        <div class="a">${c[1].st === "done" ? "<b>答：</b>（模型回答摘要）1. 存在 2 个超过 10 分钟的空闲事务… 2. … 3. …　调用技能 gaussdb-health，用时 48 秒" : c[1].st === "failed" ? '<span class="bad">90 秒没有返回（演示注入的失败）</span>' : c[1].st === "running" ? "等模型回答…" : "—"}</div></div></div></div>
+      <div class="check ${ic(c[2])}"><div class="ci">3</div><div><b>只读诊断报告</b><div class="small muted">核对报告已存档</div>${c[2].st === "done" ? '<div class="small mono">/nas/me/reports/health-20261103-1412.md</div>' : ""}</div></div>
+      <div class="check ${ic(c[3])}"><div class="ci">4</div><div><b>知识库检索</b><div class="small muted">kb.py query --q 死锁</div>${c[3].st === "done" ? '<div class="small">命中 3 条（含官方文档 PD-G25132C-02894）</div>' : ""}</div></div>`;
+  },
+  done() {
+    const durs = S.steps.slice(0, 11).map(s => secs(s)), mx = Math.max(1, ...durs);
+    return `<h3>发布报告</h3><table><tr><th>对象</th><th>发布前</th><th>发布后</th></tr><tr><td>网关 · 用户镜像标签</td><td>${short(FROM)}</td><td>${short(S.k8s.cur)}</td></tr><tr><td>池子 9 个槽位 + 3 个管家</td><td>${short(FROM)}</td><td>${short(S.k8s.cur)}</td></tr><tr><td>白名单</td><td>128 条</td><td>${S.k8s.wl} 条</td></tr><tr><td>配置版本</td><td>#6</td><td>#${S.k8s.cfg}</td></tr></table>
+      <h3 style="margin-top:14px">各步用时</h3><div class="bars">${S.steps.slice(0, 11).map((s, k) => `<div class="bar"><span>${k + 1}. ${esc(s.name)}</span><i style="width:${Math.max(2, durs[k] / mx * 360)}px"></i><em class="small muted">${s.skip ? "跳过" : fmt(durs[k])}</em></div>`).join("")}</div>
+      <div style="margin-top:12px"><button class="btn sm" onclick="toast('（原型）下载发布报告 release-agent-v1.4.4.md')">下载发布报告</button></div>`;
+  },
+};
+function stepHead(st, i) {
+  const [pc, pt] = ST_PILL[st.status];
+  const icon = { done: "✓", failed: "✕", waiting: "!", skipped: "–" }[st.status] || (i + 1);
+  const start = st.start ? new Date(st.start).toTimeString().slice(0, 8) : "—";
+  const how = st.id === "review" ? "需运维确认" : st.id === "whitelist" ? "自动核对（未通过需处理）" : st.id === "pool" ? "自动（请求超时需选择）" : "自动";
+  return `<div class="sv-ic ${st.status}">${icon}</div><div style="flex:1;min-width:0"><div class="sv-title">第 ${i + 1} 步 · ${esc(st.name)} <span class="pill ${pc}">${pt}</span></div>
+    <div class="sv-meta"><span>开始 <b>${start}</b></span><span>用时 <b>${st.start ? fmt(secs(st)) : "—"}</b></span><span>执行方式 <b>${how}</b></span><span>尝试 <b>${st.tries} 次</b></span><span>${esc(st.err || st.detail)}</span></div></div>
+    <div class="co-a">${gateButtons(st, i, true)}</div>`;
+}
+function renderStepView() {
+  const sv = $("#stepview"), i = S.view, st = S.steps[i], n = S.steps.length;
+  if (!sv._built) {
+    sv.innerHTML = `<div class="sv-top"><button class="btn sm" onclick="closeStep()">← 返回发布全景</button><div class="crumb" id="sv-crumb"></div><span class="spacer"></span><div class="sv-nav" id="sv-nav"></div>
+      <button class="btn sm" onclick="openStep(Math.max(0,S.view-1))">‹ 上一步</button><button class="btn sm" onclick="openStep(Math.min(S.steps.length-1,S.view+1))">下一步 ›</button></div>
+      <div class="card"><div class="sv-head" id="sv-head"></div></div>
+      <div class="sv-grid"><div class="card"><h3>子步骤</h3><div id="sv-tl"></div></div><div class="card" id="sv-main"></div></div>
+      <div class="sv-grid2"><div class="card"><h3>执行的命令</h3><div id="sv-cmds"></div></div><div class="card"><h3>本步日志 <span class="sub">只看这一步</span></h3><div class="console" id="sv-log" style="height:220px"></div></div></div>`;
+    sv._built = true;
+  }
+  setHtml($("#sv-crumb"), `发布 ${FROM} → ${TO} › <b>第 ${i + 1} / ${n} 步 · ${esc(st.name)}</b>`);
+  setHtml($("#sv-nav"), S.steps.map((s, k) => `<button class="${s.status}${k === i ? " cur" : ""}" title="${esc(s.name)}" onclick="openStep(${k})">${k + 1}</button>`).join(""));
+  setHtml($("#sv-head"), stepHead(st, i));
+  setHtml($("#sv-tl"), st.sub.map((x, k) => `<div class="tl-i ${x.st}"><div class="tl-d">${{ done: "✓", failed: "✕", waiting: "!" }[x.st] || k + 1}</div><div><div class="tl-n">${esc(x.label)}</div><div class="tl-s">${esc(x.note || { pending: "未开始", running: "进行中", done: "完成", waiting: "需要处理", failed: "失败" }[x.st])}</div></div></div>`).join(""));
+  setHtml($("#sv-main"), MAIN[st.id](st, i));
+  setHtml($("#sv-cmds"), (CMDS[st.id] || []).map(c => `<div class="cmdrow"><span class="muted">$</span><code>${esc(c)}</code>${st.status === "done" ? '<span class="ok2">✓ 退出码 0</span>' : st.status === "running" || st.status === "waiting" ? '<span class="run2">执行中</span>' : ""}</div>`).join(""));
+  const lg = $("#sv-log");
+  setHtml(lg, st.logs.map(l => `<div class="ln"><span class="t">${l.t}</span> <span class="${l.lv}">${esc(l.text)}</span></div>`).join("") || '<span class="t">（这一步还没有日志）</span>');
+  lg.scrollTop = lg.scrollHeight;
+}
+
+/* ---------------- 渲染:顶部 / 日志 / 总入口 ---------------- */
+function renderConsole() {
+  const el = $("#console");
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  setHtml(el, S.logs.slice(-300).map(l => `<div class="ln"><span class="t">${l.t}</span> <span class="s">[${l.id}]</span> <span class="${l.lv}">${esc(l.text)}</span></div>`).join("") || '<span class="t">先扫描资源，再开始发布。演示中所有命令都不会真的执行。</span>');
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+const RS = { idle: ["p-gray", "未开始"], running: ["p-blue", "进行中"], waiting: ["p-amber", "需要处理"], paused: ["p-amber", "已暂停"], failed: ["p-red", "失败"], done: ["p-green", "发布完成"], rolling: ["p-amber", "回滚中"], rolledback: ["p-gray", "已回滚"] };
+function renderHead() {
+  const [c, t] = RS[S.status] || RS.idle;
+  const r = $("#rstatus"); setIf(r, "className", "pill " + c); setIf(r, "textContent", t);
+  const n = S.steps.filter(s => s.status === "done" || s.status === "skipped").length;
+  $("#rprog").style.width = (n / S.steps.length * 100) + "%"; setIf($("#rcount"), "textContent", `${n} / ${S.steps.length}`);
+  const el = S.t0 ? Math.round(((S.t1 || Date.now()) - S.t0) / 1000) : 0;
+  setIf($("#relapsed"), "textContent", `用时 ${String(Math.floor(el / 60)).padStart(2, "0")}:${String(el % 60).padStart(2, "0")}`);
+  $("#b-scan").disabled = S.status !== "idle" || S.scan.status === "running";
+  $("#b-start").disabled = !(S.status === "idle" && S.scan.status === "ok");
+  $("#b-pause").disabled = S.status !== "running";
+  $("#b-resume").disabled = !(S.status === "paused" || S.status === "failed");
+  $("#b-rollback").disabled = !["failed", "done", "paused", "waiting"].includes(S.status);
+  $("#navdot").classList.toggle("show", S.status === "waiting" || S.status === "failed");
+  setIf($("#curver"), "textContent", "当前 " + S.k8s.cur); setIf($("#curver"), "className", "pill " + (S.k8s.cur === TO ? "p-green" : "p-gray"));
+  setIf($("#ov-ver"), "textContent", S.k8s.cur); setIf($("#ov-wl"), "textContent", String(S.k8s.wl));
+  setIf($("#ov-busy"), "textContent", String(S.k8s.pool.reduce((m, p) => m + p.slots.filter(s => s.s === "busy").length, 0)));
+}
+let _raf = 0;
+function render() {
+  if (_raf) return;
+  _raf = requestAnimationFrame(() => {
+    _raf = 0; renderHead();
+    const inStep = S.view !== null;
+    $("#relmain").style.display = inStep ? "none" : "";
+    $("#stepview").style.display = inStep ? "" : "none";
+    if (inStep) renderStepView(); else { renderScan(); renderPipe(); renderK8s($("#k8s"), false); renderConsole(); }
+    renderK8s($("#k8s-mini"), true);
+  });
+}
+
+/* ---------------- 弹窗 ---------------- */
+function modal(title, body, buttons) {
+  $("#mh").textContent = title; $("#mb").innerHTML = body;
+  $("#mf").innerHTML = ""; buttons.forEach(b => { const e = document.createElement("button"); e.className = "btn " + (b.cls || ""); e.textContent = b.t; e.onclick = b.on; $("#mf").appendChild(e); });
+  $("#mask").classList.add("on");
+}
+function closeModal() { $("#mask").classList.remove("on"); }
+function openDone() {
+  modal("发布完成 · agent-v1.4.4", `<div class="chk">
+    <div class="ok">✓ 4 个镜像已入库，digest 一致</div><div class="ok">✓ 白名单 130/130 核对通过</div>
+    <div class="ok">✓ 网关 2/2、池子 9 个槽位 + 3 个管家已是 agent-v1.4.4，全程未停服务</div><div class="ok">✓ 知识库标准包：同版本跳过</div>
+    <div class="ok">✓ 冒烟验证 4 项通过（含一次真实对话）</div></div>
+    <p class="small muted">发布报告已存档；有问题可一键回滚到 agent-v1.4.3。</p>`,
+    [{ t: "关闭", on: closeModal }, { t: "查看发布报告", cls: "pri", on: () => { closeModal(); openStep(S.steps.length - 1); } }]);
+}
+function askRollback() {
+  modal("回滚到 agent-v1.4.3", `<p>按相反顺序执行：还原配置版本 #6 → 网关镜像与用户镜像标签 → 池子按槽位换回旧版本 → 冒烟验证。</p>
+    <p class="small muted">白名单只增不删，回滚时不用动；NAS 上的数据不受影响。此操作写入操作记录。</p>`,
+    [{ t: "取消", on: closeModal }, { t: "确认回滚", cls: "danger", on: rollback }]);
+}
+function changeSecret(name) {
+  modal("更换：" + name, `<p class="small muted">新值只写入、不回显；保存后在操作记录里留下「更换了${name}（值不记录）」。</p>
+    <input type="password" placeholder="输入新值" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px">`,
+    [{ t: "取消", on: closeModal }, { t: "保存", cls: "pri", on: () => { closeModal(); toast(`（原型）${name}已更换`); } }]);
+}
+
+/* ---------------- 其他页面 ---------------- */
+const PLANS = {
+  "v1.4.3": { wl: ["核对：应有 130 条（示例：本版本新增 2 条）"], cfg: ["新增 1 项可选配置（示例），按默认值补齐"], steps: ["换 4 个镜像（网关与用户镜像标签同版本）", "池子按槽位在线替换", "知识库标准包：内容相同，将跳过"], skip: ["重建导入环境（不需要）"] },
+  "v1.4.0": { wl: ["核对：应有 130 条（含 20261030 的 2 条与本版本的 2 条）"], cfg: ["KB_CLIP_ORIGINS（v1.4.1 起，可选，默认空 = 关闭网页剪藏）", "新增 1 项可选配置（示例）"], steps: ["换 4 个镜像", "重建导入环境（删 kb-import，下次按新模板建；NAS 数据不动）", "应用 networkpolicy/kbstd-policy（v1.4.2 起）", "池子按槽位在线替换", "知识库标准包：首次安装 G25132C（6023 条）"], skip: [] },
+  "v1.3.2": { wl: ["核对：应有 130 条；其中 20261024 的 12 条是内容更新（条数不变，按内容指纹核对）"], cfg: ["GRMP_PATH_PREFIX（v1.4.0 起，必填，没有默认值 → 开跑前要求填写）", "KB_CLIP_ORIGINS（v1.4.1 起，可选）", "新增 1 项可选配置（示例）"], steps: ["换 4 个镜像", "重建导入环境", "应用 networkpolicy/kbstd-policy", "池子按 Pod 整体替换（跨大版本，不声明可混跑）", "知识库标准包：首次安装 G25132C"], skip: [] },
+};
+function renderPlan(from) {
+  $$(".pfrom").forEach(b => b.classList.toggle("pri", b.dataset.from === from));
+  const p = PLANS[from], li = (arr, cls = "") => arr.map(x => `<li class="${cls}">${esc(x)}</li>`).join("");
+  $("#planview").innerHTML = `<div class="grid g3">
+    <div class="gatebox" style="background:#f8fafc;border-color:#e2e8f0"><b>白名单核对</b><ul class="plan small">${li(p.wl)}</ul></div>
+    <div class="gatebox" style="background:#f8fafc;border-color:#e2e8f0"><b>配置变化</b><ul class="plan small">${li(p.cfg)}</ul></div>
+    <div class="gatebox" style="background:#f8fafc;border-color:#e2e8f0"><b>部署动作</b><ul class="plan small">${li(p.steps)}${li(p.skip, "muted")}</ul></div></div>
+    <p class="small muted">起点版本越旧，流程图里的节点越多；这些都来自各版本 release.yaml 的累计，不靠人对照手册判断。</p>`;
+}
+const HIST = [
+  [12, "agent-v1.4.3", "测试环境", "2026-10-30 16:02", "18 分", ["p-green", "成功"], [2, 1, 6, 1, 1, 0, 2, 9, 0, 1, 2]],
+  [11, "agent-v1.4.2", "测试环境", "2026-10-27 15:40", "26 分", ["p-green", "成功"], [2, 1, 8, 1, 2, 3, 2, 12, 0, 2, 3]],
+  [10, "agent-v1.4.1", "测试环境", "2026-10-27 10:12", "41 分", ["p-amber", "失败后续跑成功"], [2, 1, 21, 1, 2, 0, 2, 9, 0, 0, 2]],
+  [9, "agent-v1.4.0", "测试环境", "2026-10-26 18:30", "35 分", ["p-green", "成功"], [2, 2, 9, 2, 3, 6, 2, 10, 1, 0, 3]],
+];
+function renderHistory() {
+  const t = $("#histtab"); t.innerHTML = t.rows[0].outerHTML;
+  HIST.forEach(h => {
+    const tr = t.insertRow(); tr.className = "click";
+    tr.innerHTML = `<td>#${h[0]}</td><td><b>${h[1]}</b></td><td>${h[2]}</td><td>${h[3]}</td><td>${h[4]}</td><td><span class="pill ${h[5][0]}">${h[5][1]}</span></td>
+      <td><button class="btn sm" onclick="event.stopPropagation();toast('（原型）打开发布报告 #${h[0]}')">报告</button> <button class="btn sm danger" onclick="event.stopPropagation();askRollback()" ${h[0] === 12 ? "disabled" : ""}>回滚到此版本</button></td>`;
+    const det = t.insertRow(); det.style.display = "none";
+    const mx = Math.max(...h[6]);
+    det.innerHTML = `<td></td><td colspan="6"><div class="bars">${PLAN.slice(0, 11).map((p, i) => `<div class="bar"><span>${p.name}</span><i style="width:${Math.max(2, h[6][i] / mx * 320)}px${h[0] === 10 && i === 2 ? ";background:#fca5a5" : ""}"></i><em class="small muted">${h[6][i]} 分</em></div>`).join("")}</div>
+      ${h[0] === 10 ? '<div class="small" style="margin-top:6px;color:#b91c1c">镜像入库第一次推送超时（仓库网络慢），10:31 从这一步续跑后成功。</div>' : ""}</td>`;
+    tr.onclick = () => { det.style.display = det.style.display === "none" ? "" : "none"; };
+  });
+}
+const AUD = [
+  ["2026-11-03 09:12", "更换密钥", "模型 API Key（值不记录）"],
+  ["2026-11-03 09:10", "修改资源配置", "镜像读取路径 → /opt/gaussdb-release/releases"],
+  ["2026-10-30 16:20", "发布完成", "#12 agent-v1.4.3 · 测试环境 · 用时 18 分"],
+  ["2026-10-30 16:09", "重新核对白名单", "#12 白名单团队补登记后重新核对：128/128 通过"],
+  ["2026-10-30 16:05", "确认变更", "#12 变更预览：3 个对象、4 个镜像"],
+  ["2026-10-27 10:31", "续跑", "#10 从「镜像入库」续跑（第一次推送超时）"],
+  ["2026-10-26 18:52", "强制转保留", "#9 agent-pool-2 槽位 0 的请求 30 分钟未结束，数据写回后转保留"],
+];
+function renderAudit() { const t = $("#audtab"); t.innerHTML = t.rows[0].outerHTML; AUD.forEach(a => { const r = t.insertRow(); r.innerHTML = a.map(x => `<td>${esc(x)}</td>`).join(""); }); }
+function renderCap() {
+  const pods = +$("#cap-pods").value || 1, slots = +$("#cap-slots").value || 1, peak = +$("#cap-peak").value || 1;
+  const cap = pods * slots, ok = cap >= peak, need = Math.ceil(peak / slots);
+  $("#capbox").className = "gatebox" + (ok ? "" : " err");
+  $("#capbox").innerHTML = `<b>容量估算</b><div class="small">槽位 ${pods} × ${slots} = <b>${cap}</b>，峰值同时在用 <b>${peak}</b> 人 → ${ok ? '<span class="ok">够用</span>' : `<span class="bad">不够，建议至少 ${need} 个 Pod × ${slots} 槽位</span>`}<br>
+    内存估算：人数 × 0.9 GiB × 1.3 + 3~4 GiB ≈ <b>${(peak * 1.17 + 3).toFixed(1)}–${(peak * 1.17 + 4).toFixed(1)} GiB</b></div>`;
+}
+
+/* ---------------- 导航与按钮 ---------------- */
+const TITLES = { overview: "总览", release: "发布", packages: "发布包", config: "资源配置", history: "历史与回滚", audit: "操作记录" };
+function go(page) {
+  $$(".page").forEach(p => p.classList.toggle("on", p.id === "page-" + page));
+  $$("#nav button").forEach(b => b.classList.toggle("on", b.dataset.page === page));
+  $("#ptitle").textContent = TITLES[page]; render();
+}
+function reset() { S = fresh(); $("#flow")._built = false; closeModal(); render(); }
+
+$$("#nav button").forEach(b => b.onclick = () => go(b.dataset.page));
+$("#b-scan").onclick = runScan;
+$("#b-start").onclick = runAll;
+$("#b-pause").onclick = () => { S.status = "paused"; render(); };
+$("#b-resume").onclick = resume;
+$("#b-rollback").onclick = askRollback;
+$("#b-reset").onclick = () => { reset(); toast("演示已重置"); };
+$("#speed").onchange = e => { S.speed = Number(e.target.value); };
+$$(".pfrom").forEach(b => b.onclick = () => renderPlan(b.dataset.from));
+$$("#cfgtabs button").forEach(b => b.onclick = () => { $$("#cfgtabs button").forEach(x => x.classList.toggle("on", x === b)); $$(".cfgsec").forEach(s => s.classList.toggle("on", s.dataset.sec === b.dataset.sec)); });
+$$(".test").forEach(b => b.onclick = () => { b.textContent = "测试中…"; b.disabled = true; setTimeout(() => { b.textContent = "✓ " + b.dataset.ok; b.style.color = "#047857"; b.disabled = false; }, 900); });
+["#cap-pods", "#cap-slots", "#cap-peak"].forEach(s => $(s).oninput = renderCap);
+$("#envsel").onchange = e => toast(e.target.value === "prod" ? "（原型）切到生产环境" : "（原型）切到测试环境");
+setInterval(() => { if (["running", "waiting", "paused"].includes(S.status)) render(); }, 1000);
+
+// 截图校验用:headless 的虚拟时间不推进 CSS 过渡,带 shot=1 时关掉过渡
+if (P.shot) document.head.insertAdjacentHTML("beforeend", "<style>*,*::before,*::after{transition:none!important}</style>");
+S = fresh();
+if (P.speed) { $("#speed").value = P.speed; S.speed = Number(P.speed); }
+if (P.scanbad) $("#scanbad").checked = true;
+if (P.fail) $("#failonce").checked = true;
+renderPlan("v1.4.3"); renderHistory(); renderAudit(); renderCap();
+go(P.page || "release");
+if (P.open) openStep(Number(P.open));
+if (P.scan || P.auto || P.stop) runScan().then(() => { if ((P.auto || P.stop) && S.scan.status === "ok") runAll(); });
+</script>
+</body>
+</html>

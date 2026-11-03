@@ -72,7 +72,11 @@ docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile.gateway" \
 # shellcheck disable=SC2086
 docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile.frontend" \
   -t "${PREFIX}gaussdb-agent-frontend:$TAG" "$HERE"
-echo "built: ${PREFIX}gaussdb-agent-{runtime,kb-import,gateway,frontend}:$TAG"
+# 发版台:跳板机上跑的独立程序(不进 k8s)。随离线包单独一个 tar 发出,不推进客户的镜像仓库
+# shellcheck disable=SC2086
+docker buildx build $PLATFORM $LOAD $PUSH -f "$HERE/docker/Dockerfile.release" \
+  -t "${PREFIX}gaussdb-agent-release:$TAG" "$HERE"
+echo "built: ${PREFIX}gaussdb-agent-{runtime,kb-import,gateway,frontend,release}:$TAG"
 # 标准知识库(官方文档集):只装数据包,部署时由 Job kbstd-install 装进 NAS。包不在代码仓库里,要从 --kbstd 传进来
 if [ -n "$KBSTD" ]; then
   # shellcheck disable=SC2086

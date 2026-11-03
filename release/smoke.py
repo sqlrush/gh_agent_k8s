@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 ASK = "这是发布后的冒烟验证。不要调用任何工具、不要连接数据库。请只回复四个字:冒烟通过。"
-HEALTH = "对实例 {inst} 做一次只读健康检查,只列最严重的 3 个问题。"
+# 冒烟要验的是链路,不是模型怎么规划:明说按别名登录、不要反问(11-03 演练:同一句话模型一次按别名登录跑通,一次反问要 IP)
+HEALTH = ("对实例 {inst} 做一次只读健康检查,只列最严重的 3 个问题。实例别名已配置,用 gaussdb-login 按别名 {inst} 登录;"
+          "这是自动化的发布验证,不要向我提问,遇到问题直接说明原因。")
 KB = "用知识库查一下「死锁」相关的条目,只列标题。不要连接数据库。"
 
 
@@ -123,7 +125,7 @@ class Smoke:
             waiting = [p for p in parts if p.get("type") == "tool" and p.get("tool") == "question"
                        and (p.get("state") or {}).get("status") == "running"]
             if waiting:
-                why = ("模型在向用户提问、等人回答(冒烟工号多半没登录过实例 %s,或资源配置缺实例别名)" % (self.instance or "?"))
+                why = ("模型在向用户提问、等人回答(常见原因:实例 %s 的别名没配、冒烟工号连不上这个实例);已中止该会话" % (self.instance or "?"))
             self._req("POST", "/session/%s/abort" % q, {}, timeout=30)
         except (OSError, ValueError):
             pass

@@ -16,8 +16,8 @@
 | 8 | 配置迁移与渲染 `release/render.py`:ConfigMap 保留现值 + 新增项、镜像前缀与标签、网络策略外部规则沿用集群的、render-pool(首次)/ 模板换镜像(升级);diff | 单测(真 k8s/base + 仿本地覆盖的集群);真集群同版本空跑 diff 只剩环境本身的偏离 | 完成 |
 | 9 | 白名单核对:只读账号直连(psycopg2)接到 `whitelist.from_rows`;核对步骤与关卡 | 单测(假游标) | 解析与比对已在第 2 项完成 |
 | 10 | 池子替换 `release/pool.py`:实验记录里的算法 + 按 Pod 整体替换;网关 /admin/pool 经 kubectl exec(密钥不出容器);旧网关无 busy 时退到 last_seen | 单测(假池子按实验行为:忙、超时交运维、写回不干净、核验不过、换管家、整体替换);真集群空闲槽位来回换各约 3 秒 | 完成 |
-| 11 | 执行引擎 `release/engine.py` + 各步骤 `release/steps.py`:关卡、暂停、中断、续跑、回滚 | 单测 | |
-| 12 | 冒烟 `release/smoke.py`:登录 403/200、真实对话、报告、知识库 | 单测(假网关) | |
+| 11 | 执行引擎 `release/engine.py`(关卡持久化、暂停、失败续跑、取消、重启后接着等原关卡)+ 各步骤 `release/steps.py` | 引擎单测(连跑 5 遍稳定) | 引擎完成;步骤进行中 |
+| 12 | 冒烟 `release/smoke.py`:登录 403/200(用 GET /session,/global/health 是非交互路径不分配槽位)、真实对话、报告、知识库 | 单测(假网关);真环境 u9500 + og5 全过,34 秒 | 完成 |
 | 13 | 接口 `release/server.py` + 前端 `release/web/`(R1 原型接接口,按设计 §7 末尾更正) | 接口单测;无头浏览器截图 | |
 | 14 | 镜像 `docker/Dockerfile.release`、`scripts/build-images.sh` 加 release、启动说明 | 构建 + 起容器 | |
 | 15 | 端到端(OrbStack):本地 registry:2;新命名空间从零部署;现有环境 v1.4.3 → v1.4.4(u9500 保持会话);回滚一次 | 真跑记录 | |

@@ -45,14 +45,18 @@ function hero(m) {
   const left = `<div class="glass kbbox rise"${rise()}><div class="title">${I.book}知识条目<span class="t3">全体共享，${m.d.readonly === false ? '可写' : '只读'}</span></div>
     <div class="kbtop"><div><div class="big num">${cu(fmtInt(total))}<small>条</small></div>
       <div class="kbsplit">${m.types ? typeSplit(m) : `<span>案例 <b>${fmtInt(m.counts.case)}</b></span><span>条款 <b>${fmtInt(m.counts.rule)}</b></span>`}${m.counts.raw ? `<span class="t3">整理自 ${fmtInt(m.counts.raw)} 份原始工单</span>` : ''}</div></div>
-      <div class="kbcov">${covring(m.cov, m.cov === null ? '文件模式只有关键词' : '向量覆盖')}</div></div>
+      <div class="kbcov">${covring(m.cov, m.cov === null ? (m.ok ? '文件模式只有关键词' : '查一次状态可见') : '向量覆盖')}</div></div>
     ${m.catOk ? `<div class="mg-h"><span>关系图 · ${Number.isFinite(m.gEdges) ? fmtInt(m.gEdges) : '—'} 条已确认的边（${esc(m.gKind)}）</span><a href="#" data-tab="graph">展开${I.arrow}</a></div>${minigraph(m.cat)}` : ''}</div>`;
   return `<section class="hero"><div class="hero-grid">${left}${insightCard({ ...insight.kb(m), ctx: '关于共享知识库:' })}</div></section>`;
 }
 
 function overview(m) {
-  if (!m.ok) return emptyHero(m.status === 404 ? '还没有知识库状态报告' : '知识库状态报告读取失败', m.status === 404 ? '在会话里查一次知识库状态，结果会出现在这里。' : (m.error || ''), '请查看知识库的健康状态。', '在会话里查一次知识库状态');
-  if (!m.attached) return emptyHero('知识库未接入', `${m.st.reason || ''}${m.d.inbox ? ` 收件目录：${m.d.inbox}` : ''}`, '请查看知识库为什么没有接入。', '在会话里检查');
+  // 没有状态报告、但目录读得到(知识已导入,只是这个人还没查过状态):照常显示目录里的数,状态与缺口两处提示去查一次。
+  // 以前整块「还没有知识库状态报告」,管理员导完知识一看以为没导进去(2026-11-03 客户反馈)
+  const noHealth = !m.ok && m.status === 404 && m.catOk;
+  const askHealth = `<p class="t3">还没有知识库状态报告：在会话里查一次知识库状态，索引、覆盖率和待处理项会显示在这里。</p><p><button class="btn"${dig('请查看知识库的健康状态。', '知识库')}>在会话里查一次知识库状态</button></p>`;
+  if (!m.ok && !noHealth) return emptyHero(m.status === 404 ? '还没有知识库状态报告' : '知识库状态报告读取失败', m.status === 404 ? '在会话里查一次知识库状态，结果会出现在这里。' : (m.error || ''), '请查看知识库的健康状态。', '在会话里查一次知识库状态');
+  if (!noHealth && !m.attached) return emptyHero('知识库未接入', `${m.st.reason || ''}${m.d.inbox ? ` 收件目录：${m.d.inbox}` : ''}`, '请查看知识库为什么没有接入。', '在会话里检查');
   const cases = `<div class="scroll"><table class="tbl"><thead><tr><th>级别</th><th>案例</th><th>系统</th><th>发生时间</th><th>结论</th><th class="r">操作</th></tr></thead><tbody>${m.cases.slice(0, 5).map((x) =>
     `<tr><td><span class="tag line">${esc(x.severity || '—')}</span></td><td class="title" title="${esc(x.title)}"><a href="#" data-case="${esc(x.id)}">${esc(x.title)}</a></td><td>${esc(x.system)}</td><td class="num">${esc(x.occurred_at)}</td><td>${esc(x.conclusion)}</td><td class="ops"><a href="#" data-case="${esc(x.id)}">查看</a></td></tr>`).join('')}</tbody></table></div>`;
   const health = `<div class="list">${m.pending.map((s) => `<div class="it">${glyph(1)}<div class="m"><b>待处理</b><small>${esc(cn(s))}</small></div></div>`).join('')}
@@ -64,9 +68,9 @@ function overview(m) {
   const mx = Math.max(1, ...m.misses.map((x) => +x.n || 0));
   const gaps = m.misses.length ? `<div class="hb">${m.misses.slice(0, 10).map((x) => `<div class="r"><div class="l" title="${esc(missLabel(x.code))}">${esc(missLabel(x.code))}</div><div class="b"><i class="grow" style="width:${((+x.n || 0) / mx) * 100}%"></i></div><div class="v">${esc(x.n)}<small>次</small></div></div>`).join('')}</div><div class="note">缺口会随诊断自动累计；补上案例或条款后，下次同样的发现就能引用到知识（全体共享）。</div>` : '<p class="t3">没有缺口记录</p>';
   return hero(m) + `<div class="bento">${m.catOk ? tile({ span: 'b8', title: '最近的案例', desc: '按发生时间', body: cases, tools: '<a href="#" data-tab="cases">查看全部</a>', flush: true }) : tile({ span: 'b8', title: '最近的案例', body: `<p class="t3">读不到知识库目录：${esc(m.catErr || '')}</p>` })}
-    ${tile({ span: 'b4', title: '健康自检', desc: '降级即发现', body: health })}
+    ${tile({ span: 'b4', title: '健康自检', desc: '降级即发现', body: noHealth ? askHealth : health })}
     ${tile({ span: 'b8', title: '最近检索', desc: '本人，近 7 天', body: q, flush: !!m.queries.length })}
-    ${tile({ span: 'b4', title: '缺口清单', desc: '诊断发现或检索词在库里查不到知识的次数', body: gaps })}</div>`;
+    ${tile({ span: 'b4', title: '缺口清单', desc: '诊断发现或检索词在库里查不到知识的次数', body: noHealth ? '<p class="t3">查一次知识库状态后显示</p>' : gaps })}</div>`;
 }
 
 export function render(root, m, ctx) {

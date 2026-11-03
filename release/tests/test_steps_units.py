@@ -122,3 +122,13 @@ def test_ondemand_mode_has_no_pool_to_replace(tmp_path):
     eng.wait()
     r = store.run(rid)
     assert r["status"] == "done" and r["steps"][0]["detail"] == "按需模式,无需替换"
+
+
+def test_the_review_diff_keeps_only_what_an_operator_needs():
+    raw = ("diff -u -N /tmp/LIVE-1/apps.v1.Deployment.ns.gateway /tmp/MERGED-2/apps.v1.Deployment.ns.gateway\n"
+           "--- /tmp/LIVE-1/x\t2026\n+++ /tmp/MERGED-2/x\t2026\n@@ -6,7 +6,7 @@\n"
+           "     kubectl.kubernetes.io/last-applied-configuration: |\n"
+           '       {"apiVersion":"apps/v1","kind":"Deployment"}\n'
+           "-  generation: 3\n+  generation: 4\n   labels:\n-        image: gw:1.4.3\n+        image: gw:1.4.4\n")
+    out = steps.clean_diff(raw)
+    assert out.splitlines() == ["== apps.v1.Deployment.ns.gateway", "   labels:", "-        image: gw:1.4.3", "+        image: gw:1.4.4"]

@@ -216,18 +216,34 @@ def step_config(ctx: Ctx) -> None:
     ctx.sub(3, "done", "%d 个对象" % len(out.docs))
     ctx.sub(4, "running")
     diff = kube.diff(out.yaml()) if "Namespace/" + kube.namespace in existing else "(命名空间还不存在:全部新建)"
-    (run_dir / "diff.txt").write_text(_mask_cm_values(diff), encoding="utf-8")
+    (run_dir / "diff.txt").write_text(_mask_cm_values(clean_diff(diff)), encoding="utf-8")
     vid = svc.store.save_config(cfg, "发布 #%d 渲染(%s)" % (ctx.run_id, ctx.plan["to_v"]))
     svc.store.update_run(ctx.run_id, config_version=vid)
     ctx.share(rendered=str(run_dir / "rendered.yaml"), pool_file=pool_file, changes=[c.show() for c in out.changes],
-              skipped=out.skipped, objects=[render.ref(d) for d in out.docs], diff_lines=diff.count("\n"))
-    ctx.sub(4, "done", "%d 行差异" % diff.count("\n"))
+              skipped=out.skipped, objects=[render.ref(d) for d in out.docs], diff_lines=clean_diff(diff).count("\n"))
+    ctx.sub(4, "done", "%d 行差异" % clean_diff(diff).count("\n"))
     ctx.detail("配置版本 #%d · %d 个对象 · %d 项配置变化" % (vid, len(out.docs), len(out.changes)))
 
 
 def render_runtime_image(cfg: Dict[str, Any], tag: str) -> str:
     prefix = str(cfg.get("registry.prefix") or "").rstrip("/")
     return "%s/gaussdb-agent-runtime:%s" % (prefix, tag) if prefix else "gaussdb-agent-runtime:%s" % tag
+
+
+NOISE = ("kubectl.kubernetes.io/last-applied-configuration", "generation:", "resourceVersion:", "creationTimestamp:", "uid:")
+
+
+def clean_diff(diff: str) -> str:
+    """kubectl diff 原样给人看太杂:临时文件路径、上次 apply 的整段 JSON、generation 计数。只留对象名与真正变化的行。"""
+    out: List[str] = []
+    for line in diff.splitlines():
+        if line.startswith("diff -u"):
+            out.append("== " + line.rsplit("/", 1)[-1])
+        elif line.startswith(("---", "+++", "@@")) or any(n in line for n in NOISE) or line.strip().startswith('{"apiVersion"'):
+            continue
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _mask_cm_values(diff: str) -> str:

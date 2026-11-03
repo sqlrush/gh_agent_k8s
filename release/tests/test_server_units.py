@@ -77,6 +77,10 @@ def test_secrets_are_write_only(srv):
     view = json.dumps(call(port, "GET", "/api/config")[1]) + json.dumps(call(port, "GET", "/api/audit")[1])
     assert "sk-abcdef-123" not in view
     assert call(port, "POST", "/api/secrets/root_password", {"value": "xxxxxxx"})[0] == 400
+    call(port, "POST", "/api/secrets/whitelist_password", {"value": "wl-pass-789"})
+    notes = {x["target"]: x["detail"] for x in a.store.audits()}
+    assert notes["model_api_key"].startswith("首次部署时写入集群") and notes["whitelist_password"].startswith("发版台自己用"), \
+        "白名单只读账号的口令不进集群,操作记录不能说「写入集群」"
 
 
 def test_cross_site_and_non_json_writes_are_refused(srv):

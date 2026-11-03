@@ -11,7 +11,7 @@ import pathlib
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from . import package
+from . import package, wldb
 from .kube import Kube, KubeError
 from .store import Store
 
@@ -78,6 +78,7 @@ class Scanner:
     releases: pathlib.Path
     target: str = ""                     # 目标版本标签:核它的 sha256
     log: Callable[[str], None] = lambda _m: None
+    db_rows: Callable[[Dict[str, Any], str], List[tuple]] = wldb.rows     # 白名单只读账号;测试替换
 
     def cfg(self) -> Dict[str, Any]:
         return self.store.config()
@@ -220,7 +221,14 @@ class Scanner:
             n = max(0, len([l for l in text.splitlines() if l.strip()]) - 1)
             return Item("wl", "白名单核对", "导出文件", OK if n else WARN,
                         ("已上传 · %d 行" % n) if n else "还没上传导出文件(核对时需要)")
-        return Item("wl", "白名单核对", "脚本库只读账号", WARN, "核对时连接(第一版不在扫描时连)")
+        addr = "只读账号 %s:%s/%s" % (cfg.get("whitelist.db.host") or "?", cfg.get("whitelist.db.port") or wldb.DEFAULT_PORT,
+                                     cfg.get("whitelist.db.database") or "?")
+        try:
+            n = len(self.db_rows(cfg, self.store.secret("whitelist_password")))
+        except wldb.DbError as exc:
+            return Item("wl", "白名单核对", addr, BAD, str(exc))
+        return Item("wl", "白名单核对", addr, OK if n else WARN,
+                    ("连通 · 读到 %d 条" % n) if n else "连通,但 scene='AGENT' 一条都没有:白名单还没灌,或连的不是中间件库")
 
     def sso(self) -> Item:
         sec = self.kube.get("secret", "gateway-auth")

@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import package, plan as planmod, pool, steps
+from . import package, plan as planmod, pool, steps, wldb
 from .engine import Engine
 from .kube import Kube, KubeError
 from .scan import Scanner
@@ -69,7 +69,7 @@ class App:
                     context=cfg.get("k8s.context") or "", kubectl=self.kubectl)
 
     def _services(self) -> steps.Services:
-        return steps.Services(store=self.store, kube=self.kube(), releases=self.releases, state=self.state)
+        return steps.Services(store=self.store, kube=self.kube(), releases=self.releases, state=self.state, db_rows=wldb.rows)
 
     def packages(self) -> List[package.Package]:
         return package.discover(self.releases) if self.releases.is_dir() else []
@@ -128,7 +128,9 @@ class App:
                 kube.apply_secret(sec, data)
                 written = sec
         fp = self.store.set_secret(name, value, keep=not written)
-        self.store.audit("更换密钥", name, ("已写入集群 Secret %s;" % written if written else "首次部署时写入集群;") + "值不记录")
+        where = ("已写入集群 Secret %s;" % written if written else
+                 "发版台自己用,存在状态库;" if name in TOOL_SECRETS else "首次部署时写入集群;")
+        self.store.audit("更换密钥", name, where + "值不记录")
         return {"fingerprint": fp, "written_to": written}
 
     # -- 扫描 -------------------------------------------------------------------------------------

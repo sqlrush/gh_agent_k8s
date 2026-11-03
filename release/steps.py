@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from . import oci, package, plan as planmod, pool, registry, render, smoke, whitelist
+from . import oci, package, plan as planmod, pool, registry, render, smoke, whitelist, wldb
 from .engine import Ctx, StepFailed
 from .kube import Kube
 from .store import Store
@@ -279,7 +279,10 @@ def registered_scripts(svc: Services, cfg: Dict[str, Any]) -> List[whitelist.Reg
         return whitelist.from_csv(text)
     if svc.db_rows is None:
         raise StepFailed("发版台镜像里没有数据库驱动,改用「导出文件」方式")
-    return whitelist.from_rows(svc.db_rows(cfg, svc.store.secret("whitelist_password")))
+    try:
+        return whitelist.from_rows(svc.db_rows(cfg, svc.store.secret("whitelist_password")))
+    except wldb.DbError as exc:
+        raise StepFailed(str(exc))
 
 
 def step_whitelist(ctx: Ctx) -> None:

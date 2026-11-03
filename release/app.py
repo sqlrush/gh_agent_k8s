@@ -51,6 +51,16 @@ class App:
         self.scanning = False
         self._cluster: Tuple[float, dict] = (0.0, {})
 
+    def reattach(self) -> List[int]:
+        """启动时调用:停在关卡上的发布(状态 waiting)原来的执行线程随上一个进程没了,界面上点了也不会往下走。
+        接回来:重新起线程等原来那个关卡(关卡本身持久化在状态库)。正在执行的那种由 store.mark_interrupted 标成暂停。"""
+        out = []
+        for r in self.store.runs(20):
+            if r["status"] == "waiting" and not self.engine.busy():
+                self.engine.resume(r["id"])
+                out.append(r["id"])
+        return out
+
     # -- 基础 -------------------------------------------------------------------------------------
 
     def kube(self) -> Kube:

@@ -149,3 +149,23 @@ def test_after_a_restart_the_open_gate_is_waited_on_again(tmp_path):
     eng2.resolve(rid, "ok")
     eng2.wait()
     assert s2.run(rid)["status"] == "done"
+
+
+def test_a_release_waiting_at_a_gate_is_reattached_after_a_restart(tmp_path, monkeypatch):
+    """进程重启后,停在关卡上的发布要有线程接着等;否则界面上点了确认也不会往下走。"""
+    from release import app as appmod
+    s1 = Store(tmp_path / "s" / "release.db")
+    eng = make(s1, {"a": lambda ctx: ctx.gate("review"), "c": lambda c: None, "d": lambda c: None})
+    rid = eng.start("upgrade", "v3", "v4", PLAN, {}, None)
+    assert _until(lambda: s1.run(rid)["status"] == "waiting")
+    eng._pause[rid] = True                          # 让旧线程退出,模拟进程没了(状态留在 waiting)
+    eng.wait()
+    s1.update_run(rid, status="waiting")
+    a = appmod.App(Store(tmp_path / "s" / "release.db"), tmp_path, tmp_path / "s")
+    a.engine.steps = {"a": lambda ctx: ctx.gate("review"), "c": lambda c: None, "d": lambda c: None}
+    a.engine.sleep, a.engine.poll_s = (lambda _s: time.sleep(0.01)), 0.01
+    assert a.reattach() == [rid]
+    assert _until(lambda: a.store.open_gate(rid) is not None)
+    a.engine.resolve(rid, "ok")
+    a.engine.wait()
+    assert a.store.run(rid)["status"] == "done"

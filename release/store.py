@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS steps (run_id INTEGER, idx INTEGER, step TEXT, status
   tries INTEGER DEFAULT 0, detail TEXT DEFAULT '', error TEXT DEFAULT '', subs TEXT DEFAULT '[]', PRIMARY KEY (run_id, idx));
 CREATE TABLE IF NOT EXISTS logs (seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, step TEXT, at REAL, level TEXT, text TEXT);
 CREATE TABLE IF NOT EXISTS gates (id INTEGER PRIMARY KEY, run_id INTEGER, step TEXT, kind TEXT, payload TEXT, created REAL,
-  resolved REAL, choice TEXT);
+  resolved REAL, choice TEXT, consumed INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at REAL, action TEXT, target TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS scans (id INTEGER PRIMARY KEY, at REAL, status TEXT, items TEXT);
 """
@@ -65,6 +65,9 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(gates)")}
+        if "consumed" not in cols:                  # 早期的状态库没有这一列
+            self.db.execute("ALTER TABLE gates ADD COLUMN consumed INTEGER DEFAULT 0")
         self._known: set = {r["value"] for r in self.db.execute("SELECT value FROM secrets WHERE value IS NOT NULL")
                             if r["value"]}
 
@@ -212,6 +215,15 @@ class Store:
         cur = self._x("INSERT INTO gates (run_id, step, kind, payload, created) VALUES (?, ?, ?, ?, ?)",
                       (rid, step, kind, json.dumps(payload or {}, ensure_ascii=False), self.clock()))
         return int(cur.lastrowid)
+
+    def pending_gate(self, rid: int, step: str, kind: str) -> Optional[dict]:
+        """本步骤这一类关卡里还没被消费的那个(可能已有运维的选择、只是等着的线程还没取走)。"""
+        row = self._x("SELECT * FROM gates WHERE run_id = ? AND step = ? AND kind = ? AND consumed = 0 ORDER BY id DESC LIMIT 1",
+                      (rid, step, kind)).fetchone()
+        return dict(row, payload=json.loads(row["payload"] or "{}")) if row else None
+
+    def consume_gate(self, gid: int) -> None:
+        self._x("UPDATE gates SET consumed = 1 WHERE id = ?", (gid,))
 
     def resolve_gate(self, gid: int, choice: str) -> None:
         self._x("UPDATE gates SET resolved = ?, choice = ? WHERE id = ? AND resolved IS NULL", (self.clock(), choice, gid))

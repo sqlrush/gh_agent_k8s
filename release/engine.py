@@ -70,16 +70,17 @@ class Ctx:
         self.engine.checkpoint(self.run_id)
 
     def gate(self, kind: str, payload: Optional[dict] = None) -> str:
-        """开一个关卡并等运维选择。已有同类未决关卡(重启后续跑)就接着等那一个。"""
-        g = self.store.open_gate(self.run_id)
-        gid = g["id"] if g and g["kind"] == kind and g["step"] == self.step else \
-            self.store.add_gate(self.run_id, self.step, kind, payload)
+        """开一个关卡并等运维选择。本步骤已有同类、还没被取走的关卡(重启后续跑)就用那一个 —— 运维可能在新线程
+        开始等之前就点了,那时直接取走结果,不能再开一个新的让他重点。取走即「消费」,白名单那种循环每轮各开各的。"""
+        g = self.store.pending_gate(self.run_id, self.step, kind)
+        gid = g["id"] if g else self.store.add_gate(self.run_id, self.step, kind, payload)
         self.store.update_run(self.run_id, status="waiting")
         self.store.update_step(self.run_id, self.idx, status="waiting")
         self.log("等待运维处理:%s" % kind, "w")
         while True:
             got = self.store.gate(gid)
             if got and got["resolved"]:
+                self.store.consume_gate(gid)
                 self.store.update_run(self.run_id, status="running")
                 self.store.update_step(self.run_id, self.idx, status="running")
                 self.store.audit("关卡 · %s" % kind, "发布 #%d %s" % (self.run_id, self.step), got["choice"])

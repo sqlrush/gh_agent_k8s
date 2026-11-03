@@ -12,6 +12,12 @@
 # 版本从新到旧;第一条必须是本仓库清单里的版本(守卫测试)。min_upgrade_from 之前的版本按《部署上线方案》§14 手工升级。
 min_upgrade_from: agent-v1.4.0
 versions:
+  - version: agent-v1.4.4
+    mixed_with: [agent-v1.4.3]  # 网关先换(摘要带 busy),v1.4.3 的槽位本来就报忙闲;演练环境按槽位在线换过
+    required: []
+    steps: [rebuild_kb_import]    # 导入镜像换了(处置的「取代」)
+    whitelist: []
+    notes: []
   - version: agent-v1.4.3
     mixed_with: []              # 没实测过与 v1.4.2 混跑,按 Pod 整体替换
     required: []

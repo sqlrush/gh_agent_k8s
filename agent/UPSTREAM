@@ -22,3 +22,4 @@ synced 2026-10-30: gh_skill feat/proc-adm-source 4fe15ae — 存储过程源码 
 synced 2026-10-30: gh_skill skills-v12.22(81b7eb0)— 发版:procinfo 2.3.0、proctune 2.5.0(两个 SKILL.md 的版本号);对应本仓库 agent-v1.4.3
 synced 2026-10-30: gh_skill skills-v12.22(d1fde38)— 修正:只按合法标识符查 ADM_SOURCE(common/proc_source.py、tests/test_proc_source_units.py 整文件)
 synced 2026-11-02: gh_skill feat/kb-supersede(58fa8c5)— 处置的「取代」:common/kb/supersede.py 新增,common/kb/{graphfiles,store_files,store_graph,indexer,query,render,layers}.py 与 gaussdb-kb-import 的 kb_cases.py、kb_strategy.py(新增,从 kb_cases 拆出)、references/{selection-list,graph-schema}.md 整文件;kb.py(validate 两行)、SKILL.md(工单路径两段)与 tests/test_kb_supersede_units.py(脚本目录)按本仓库布局手工合。方向:gh_skill → 本仓库(这些文件在本仓库没有容器专属改动,逐字核对过)
+2026-11-03: 本仓库 agent-v1.4.4 —— gaussdb-kb-import 4.3.0、gaussdb-kb 4.2.0(SKILL.md 版本号;处置的「取代」与知识库状态共享);gh_skill 侧发版时对应 skills-v12.23

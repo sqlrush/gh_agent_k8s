@@ -70,15 +70,20 @@ async function refresh(force) {
   finally { G.busy = false; }
   render();
 }
+const vnum = (v) => String(v || "").replace(/^agent-v/, "").split(/[.-]/).slice(0, 3).map((x) => parseInt(x, 10) || 0);
+const vcmp = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
 function pickRun() {
+  // 默认显示最近一次发布(完成了就显示完成与报告),直到运维点「发下一个版本」或换了发布包(G.fresh)
   const runs = (G.ov && G.ov.runs) || [];
-  const active = G.ov && G.ov.active;
-  const want = active || (runs[0] && ["failed", "paused", "waiting", "running"].includes(runs[0].status) ? runs[0].id : null) || G.pinned || null;
+  const want = (G.ov && G.ov.active) || G.pinned || (!G.fresh && runs[0] ? runs[0].id : null);
   if (want !== G.runId) { G.runId = want; G.logs = []; G.seq = 0; G.view = null; }
   const pk = (G.ov && G.ov.packages) || [];
   if (!G.sel || !pk.some((p) => p.tag === G.sel)) {
-    const cur = G.ov && G.ov.current && G.ov.current.version;
-    const cand = pk.find((p) => p.ok && !p.legacy && p.version !== cur) || pk[0];
+    // 默认选「比当前新」里最新的那个;没有更新的就选当前版本(计划会说「已经是」),不默认弄出一个回滚
+    const cur = (G.ov && G.ov.current && G.ov.current.version) || (G.cluster && G.cluster.user_tag) || "";
+    const newer = pk.filter((p) => p.ok && !p.legacy && (!cur || vcmp(p.version, cur) > 0));
+    const same = pk.find((p) => cur && vcmp(p.version, cur) === 0);
+    const cand = newer[0] || same || pk[0];
     G.sel = cand ? cand.tag : "";
   }
 }
@@ -529,12 +534,12 @@ document.addEventListener("click", async (ev) => {
   if (d.do === "start") return startRun();
   if (d.do === "resume") return act("POST", `/api/runs/${G.run.id}/resume`, {}, "续跑");
   if (d.do === "rollback") return askRollback();
-  if (d.do === "new") { G.pinned = null; G.runId = null; G.run = null; G.plan = null; await refresh(true); return; }
+  if (d.do === "new") { G.pinned = null; G.fresh = true; G.runId = null; G.run = null; G.plan = null; G.sel = ""; await refresh(true); return; }
   if (d.do === "savecfg") { const r = await act("PUT", "/api/config", { config: collectConfig() }, "已保存"); if (r) renderConfig(true); return; }
   if (d.do === "wlexport") return exportWhitelist();
 });
 document.addEventListener("change", async (ev) => {
-  if (ev.target.id === "pkgsel") { G.sel = ev.target.value; G.plan = null; G.pinned = null; await refresh(true); }
+  if (ev.target.id === "pkgsel") { G.sel = ev.target.value; G.plan = null; G.pinned = null; G.fresh = true; await refresh(true); }
   if (ev.target.id === "wlfile" && ev.target.files[0]) {
     const text = await ev.target.files[0].text();
     const r = await act("POST", "/api/whitelist/export", { csv: text });
@@ -545,7 +550,7 @@ async function startScan() { await act("POST", "/api/scan", { tag: G.sel }, "开
 async function startRun() {
   const p = G.plan || {};
   confirmDo(`开始${KIND[p.kind] || "发布"}`, `<p>${esc(p.from_v || "未部署")} → <b>${esc(p.to_v)}</b>,池子${esc(POOLMODE[p.pool_mode] || "")}。改动集群前会停在「变更预览」请你确认。</p>`, "开始",
-    async () => { const r = await act("POST", "/api/runs", { tag: G.sel }, "已开始"); if (r) { G.pinned = r.run; await refresh(true); } }, "pri");
+    async () => { const r = await act("POST", "/api/runs", { tag: G.sel }, "已开始"); if (r) { G.pinned = r.run; G.fresh = false; await refresh(true); } }, "pri");
 }
 function askRollback() {
   const tag = rollbackTag();

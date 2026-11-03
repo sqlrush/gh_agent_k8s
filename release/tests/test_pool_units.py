@@ -239,7 +239,7 @@ def test_gateway_admin_uses_a_ready_gateway_and_never_sees_the_token():
     assert adm.slots()[("p0", 0)]["state"] == "free" and k.pod == "gw-1"
     assert "GATEWAY_ADMIN_TOKEN" in pl.ADMIN and "TOKEN" not in k.stdin, "密钥在网关容器里读,不经发版台"
     with pytest.raises(pl.PoolError, match="boom"):
-        pl.GatewayAdmin(ExecKube("", code=1)).call()
+        pl.GatewayAdmin(ExecKube("", code=1), sleep=lambda _s: None).call()
 
 
 def test_an_old_gateway_without_busy_falls_back_to_last_seen(env):
@@ -250,7 +250,6 @@ def test_an_old_gateway_without_busy_falls_back_to_last_seen(env):
 
 def test_gateway_admin_skips_terminating_pods_and_retries(monkeypatch):
     from release.kube import Result
-    monkeypatch.setattr(pl.time, "sleep", lambda _s: None)
 
     class K:
         def __init__(self):
@@ -267,5 +266,5 @@ def test_gateway_admin_skips_terminating_pods_and_retries(monkeypatch):
                 return Result(137, "", "command terminated with exit code 137")
             return Result(0, json.dumps({"code": 200, "body": {"pods": []}}) + "\n", "")
     k = K()
-    assert pl.GatewayAdmin(k).call()[0] == 200
+    assert pl.GatewayAdmin(k, sleep=lambda _s: None).call()[0] == 200
     assert "gw-old" not in k.tried and k.tried == ["gw-a", "gw-b"], "退出中的旧网关不选;失败换一个副本重试"

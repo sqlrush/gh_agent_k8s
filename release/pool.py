@@ -44,6 +44,7 @@ class PoolError(Exception):
 class GatewayAdmin:
     """经 kubectl exec 调网关的 /admin/pool。网关有两个副本,任选一个就绪的。"""
     kube: object
+    sleep: Callable[[float], None] = time.sleep
 
     def _pods(self) -> List[str]:
         """就绪、且不在退出中的网关 Pod。刚滚动更新完时旧 Pod 还短暂显示就绪,exec 进去会被杀(退出码 137)。"""
@@ -64,7 +65,7 @@ class GatewayAdmin:
                 doc = json.loads(res.out.strip().splitlines()[-1])
                 return int(doc["code"]), doc.get("body") or {}
             last = (res.err.strip().splitlines() or ["退出码 %d" % res.code])[-1]
-            time.sleep(2 * (attempt + 1))
+            self.sleep(2 * (attempt + 1))
         raise PoolError("调 /admin/pool 失败(试了 3 次):%s" % last)
 
     def slots(self) -> Dict[Tuple[str, int], dict]:

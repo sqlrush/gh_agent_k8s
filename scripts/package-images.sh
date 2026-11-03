@@ -64,8 +64,13 @@ COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
     --exclude='._*' --exclude='.DS_Store' \
     k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")
+# 发版台读的 release.yaml:本版本与历史各版本的变化(k8s/release/changes.yaml)+ 各镜像的平台清单 digest + 白名单全量。
+# changes.yaml 第一条不是本版本时这里失败 —— 发版前先把本版本的变化写进去。
+(cd "$HERE" && python3 -m release.pack --tag "$TAG" --dist "$DIST" --date "$(date +%F)")
+(cd "$DIST" && shasum -a 256 release.yaml > release.yaml.sha256)
 cat >> "$DIST/MANIFEST.txt" <<EOF
   → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/ 全部交付文档(清单见 docs/仓库结构说明.md「交付给客户的」一节)
+  → release.yaml     发版台读的版本说明(镜像 digest、白名单全量、各版本的变化);用发版台时把整个目录拷进发布包目录即可
 
 导入镜像:
   docker:      gunzip -c $PKG-<arch>.tar.gz | docker load

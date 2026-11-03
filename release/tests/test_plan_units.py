@@ -103,3 +103,10 @@ def test_refusals_say_why():
     old = pl.Current("ok", "agent-v1.3.2-oc1.18.27")
     assert any("§14" in x for x in pl.build(old, pkg(V4), HISTORY).problems)
     assert any("没有变化说明" in x for x in pl.build(pl.Current("ok", V3), pkg(V4), {}).problems)
+
+
+def test_detect_reads_versions_from_digest_pinned_images():
+    pinned = V3 + "@sha256:" + "c" * 64
+    k = FakeKube(pinned, V3, {"agent-pool-0": {"slot-0": pinned, "steward": pinned}})
+    cur = pl.detect(k)
+    assert cur.state == "ok" and cur.version == "agent-v1.4.3" and cur.registry == "reg.x/ns", "钉了 digest 也要认得出版本"

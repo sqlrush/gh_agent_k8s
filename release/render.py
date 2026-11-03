@@ -133,14 +133,21 @@ def _containers(doc: dict) -> List[dict]:
     return list(pod.get("initContainers") or []) + list(pod.get("containers") or [])
 
 
-def retarget(docs: List[dict], registry: str, tag: str) -> List[str]:
-    """所有 gaussdb-agent-* 镜像:加内网仓库前缀、换成目标标签。返回改过的「对象/容器」。"""
+def image_ref(registry: str, repo: str, tag: str, digest: str = "") -> str:
+    """<仓库前缀>/<镜像>:<标签>[@<digest>]。带 digest 时节点按 digest 拉:同一标签换过内容(重新打包、演练包),
+    节点上缓存的旧镜像不会被 IfNotPresent 当成「已有」接着用。"""
+    base = "%s/%s:%s" % (registry, repo, tag) if registry else "%s:%s" % (repo, tag)
+    return base + ("@" + digest if digest else "")
+
+
+def retarget(docs: List[dict], registry: str, tag: str, digests: Optional[Dict[str, str]] = None) -> List[str]:
+    """所有 gaussdb-agent-* 镜像:加内网仓库前缀、换成目标标签(给了 digests 就按 digest 钉住)。返回改过的「对象/容器」。"""
     touched = []
     for d in docs:
         for c in _containers(d):
             m = IMAGE.match(str(c.get("image") or ""))
             if m:
-                c["image"] = "%s/%s:%s" % (registry, m.group(1), tag) if registry else "%s:%s" % (m.group(1), tag)
+                c["image"] = image_ref(registry, m.group(1), tag, (digests or {}).get(m.group(1), ""))
                 touched.append("%s/%s" % (ref(d), c.get("name")))
     return touched
 
@@ -278,8 +285,9 @@ def pool_image_patch(sts: dict, image: str) -> Dict[str, Any]:
 # -- 合在一起 ----------------------------------------------------------------------------------------
 
 def render(k8s_root: pathlib.Path, cfg: Dict[str, Any], tag: str, cluster_cms: Dict[str, Dict[str, str]],
-           cluster_netpols: Dict[str, dict], existing: Sequence[str], required: Sequence[dict]) -> Rendered:
-    """existing:集群里已有的对象(「Kind/name」),用来跳过命名空间与 PVC。"""
+           cluster_netpols: Dict[str, dict], existing: Sequence[str], required: Sequence[dict],
+           digests: Optional[Dict[str, str]] = None) -> Rendered:
+    """existing:集群里已有的对象(「Kind/name」),用来跳过命名空间与 PVC。digests:镜像 → 平台清单 digest(钉住用)。"""
     ns = cfg.get("k8s.namespace") or "gaussdb-agent"
     registry = str(cfg.get("registry.prefix") or "").rstrip("/")
     fresh = "Deployment/gateway" not in existing
@@ -294,7 +302,7 @@ def render(k8s_root: pathlib.Path, cfg: Dict[str, Any], tag: str, cluster_cms: D
         keep.append(d)
     out.docs = keep
     set_namespace(out.docs, ns)
-    retarget(out.docs, registry, tag)
+    retarget(out.docs, registry, tag, digests)
     out.changes = migrate_configmaps(out.docs, cluster_cms, cfg, registry, tag)
     out.problems += ["必填配置没填:%s" % m for m in required_missing(out.docs, required)]
     out.problems += merge_netpols(out.docs, cluster_netpols, cfg, fresh)

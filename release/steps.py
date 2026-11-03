@@ -196,7 +196,8 @@ def step_config(ctx: Ctx) -> None:
     ctx.sub(0, "running")
     cms, nps, existing = _cluster_state(kube)
     ctx.sub(0, "done", "%d 个 ConfigMap、%d 条网络策略" % (len(cms), len(nps)))
-    out = render.render(k8s_root, cfg, ctx.plan["to_tag"], cms, nps, existing, ctx.plan.get("required") or [])
+    pins = pinned_digests(ctx, cfg)
+    out = render.render(k8s_root, cfg, ctx.plan["to_tag"], cms, nps, existing, ctx.plan.get("required") or [], pins)
     ctx.sub(1, "done", "%d 项变化" % len(out.changes))
     for c in out.changes:
         s = c.show()
@@ -209,7 +210,7 @@ def step_config(ctx: Ctx) -> None:
     (run_dir / "rendered.yaml").write_text(out.yaml(), encoding="utf-8")
     pool_file = ""
     if ctx.plan["kind"] == "deploy":
-        image = render_runtime_image(cfg, ctx.plan["to_tag"])
+        image = render_runtime_image(cfg, ctx.plan["to_tag"], pins.get(RUNTIME, ""))
         pool_docs = render.render_pool(k8s_root, cfg, image, kube.namespace, python=svc.python)
         (run_dir / "pool.yaml").write_text(yaml.safe_dump_all(pool_docs, allow_unicode=True, sort_keys=False), encoding="utf-8")
         pool_file = str(run_dir / "pool.yaml")
@@ -225,9 +226,19 @@ def step_config(ctx: Ctx) -> None:
     ctx.detail("配置版本 #%d · %d 个对象 · %d 项配置变化" % (vid, len(out.docs), len(out.changes)))
 
 
-def render_runtime_image(cfg: Dict[str, Any], tag: str) -> str:
-    prefix = str(cfg.get("registry.prefix") or "").rstrip("/")
-    return "%s/gaussdb-agent-runtime:%s" % (prefix, tag) if prefix else "gaussdb-agent-runtime:%s" % tag
+RUNTIME = "gaussdb-agent-runtime"
+
+
+def render_runtime_image(cfg: Dict[str, Any], tag: str, digest: str = "") -> str:
+    return render.image_ref(str(cfg.get("registry.prefix") or "").rstrip("/"), RUNTIME, tag, digest)
+
+
+def pinned_digests(ctx: Ctx, cfg: Dict[str, Any]) -> Dict[str, str]:
+    """推进内网仓库的镜像按 digest 钉住(读包那步算好的)。预载模式(镜像直接载进节点)不钉:那样载进去的镜像
+    没有仓库 digest,按 digest 找不到。网关自己建的用户容器只认 USER_IMAGE_TAG,不在这里。"""
+    if (cfg.get("registry.mode") or "push") != "push":
+        return {}
+    return dict(ctx.shared().get("digests") or {})
 
 
 NOISE = ("kubectl.kubernetes.io/last-applied-configuration", "generation:", "resourceVersion:", "creationTimestamp:", "uid:")
@@ -370,7 +381,7 @@ def step_gateway(ctx: Ctx) -> None:
 def step_pool(ctx: Ctx) -> None:
     svc = _svc(ctx)
     kube, cfg = svc.kube, svc.cfg()
-    image = render_runtime_image(cfg, ctx.plan["to_tag"])
+    image = render_runtime_image(cfg, ctx.plan["to_tag"], pinned_digests(ctx, cfg).get(RUNTIME, ""))
     sts = kube.get("statefulset", "agent-pool")
     if ctx.plan["kind"] == "deploy":
         if not ctx.shared().get("pool_file"):

@@ -514,7 +514,7 @@ const CMDS = {
   review: ["展示 kubectl diff 的结果，等待运维确认"],
   whitelist: ["生成 agent-v1.4.4 应有的白名单（脚本名 + 内容指纹）", "SELECT script_name, md5(script) FROM grmp.script_config WHERE scene='AGENT'", "逐条比对，列出未登记 / 内容不一致的脚本"],
   gateway: ["kubectl -n gaussdb-agent patch configmap gateway-config  USER_IMAGE_TAG=" + tag(TO), "kubectl -n gaussdb-agent set image deploy/gateway gateway=" + REG + "/gaussdb-agent-gateway:" + tag(TO), "kubectl -n gaussdb-agent rollout status deploy/gateway"],
-  pool: ["kubectl apply -f pool.yaml（OnDelete：现有 Pod 不会被整体重建）", "每个槽位：/admin/pool retain → evict → kubectl patch pod（只换这个容器的镜像）→ verify", "每个 Pod 最后换管家容器"],
+  pool: ["kubectl apply -f pool.yaml（OnDelete：现有 Pod 不会被整体重建）", "每个槽位：等不忙 → /admin/pool retain → evict → 紧接着 kubectl patch pod（只换这个容器的镜像）→ verify", "每个 Pod 最后、本 Pod 所有槽位都不忙时换管家容器"],
   kbimport: ["本版本的升级计划不要求重建（从 agent-v1.4.0 及以前升级时才需要）"],
   kbstd: ["kubectl apply -f k8s/base/kbstd-install.yaml（Job kbstd-install-v1-4-4）", "kubectl -n gaussdb-agent logs job/kbstd-install-v1-4-4 -c install"],
   smoke: ["sso-sim.py 模拟登录 u9500", "发一条真实对话（只读健康检查）", "核对诊断报告已存档", "kb.py query --q 死锁"],
@@ -697,12 +697,12 @@ const RUN = {
           if (!forced) log("pool", `${pod.name} 槽位 ${j} 的请求结束`);
           sl.s = "retain"; sub(st, k, "running", `槽位 ${j} 转保留`); log("pool", `槽位 ${j} 转保留：停 opencode → 最终快照 → 写回 NAS → 释放独占`); await wait(900);
         }
-        sl.s = "restart"; sub(st, k, "running", `槽位 ${j} 换镜像`); log("pool", `kubectl patch pod ${pod.name}：slot-${j} 镜像 → ${tag(TO)}（只重启这一个容器）`); await wait(900);
+        sl.s = "restart"; sub(st, k, "running", `槽位 ${j} 换镜像`); log("pool", `腾挪槽位 ${j}（不再接受绑定与恢复），紧接着 kubectl patch pod ${pod.name}：slot-${j} 镜像 → ${tag(TO)}（只重启这一个容器）`); await wait(900);
         sl.s = "verify"; log("pool", `核验 slot-${j}：containerID 已变 · 新 boot 握手 · 盘是空的`); await wait(600);
         sl.s = "free"; sl.v = TO; log("pool", `${pod.name} 槽位 ${j} → 空闲（${short(TO)}）`, "g");
         if (k === 0 && j === 0) { await wait(300); sl.s = "busy"; log("pool", "刚才被转保留的用户再次提问 → 恢复到 agent-pool-0 槽位 0（新版本），会话数据完整"); }
       }
-      pod.steward.s = "restart"; sub(st, k, "running", "换管家"); log("pool", `换 ${pod.name} 的管家容器（这期间本 Pod 不分配新会话，在用的槽位不受影响）`); await wait(900);
+      pod.steward.s = "restart"; sub(st, k, "running", "换管家"); log("pool", `${pod.name} 所有槽位都不忙，换管家容器（在用的人被转保留，下一句自动恢复，约 3 秒）`); await wait(900);
       pod.steward.v = TO; pod.steward.s = "ok"; sub(st, k, "done", "已换"); log("pool", `${pod.name}：3 个槽位 + 管家都已是 ${short(TO)}`, "g");
     }
     st.detail = "3/3 Pod · 9 个槽位已换";
@@ -953,9 +953,9 @@ const MAIN = {
     const rows = S.k8s.pool.map(p => `<tr><td style="vertical-align:middle"><b>${p.name}</b><div class="small muted">${podInfo(p).txt}</div></td>${p.slots.map((s, j) => `<td><div class="cell ${cls(s)}"><b>槽位 ${j}</b>${txt[s.s]}<br><span class="muted">${short(s.v)}</span></div></td>`).join("")}
       <td><div class="cell ${p.steward.s === "restart" ? "act" : p.steward.v === TO ? "new" : ""}"><b>管家</b>${p.steward.s === "restart" ? "换镜像中" : "正常"}<br><span class="muted">${short(p.steward.v)}</span></div></td></tr>`).join("");
     return `<h3>池子在线替换 <span class="sub">按槽位逐个换，服务不中断</span></h3><table class="mx"><tr><th></th><th>槽位 0</th><th>槽位 1</th><th>槽位 2</th><th>管家</th></tr>${rows}</table>
-      <h3 style="margin-top:12px">每个槽位怎么换</h3><div class="chain">${["在用？等这次请求结束", "转保留：快照并写回 NAS", "只换这个容器的镜像", "核验：containerID · 握手 · 空盘", "空闲（新版本）"].map(x => `<span>${x}</span>`).join("<i>→</i>")}</div>
+      <h3 style="margin-top:12px">每个槽位怎么换</h3><div class="chain">${["在用？等不忙", "转保留：写回 NAS", "腾挪", "换这个容器的镜像", "核验：新容器 ID · 握手 · 空盘", "空闲（新版本）"].map(x => `<span>${x}</span>`).join("<i>→</i>")}</div>
       <div class="kv" style="margin-top:12px"><div>依据</div><div>release.yaml 声明可与 ${FROM} 混跑；不可混跑的版本自动改为按整个 Pod 替换</div>
-      <div>被转保留的人</div><div>下次提问自动恢复到新版本槽位，会话数据已在 NAS</div><div>请求一直不结束</div><div>30 分钟后由运维选择继续等待或强制转保留</div><div>管家容器</div><div>每个 Pod 的槽位换完后再换；这期间本 Pod 不分配新会话</div></div>`;
+      <div>被转保留的人</div><div>下次提问自动恢复到新版本槽位，会话数据已在 NAS</div><div>请求一直不结束</div><div>30 分钟后由运维选择继续等待或强制转保留</div><div>管家容器</div><div>每个 Pod 的槽位换完、且本 Pod 所有槽位都不忙时再换；在用的人会被转保留，下一句自动恢复（约 3 秒）</div></div>`;
   },
   kbimport() {
     return `<h3>知识库导入环境</h3><table><tr><th>环境</th><th>当前版本</th><th>本次动作</th></tr><tr><td class="mono">kb-import-u9500</td><td>${short(FROM)}</td><td>无需重建：下次登录时按新标签（${short(TO)}）创建</td></tr></table>

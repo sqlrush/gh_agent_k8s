@@ -100,8 +100,11 @@ class Smoke:
         if code != 200:
             raise SmokeError("建会话失败(%d):%s" % (code, data[:200].decode("utf-8", "replace")))
         sid = json.loads(data)["id"]
-        code, data = self._req("POST", "/session/%s/message" % urllib.parse.quote(sid),
-                               {"parts": [{"type": "text", "text": text}]}, timeout=self.chat_timeout_s)
+        try:
+            code, data = self._req("POST", "/session/%s/message" % urllib.parse.quote(sid),
+                                   {"parts": [{"type": "text", "text": text}]}, timeout=self.chat_timeout_s)
+        except OSError:                             # 超时:看看模型是不是在等人回答,然后中止这个会话
+            raise SmokeError(self._why_stuck(sid))
         if code != 200:
             raise SmokeError("对话失败(%d):%s" % (code, data[:200].decode("utf-8", "replace")))
         doc = json.loads(data or b"{}")
@@ -110,6 +113,21 @@ class Smoke:
         tools = [str(p.get("tool")) for p in parts if p.get("type") == "tool"]
         err = (doc.get("info") or {}).get("error")
         return reply, tools, json.dumps(err, ensure_ascii=False)[:200] if err else ""
+
+    def _why_stuck(self, sid: str) -> str:
+        q = urllib.parse.quote(sid)
+        why = "%d 秒没有回答" % self.chat_timeout_s
+        try:
+            code, data = self._req("GET", "/session/%s/message" % q, timeout=30)
+            parts = [p for m in json.loads(data or b"[]") for p in m.get("parts") or []] if code == 200 else []
+            waiting = [p for p in parts if p.get("type") == "tool" and p.get("tool") == "question"
+                       and (p.get("state") or {}).get("status") == "running"]
+            if waiting:
+                why = ("模型在向用户提问、等人回答(冒烟工号多半没登录过实例 %s,或资源配置缺实例别名)" % (self.instance or "?"))
+            self._req("POST", "/session/%s/abort" % q, {}, timeout=30)
+        except (OSError, ValueError):
+            pass
+        return why
 
     def conversation(self, version: str) -> Check:
         t0 = self.clock()

@@ -18,8 +18,9 @@ TRUST = "t" * 24
 
 
 class FakeGateway:
-    def __init__(self, warmup=2, check_trust=True, kb_grows=True, chat_error=None):
+    def __init__(self, warmup=2, check_trust=True, kb_grows=True, chat_error=None, asks=False):
         self.warmup, self.check_trust, self.kb_grows, self.chat_error = warmup, check_trust, kb_grows, chat_error
+        self.asks, self.aborted = asks, []
         self.reports, self.kb_lines, self.titles = 0, 1, []
         gw = self
 
@@ -49,8 +50,18 @@ class FakeGateway:
                 if self.path == "/session":
                     gw.titles.append(body["title"])
                     return self._send(200, {"id": "ses_%d" % len(gw.titles)})
+                if self.path.endswith("/abort"):
+                    gw.aborted.append(self.path)
+                    return self._send(200, True)
+                if self.path.endswith("/message") and self.command == "GET":
+                    return self._send(200, [{"info": {"role": "assistant"}, "parts": [
+                        {"type": "tool", "tool": "question", "state": {"status": "running"}}]}])
                 if self.path.endswith("/message"):
                     text = body["parts"][0]["text"]
+                    if gw.asks and "健康检查" in text:
+                        import time as _t
+                        _t.sleep(2)                       # 模型在等人回答:请求不返回
+                        return self._send(200, {})
                     if "健康检查" in text:
                         gw.reports += 1
                     if "知识库" in text and gw.kb_grows:
@@ -133,5 +144,17 @@ def test_a_wrong_trust_secret_never_logs_in():
         s = Smoke(host="127.0.0.1", port=g.port, user="u9500", trust="wrong" * 5, sleep=lambda _s: None,
                   ready_timeout_s=0)
         assert not s.login().ok
+    finally:
+        g.close()
+
+
+def test_a_model_waiting_for_the_user_is_named_and_the_session_aborted():
+    g = FakeGateway(warmup=0, asks=True)
+    try:
+        s = _smoke(g, instance="og5", chat_timeout_s=1)
+        assert not s.run("v")
+        c = next(c for c in s.results if c.name == "只读诊断报告")
+        assert not c.ok and "等人回答" in c.detail and "og5" in c.detail
+        assert g.aborted and g.aborted[0].endswith("/abort")
     finally:
         g.close()

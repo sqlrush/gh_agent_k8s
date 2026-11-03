@@ -40,6 +40,7 @@ CONFIG_KEYS: Dict[str, Tuple[str, str]] = {
     "grmp.appkey": ("agent-config", "GRMP_APPKEY"),
     "grmp.sign_mode": ("agent-config", "GRMP_SIGN_MODE"),
     "kb.clip_origins": ("agent-config", "KB_CLIP_ORIGINS"),
+    "grmp.instance_aliases": ("agent-config", "GRMP_INSTANCE_ALIASES"),
     "sso.user_header": ("gateway-config", "USER_HEADER"),
     "sso.roles_header": ("gateway-config", "ROLES_HEADER"),
     "gateway.runtime_mode": ("gateway-config", "RUNTIME_MODE"),

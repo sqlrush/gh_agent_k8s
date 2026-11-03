@@ -22,7 +22,7 @@ FIELDS: Dict[str, Tuple[type, Optional[Tuple[str, ...]]]] = {
     "registry.plain_http": (bool, None), "registry.insecure": (bool, None), "registry.ca_file": (str, None),
     "model.base_url": (str, None), "model.id": (str, None), "model.provider": (str, None), "model.modalities": (str, None),
     "grmp.host": (str, None), "grmp.port": (str, None), "grmp.path_prefix": (str, None), "grmp.appkey": (str, None),
-    "grmp.sign_mode": (str, ("", "full", "headers-only")),
+    "grmp.sign_mode": (str, ("", "full", "headers-only")), "grmp.instance_aliases": (str, None),
     "net.grmp": (dict, None), "net.model": (dict, None), "net.model_kb": (dict, None), "net.apiserver": (dict, None),
     "net.upstream": (dict, None),
     "pool.pods": (int, None), "pool.slots": (int, None), "gateway.runtime_mode": (str, ("", "ondemand", "pool")),

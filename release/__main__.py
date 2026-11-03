@@ -23,10 +23,10 @@ def main() -> int:
     store = Store(state / "release.db")
     interrupted = store.mark_interrupted()
     if interrupted:
-        print("上次正在执行的发布被中断:#%s,已停在原处,请在界面上选续跑或回滚" % ", #".join(map(str, interrupted)))
+        print("上次正在执行的发布被中断:#%s,已停在原处,请在界面上选续跑或回滚" % ", #".join(map(str, interrupted)), flush=True)
     app = App(store, pathlib.Path(os.environ.get("RELEASE_DIR") or "/releases"), state,
               kubeconfig=os.environ.get("KUBECONFIG") or "")
-    srv = serve(app, host or "127.0.0.1", int(port or 8090))
+    srv = serve(app, host or "127.0.0.1", int(port or 8090), ready=lambda m: print(m, flush=True))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

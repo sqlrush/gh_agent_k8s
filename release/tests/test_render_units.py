@@ -129,3 +129,14 @@ def test_render_pool_for_a_fresh_deploy_and_the_image_patch_for_upgrades():
     assert all(c["image"] == img for c in sts["spec"]["template"]["spec"]["containers"])
     patch = rd.pool_image_patch(sts, "x:new")
     assert [c["name"] for c in patch["spec"]["template"]["spec"]["containers"]] == names
+
+
+def test_images_are_pinned_by_digest_when_given_so_a_stale_cached_tag_is_not_reused():
+    """同一标签换过内容(重新打包、演练包)时,节点 IfNotPresent 会接着用缓存的旧镜像 —— 钉 digest 就按 digest 拉。"""
+    pins = {"gaussdb-agent-gateway": "sha256:" + "a" * 64, "gaussdb-agent-frontend": "sha256:" + "b" * 64}
+    r = rd.render(K8S, FULL_CFG, TAG, {}, {}, [], REQ, pins)
+    by_repo = {c["image"].split("/")[-1].split(":")[0]: c["image"] for d in r.docs for c in rd._containers(d)}
+    assert by_repo["gaussdb-agent-gateway"] == "%s/gaussdb-agent-gateway:%s@sha256:%s" % (REG, TAG, "a" * 64)
+    assert by_repo["gaussdb-agent-frontend"].endswith(":%s@sha256:%s" % (TAG, "b" * 64))
+    assert by_repo["gaussdb-agent-kb-import"].endswith(":" + TAG), "没给 digest 的照旧只写标签"
+    assert _doc(r, "ConfigMap", "gateway-config")["data"]["USER_IMAGE_TAG"] == TAG, "网关建用户容器只认标签,不带 digest"

@@ -132,3 +132,16 @@ def test_the_review_diff_keeps_only_what_an_operator_needs():
            "-  generation: 3\n+  generation: 4\n   labels:\n-        image: gw:1.4.3\n+        image: gw:1.4.4\n")
     out = steps.clean_diff(raw)
     assert out.splitlines() == ["== apps.v1.Deployment.ns.gateway", "   labels:", "-        image: gw:1.4.3", "+        image: gw:1.4.4"]
+
+
+def test_pushed_images_are_pinned_by_digest_preloaded_ones_are_not():
+    class C:
+        def shared(self):
+            return {"digests": {"gaussdb-agent-runtime": "sha256:" + "d" * 64}}
+    d = "sha256:" + "d" * 64
+    assert steps.pinned_digests(C(), {"registry.mode": "push"}) == {"gaussdb-agent-runtime": d}
+    assert steps.pinned_digests(C(), {}) == {"gaussdb-agent-runtime": d}, "默认就是推进内网仓库"
+    assert steps.pinned_digests(C(), {"registry.mode": "preloaded"}) == {}, "直接载进节点的镜像没有仓库 digest,按 digest 找不到"
+    cfg = {"registry.prefix": "reg.x/ns/"}
+    assert steps.render_runtime_image(cfg, "agent-v1.4.4-oc1.18.27", d) == "reg.x/ns/gaussdb-agent-runtime:agent-v1.4.4-oc1.18.27@" + d
+    assert steps.render_runtime_image({}, "agent-v1.4.4-oc1.18.27") == "gaussdb-agent-runtime:agent-v1.4.4-oc1.18.27"

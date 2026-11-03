@@ -339,7 +339,7 @@ const MAIN = {
     const rows = (c.pool || []).map((p) => `<tr><td style="vertical-align:middle"><b>${esc(p.name)}</b></td>${p.slots.map((s) => {
       const k = s.tag === target ? (s.state === "active" ? "new busy" : "new") : s.state === "active" ? "busy" : ["evicting", "booting"].includes(s.state) ? "act" : s.state === "retained" ? "ret" : "";
       return `<td><div class="cell ${k}"><b>槽位 ${s.slot}</b>${esc(SLOT_TXT[s.state] || s.state)}<br><span class="muted">${esc(short(s.tag))}</span></div></td>`;
-    }).join("")}<td><div class="cell ${p.steward === target ? "new" : ""}"><b>管家</b>${esc((prog[p.name] || {}).steward ? prog[p.name].steward.st : "")}<br><span class="muted">${esc(short(p.steward))}</span></div></td></tr>`).join("");
+    }).join("")}<td><div class="cell ${p.steward === target ? "new" : ""}"><b>管家</b>${esc({ ok: "正常", restart: "换镜像中" }[((prog[p.name] || {}).steward || {}).st] || "正常")}<br><span class="muted">${esc(short(p.steward))}</span></div></td></tr>`).join("");
     const m = runMeta();
     return `<h3>池子 <span class="sub">${esc(POOLMODE[m.pool_mode] || "")}</span></h3>${rows ? `<table class="mx">${rows}</table>` : '<div class="muted">没有固定池化(按需模式)</div>'}
       <h3 style="margin-top:12px">每个槽位怎么换</h3><div class="chain">${["在用?等不忙", "转保留:写回 NAS", "腾挪", "换这个容器的镜像", "核验:新容器 ID · 握手 · 空盘", "空闲(新版本)"].map((x) => `<span>${x}</span>`).join("<i>→</i>")}</div>

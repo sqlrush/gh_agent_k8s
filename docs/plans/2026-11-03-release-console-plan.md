@@ -12,8 +12,8 @@
 | 4 | 状态库 `release/store.py`(SQLite):资源配置版本、密钥指纹、发布 run / step / 日志、操作记录;脱敏;重启后中断与关卡保留 | 单测(含落盘不含集群密钥) | 完成 |
 | 5 | `release/kube.py`:kubectl 子进程封装(get / apply / diff / patch / exec / port-forward / auth can-i);密钥只走 stdin | 假 kubectl 单测;真集群读、can-i、port-forward /healthz | 完成 |
 | 6 | 资源扫描 `release/scan.py`(9 项) | 单测(假集群 / 假仓库 / 假模型) | |
-| 7 | 升级计划 `release/plan.py`:识别当前版本、累计 history、首次部署 vs 升级 | 单测(各起点版本) | |
-| 8 | 配置迁移与渲染 `release/render.py`:ConfigMap 保留现值 + 新增项、镜像前缀与标签、网络策略网段、render-pool;diff | 单测(用 v1.4.3 包里的 k8s/) | |
+| 7 | 升级计划 `release/plan.py`:识别当前版本、累计 history、首次部署 / 升级 / 回滚 / 接着发、池子替换方式 | 单测(各起点版本);真集群识别 v1.4.3 13 处一致 | 完成 |
+| 8 | 配置迁移与渲染 `release/render.py`:ConfigMap 保留现值 + 新增项、镜像前缀与标签、网络策略外部规则沿用集群的、render-pool(首次)/ 模板换镜像(升级);diff | 单测(真 k8s/base + 仿本地覆盖的集群);真集群同版本空跑 diff 只剩环境本身的偏离 | 完成 |
 | 9 | 白名单核对:只读账号直连(psycopg2)接到 `whitelist.from_rows`;核对步骤与关卡 | 单测(假游标) | 解析与比对已在第 2 项完成 |
 | 10 | 池子替换 `release/pool.py`:实验记录里的算法 + 按 Pod 整体替换 | 单测(假网关 / 假集群:忙、写回不干净、核验超时、换管家) | |
 | 11 | 执行引擎 `release/engine.py` + 各步骤 `release/steps.py`:关卡、暂停、中断、续跑、回滚 | 单测 | |

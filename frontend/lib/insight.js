@@ -125,14 +125,15 @@ export function wdr(m) {
 /* ------------------------------------------------------------ 知识库 */
 export function kb(m) {
   const q = m.queries, sem = q.filter((x) => x.how === 'semantic').length, none = q.filter((x) => !x.hits_cases && !x.hits_rules).length;
-  const head = !m.attached ? '知识库未接入' : m.misses.length ? `知识库可用，有 ${m.misses.length} 类诊断发现在库里查不到知识` : '知识库可用，诊断发现都查得到知识';
+  // 没有状态报告(大盘拿目录里的数顶上):缺口、覆盖、坏文件都不知道 —— 不能说「诊断发现都查得到知识」
+  const head = !m.ok ? '知识已导入，还没查过知识库状态' : !m.attached ? '知识库未接入' : m.misses.length ? `知识库可用，有 ${m.misses.length} 类诊断发现在库里查不到知识` : '知识库可用，诊断发现都查得到知识';
   const first = m.misses.find((x) => !String(x.code).startsWith('q:'));
-  return { src: `依据知识库自检${m.st.version ? ` · 版本 ${m.st.version}` : ''}`, ask: '问问知识库，比如：无主键大表怎么处理？', head,
-    lines: [m.misses.length ? `${m.misses.slice(0, 3).map((x) => `<b>${esc(missLabel(x.code))}</b> ${esc(x.n)} 次`).join('、')}没有查到对应的案例或条款，可以请管理员补充。` : '',
+  return { src: m.ok ? `依据知识库自检${m.st.version ? ` · 版本 ${m.st.version}` : ''}` : '依据知识库目录', ask: '问问知识库，比如：无主键大表怎么处理？', head,
+    lines: [!m.ok ? '缺口、向量覆盖和待处理项要在会话里查一次知识库状态才知道。' : '', m.misses.length ? `${m.misses.slice(0, 3).map((x) => `<b>${esc(missLabel(x.code))}</b> ${esc(x.n)} 次`).join('、')}没有查到对应的案例或条款，可以请管理员补充。` : '',
       m.cov !== null ? `向量覆盖 <b>${m.cov}%</b>${m.cov < 100 ? '：没覆盖的条目只能靠关键词命中，管理员在导入环境重建索引即可' : ''}。` : '',
       ...m.warns.slice(0, 2).map((x) => `文件格式有问题：${esc(cn(x))}。`),
       `你近 7 天检索 ${q.length} 次${q.length ? `：语义 ${sem} 次、关键词 ${q.length - sem} 次${none ? `，其中 <b>${none}</b> 次什么都没查到` : ''}` : ''}。`],
-    chips: [...(first ? [[`${first.code} 怎么处理`, `知识库里查不到 ${first.code} 的案例,请根据经验说明怎么处理,并给出可以沉淀成案例的要点。`]] : []),
+    chips: [...(!m.ok ? [['查一次知识库状态', '请查看知识库的健康状态。']] : []), ...(first ? [[`${first.code} 怎么处理`, `知识库里查不到 ${first.code} 的案例,请根据经验说明怎么处理,并给出可以沉淀成案例的要点。`]] : []),
       ['帮我起草一个案例', '请按案例文件的格式(现场、判断、处置、复发标志)帮我起草一个案例,内容来自最近一次健康检查的发现。'],
       ['向量覆盖怎么算', '知识库的向量覆盖率是怎么计算的?没覆盖的条目会怎样?']] };
 }

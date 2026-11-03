@@ -11,7 +11,7 @@
 | 3 | 发布包目录 `release/package.py`:发现包(子目录或平铺)、核 sha256(与 release.yaml 交叉)、digest 与 OCI 一致;旧包(无 release.yaml)可作起点 / 回滚目标 | 单测(假包、旧包) | 完成 |
 | 4 | 状态库 `release/store.py`(SQLite):资源配置版本、密钥指纹、发布 run / step / 日志、操作记录;脱敏;重启后中断与关卡保留 | 单测(含落盘不含集群密钥) | 完成 |
 | 5 | `release/kube.py`:kubectl 子进程封装(get / apply / diff / patch / exec / port-forward / auth can-i);密钥只走 stdin | 假 kubectl 单测;真集群读、can-i、port-forward /healthz | 完成 |
-| 6 | 资源扫描 `release/scan.py`(9 项) | 单测(假集群 / 假仓库 / 假模型) | |
+| 6 | 资源扫描 `release/scan.py`(9 项;模型、中间件、NAS 写入借管家容器在集群里测,密钥不出容器) | 单测(假集群);真集群 9 项跑通(模型 209 ms、中间件 4 ms、NAS uid 1000 可写) | 完成 |
 | 7 | 升级计划 `release/plan.py`:识别当前版本、累计 history、首次部署 / 升级 / 回滚 / 接着发、池子替换方式 | 单测(各起点版本);真集群识别 v1.4.3 13 处一致 | 完成 |
 | 8 | 配置迁移与渲染 `release/render.py`:ConfigMap 保留现值 + 新增项、镜像前缀与标签、网络策略外部规则沿用集群的、render-pool(首次)/ 模板换镜像(升级);diff | 单测(真 k8s/base + 仿本地覆盖的集群);真集群同版本空跑 diff 只剩环境本身的偏离 | 完成 |
 | 9 | 白名单核对:只读账号直连(psycopg2)接到 `whitelist.from_rows`;核对步骤与关卡 | 单测(假游标) | 解析与比对已在第 2 项完成 |

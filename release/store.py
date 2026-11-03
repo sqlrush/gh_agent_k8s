@@ -35,6 +35,19 @@ MASK = "●●●"
 ACTIVE = ("running", "waiting", "paused")
 
 
+class _Rows:
+    """已经取完的查询结果:像游标一样用(fetchone / 迭代 / lastrowid),但不再碰连接。"""
+
+    def __init__(self, rows: List[sqlite3.Row], lastrowid: Optional[int]):
+        self.rows, self.lastrowid = rows, lastrowid
+
+    def fetchone(self) -> Optional[sqlite3.Row]:
+        return self.rows[0] if self.rows else None
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
 def fingerprint(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
 
@@ -57,9 +70,12 @@ class Store:
 
     # -- 基础 -------------------------------------------------------------------------------------
 
-    def _x(self, sql: str, args: Iterable[Any] = ()) -> sqlite3.Cursor:
+    def _x(self, sql: str, args: Iterable[Any] = ()) -> "_Rows":
+        """执行并在锁内取完结果。连接被接口线程与执行引擎线程共用:锁外再读游标,另一个线程同时执行时游标会被打乱
+        (11-03 引擎单测偶发 IndexError 抓到的)。"""
         with self._lock:
-            return self.db.execute(sql, tuple(args))
+            cur = self.db.execute(sql, tuple(args))
+            return _Rows(cur.fetchall() if cur.description else [], cur.lastrowid)
 
     def redact(self, text: str) -> str:
         out = str(text)

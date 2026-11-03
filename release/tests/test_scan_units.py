@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 import pathlib
 import sys
 
@@ -107,3 +109,20 @@ def test_kubectl_far_from_the_cluster_version_is_a_warning_not_a_blocker(tmp_pat
     assert items["k8s"].st == scan.OK, "相差 1 以内不提示"
     items, _ = _scan(tmp_path, FakeKube(GOOD, version={"client": 31}))
     assert items["k8s"].st == scan.OK, "读不到集群版本:不猜"
+
+
+@pytest.mark.parametrize("code, st, says", [
+    (503, "warn", "服务方现在忙"), (429, "warn", "稍后再扫"), (402, "bad", "余额不足"), (400, "bad", "模型 ID"),
+    (404, "bad", "模型 ID 或地址"), (-1, "bad", "连不上"), (200, "ok", "对话通")])
+def test_the_model_check_talks_to_the_model_and_says_why_it_failed(tmp_path, code, st, says):
+    """只看 /models 会漏掉服务方过载(演练 #8 撞上)、模型 ID 写错、余额不足 —— 改成发一句最短的对话。"""
+    probes = dict(GOOD, MODEL_BASE_URL={"code": code, "ms": 30, "model": "m", "err": "Service is too busy" if code == 503 else ""})
+    items, _ = _scan(tmp_path, FakeKube(probes))
+    assert items["model"].st == st and says in items["model"].msg
+    if code == 503:
+        assert "服务方原话:Service is too busy" in items["model"].msg
+
+
+def test_the_model_probe_is_a_minimal_chat_with_the_agents_model():
+    assert "/chat/completions" in scan.PROBE_MODEL and '"max_tokens": 8' in scan.PROBE_MODEL
+    assert 'os.environ.get("MODEL_ID"' in scan.PROBE_MODEL and "/models\"" not in scan.PROBE_MODEL

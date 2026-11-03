@@ -26,19 +26,28 @@ VERBS = [("get", "configmaps"), ("patch", "configmaps"), ("get", "secrets"), ("c
          ("patch", "statefulsets"), ("patch", "pods"), ("delete", "pods"), ("create", "pods/exec"), ("create", "pods/portforward"),
          ("create", "jobs"), ("delete", "jobs"), ("patch", "networkpolicies"), ("delete", "deployments")]
 
+# 模型:发一句最短的对话(与智能体同一个 OpenAI 兼容接口、同一个模型 ID)。只看 /models 会漏掉模型 ID 写错、
+# 余额不足、服务方过载 —— 2026-11-03 演练 #8:扫描全绿,冒烟时服务方 503「Service is too busy」
 PROBE_MODEL = r'''
 import json, os, time, urllib.request, urllib.error
 base = (os.environ.get("MODEL_BASE_URL") or "").rstrip("/")
-req = urllib.request.Request(base + "/models", headers={"Authorization": "Bearer " + os.environ.get("MODEL_API_KEY", "")})
-t = time.time()
+body = json.dumps({"model": os.environ.get("MODEL_ID", ""), "max_tokens": 8,
+                   "messages": [{"role": "user", "content": "ping"}]}).encode()
+req = urllib.request.Request(base + "/chat/completions", data=body, headers={
+    "Authorization": "Bearer " + os.environ.get("MODEL_API_KEY", ""), "Content-Type": "application/json"})
+t, err = time.time(), ""
 try:
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=30) as r:
         code = r.status
 except urllib.error.HTTPError as e:
     code = e.code
+    try:
+        b = json.loads(e.read() or b"{}"); err = str((b.get("error") or {}).get("message") or b.get("message") or "")[:160]
+    except Exception:
+        pass
 except Exception as e:
-    code = -1
-print(json.dumps({"code": code, "ms": int((time.time() - t) * 1000), "model": os.environ.get("MODEL_ID", "")}))
+    code, err = -1, str(e)[:160]
+print(json.dumps({"code": code, "ms": int((time.time() - t) * 1000), "model": os.environ.get("MODEL_ID", ""), "err": err}))
 '''
 PROBE_GRMP = r'''
 import json, os, socket, time
@@ -194,14 +203,21 @@ class Scanner:
         r = self._probe(PROBE_MODEL)
         if r is None:
             return Item("model", "模型服务", "", WARN, "还没有池子:首次部署后由冒烟验证核对")
-        addr = r.get("model") or ""
-        if r["code"] == 200:
-            return Item("model", "模型服务", addr, OK, "从集群里连通 · %d ms" % r["ms"])
-        if r["code"] in (401, 403):
-            return Item("model", "模型服务", addr, BAD, "认证失败(%d):模型 API Key 不对" % r["code"])
-        if r["code"] == 404:
-            return Item("model", "模型服务", addr, WARN, "连得上,但没有 /models 接口(%d ms):以冒烟验证为准" % r["ms"])
-        return Item("model", "模型服务", addr, BAD, "从集群里连不上(%s):查网络策略的模型网段" % r["code"])
+        addr, code, err = r.get("model") or "", r["code"], (" · 服务方原话:%s" % r["err"]) if r.get("err") else ""
+        if code == 200:
+            return Item("model", "模型服务", addr, OK, "从集群里对话通 · %d ms" % r["ms"])
+        if code in (401, 403):
+            return Item("model", "模型服务", addr, BAD, "认证失败(%d):模型 API Key 不对%s" % (code, err))
+        if code == 402:
+            return Item("model", "模型服务", addr, BAD, "余额不足(402)%s" % err)
+        if code in (400, 404, 422):
+            return Item("model", "模型服务", addr, BAD, "请求被拒(%d):多半是模型 ID 或地址不对%s" % (code, err))
+        if code in (429, 500, 502, 503, 504, 529):
+            return Item("model", "模型服务", addr, WARN,
+                        "服务方现在忙或出错(%d):稍后再扫;这时发布,冒烟会失败、停在那一步等续跑%s" % (code, err))
+        if code == -1:
+            return Item("model", "模型服务", addr, BAD, "从集群里连不上:查网络策略的模型网段%s" % err)
+        return Item("model", "模型服务", addr, BAD, "对话请求返回 %s%s" % (code, err))
 
     def grmp(self) -> Item:
         r = self._probe(PROBE_GRMP)

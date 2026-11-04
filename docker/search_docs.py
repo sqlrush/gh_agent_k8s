@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 DOCS = pathlib.Path(os.environ.get("ROOTSPEC_DIR") or "/workspace/docs")
 TEMPLATE_MARK = "ROOTSPEC-TEMPLATE"
@@ -28,16 +28,37 @@ HEADING_CN = re.compile(r"^(第[一二三四五六七八九十百零\d]+[章节�
 MAX_FILES, MAX_HITS = 10, 6
 
 
+HEADING_STYLE = re.compile(r"^(?:heading|标题)\s*(\d)$", re.I)
+
+
+def docx_heading_levels(z: zipfile.ZipFile) -> Dict[str, int]:
+    """样式 ID → 标题级别。中文版 Word 的标题样式 ID 常是「1」「2」,名字(heading 1)只在 styles.xml 里。"""
+    try:
+        xml = z.read("word/styles.xml").decode("utf-8", "replace")
+    except KeyError:
+        return {}
+    levels = {}
+    for sid, body in re.findall(r'<w:style\b[^>]*w:styleId="([^"]+)"[^>]*>(.*?)</w:style>', xml, re.S):
+        name = re.search(r'<w:name w:val="([^"]+)"', body)
+        m = HEADING_STYLE.match(name.group(1).strip()) if name else None
+        if m:
+            levels[sid] = int(m.group(1))
+    return levels
+
+
 def docx_lines(path: pathlib.Path) -> List[str]:
-    xml = zipfile.ZipFile(path).read("word/document.xml").decode("utf-8", "replace")
+    with zipfile.ZipFile(path) as z:
+        xml = z.read("word/document.xml").decode("utf-8", "replace")
+        levels = docx_heading_levels(z)
     out = []
     for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S):
         text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", p)).strip()
         if not text:
             continue
         style = re.search(r'<w:pStyle w:val="([^"]+)"', p)
-        level = re.search(r"(\d)", style.group(1)) if style and re.match(r"(Heading|heading|标题)", style.group(1)) else None
-        out.append(("#" * int(level.group(1)) + " " + text) if level else text)
+        sid = style.group(1) if style else ""
+        level = levels.get(sid) or (int(sid[-1]) if re.match(r"^(Heading|heading|标题)\s*\d$", sid) else 0)
+        out.append(("#" * level + " " + text) if level else text)
     return out
 
 

@@ -21,12 +21,14 @@ def sd(tmp_path, monkeypatch):
     return mod
 
 
-def _docx(path: pathlib.Path, paras):
+def _docx(path: pathlib.Path, paras, style_id="Heading%d", styles=""):
     body = "".join(
-        '<w:p>%s<w:r><w:t>%s</w:t></w:r></w:p>' % ('<w:pPr><w:pStyle w:val="Heading%d"/></w:pPr>' % lv if lv else "", t)
+        '<w:p>%s<w:r><w:t>%s</w:t></w:r></w:p>' % ('<w:pPr><w:pStyle w:val="%s"/></w:pPr>' % (style_id % lv) if lv else "", t)
         for lv, t in paras)
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("word/document.xml", '<w:document xmlns:w="w"><w:body>%s</w:body></w:document>' % body)
+        if styles:
+            z.writestr("word/styles.xml", '<w:styles xmlns:w="w">%s</w:styles>' % styles)
 
 
 SPEC_MD = """# 数据库变更管理规范
@@ -73,6 +75,18 @@ def test_docx_is_searchable_and_readable(sd, tmp_path, capsys):
     assert "《SQL 开发规范》" in out and "第六章 索引" in out and "--show" in out
     assert sd.main(["--show", "开发规范.docx"]) == 0
     assert "单表索引不超过 5 个" in capsys.readouterr().out
+
+
+def test_chinese_word_heading_ids_resolve_through_styles_xml(sd, tmp_path, capsys):
+    """中文版 Word:标题样式 ID 是「1」「2」,名字 heading 1 / 标题 2 只在 styles.xml 里。"""
+    styles = ('<w:style w:type="paragraph" w:styleId="1"><w:name w:val="heading 1"/></w:style>'
+              '<w:style w:type="paragraph" w:styleId="2"><w:name w:val="标题 2"/></w:style>'
+              '<w:style w:type="paragraph" w:styleId="a3"><w:name w:val="List Paragraph"/></w:style>')
+    _docx(tmp_path / "x.docx", [(1, "数据库变更管理规范"), (2, "3.2 DDL 变更"), (0, "生产库 DDL 变更须在变更窗口内执行。")],
+          style_id="%d", styles=styles)
+    sd.main(["变更窗口"])
+    out = capsys.readouterr().out
+    assert "《数据库变更管理规范》" in out and "[3.2 DDL 变更]" in out
 
 
 def test_show_reads_only_inside_the_docs_dir(sd, tmp_path, capsys):

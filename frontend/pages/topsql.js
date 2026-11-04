@@ -79,12 +79,12 @@ export const tRedoPrompt = (m) => (m.span ? `请重新取一次 ${tWhen(m) || '�
 /** 解读卡提问框与 ⌘J / ⌘K 自由提问的前缀。 */
 export const tAbout = (m) => (m.span ? `关于实例 ${m.name} 在 ${tWhen(m) || '这段时间'} 的 Top SQL(窗口内增量):`
   : `关于实例 ${m.name} 在 ${tWhen(m)} 取的 Top SQL 榜单:`);
-// 取数脚本在库端把 SQL 截到 80 字(客户中间件白名单里注册的脚本,改它要客户重新注册):满 80 字就标出来
+// 取数脚本在库端把 SQL 截到 80 字(现场中间件白名单里注册的脚本,改它要行方重新注册):满 80 字就标出来
 export const QUERY_CAP = 80;
 export const fullQuery = (q) => (String(q ?? '').length >= QUERY_CAP ? `${q} …(取数时截到 ${QUERY_CAP} 字)` : String(q ?? ''));
 // 调优技能按策略跳过的系统 SQL:存档里 skipped = "system"
 export const isSkipped = (t) => !!(t && t.skipped);
-export const READS_NOTE = '取数脚本(客户中间件白名单里注册的那条)不返回逻辑读数值,占比仍按耗时;要看数值需客户重新注册脚本';
+export const READS_NOTE = '取数脚本(现场中间件白名单里注册的那条)不返回逻辑读数值,占比仍按耗时;要看数值需行方重新注册脚本';
 
 /** 时段 / 增量榜的评估窗口文字;累计榜返回 ''。 */
 export function windowText(rep) {

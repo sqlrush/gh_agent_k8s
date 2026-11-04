@@ -57,8 +57,9 @@ def test_import_prompt_is_about_importing_and_keeps_every_prohibition():
     diag = [s for s in ("gaussdb-health", "gaussdb-sqltune", "gaussdb-lockwait", "gaussdb-wdr", "gaussdb-login") if s in text]
     assert not diag, "导入环境没有诊断技能,根提示词不该引导去用:%s" % diag
     runtime = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    for phrase in ("禁止创建或修改 Skill", "禁止执行危险命令", "禁止访问外网", "禁止出现明文口令", "禁止直接读取或者解密口令",
-                   "禁止提供敏感信息", "禁止提供接口信息", "输出屏蔽规则"):
+    for phrase in ("禁止创建或修改 Skill", "禁止执行危险命令", "禁止访问外网", "配置文件里绝不允许出现明文口令", "禁止直接读取或者解密口令",
+                   "强制拒绝机制", "绝对沉默条款", "输出屏蔽规则",
+                   "显示更多、完整信息", "访问数据库的接口地址或相对路径", "禁止读取配置文件显示这些敏感信息"):
         assert phrase in text and phrase in runtime, "两份根提示词的禁止项一条都不能少:%s" % phrase
 
 

@@ -5,7 +5,7 @@
 #   gaussdb-agent-gateway                接入网关(全体共用)
 #   gaussdb-agent-frontend               四个大盘的静态页面(全体共用)
 #   gaussdb-agent-kbstd                  标准知识库(官方文档集),部署时由 Job kbstd-install 装进 NAS(2026-10-27 起)
-# 漏了哪个,客户拿到包也部署不完整 —— 网关起不来、大盘 502、官方文档集装不上,而现场往往没有外网可以补拉。
+# 漏了哪个,行方拿到包也部署不完整 —— 网关起不来、大盘 502、官方文档集装不上,而现场往往没有外网可以补拉。
 # 开发时没有标准知识库包可加 --without-kbstd,正式发版不许用。
 # (原第 5 个 openGauss 向量库镜像 2026-10-23 下线:知识库索引改为 NAS 上的 index/store.sqlite。)
 # 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64] [--without-kbstd]
@@ -41,7 +41,7 @@ for ARCH in ${ARCHS//,/ }; do
   docker save $IMAGES | gzip -6 > "$OUT"
   (cd "$DIST" && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256")
   echo "  → $(basename "$OUT") $(du -h "$OUT" | cut -f1)" >> "$DIST/MANIFEST.txt"
-  # 发版台镜像单独一个包:它跑在跳板机上,不进集群、不推客户的镜像仓库。名字不是「<包名>-<架构>」,
+  # 发版台镜像单独一个包:它跑在跳板机上,不进集群、不推行方的镜像仓库。名字不是「<包名>-<架构>」,
   # release/pack.py 与发版台的包识别都不会把它当成要入库的镜像包
   RIMG="gaussdb-agent-release:$TAG$SUFFIX"
   docker image inspect "$RIMG" >/dev/null 2>&1 || { echo "缺镜像 $RIMG(build-images.sh 会一起构建)" >&2; exit 1; }
@@ -51,9 +51,10 @@ for ARCH in ${ARCHS//,/ }; do
   echo "  → $(basename "$ROUT") $(du -h "$ROUT" | cut -f1)  发版台(release-console.sh 导入)" >> "$DIST/MANIFEST.txt"
 done
 install -m 0755 "$HERE/scripts/release-console.sh" "$DIST/release-console.sh"
+install -m 0755 "$HERE/scripts/rootspec-overlay.sh" "$DIST/rootspec-overlay.sh"   # 行内把根规范模板换成正式规范(版本说明)
 
 # 清单与文档
-# **文档清单不要再写死。** 写死的后果是:加了新文档却忘了加进这一行,客户拿到的包里
+# **文档清单不要再写死。** 写死的后果是:加了新文档却忘了加进这一行,行方拿到的包里
 # 没有最重要的那两份,而打包脚本一声不响地成功了。改成整个 docs/ 目录打进去,
 # 只排除内部用的:
 #   plans/     我们的实施计划
@@ -65,8 +66,8 @@ install -m 0755 "$HERE/scripts/release-console.sh" "$DIST/release-console.sh"
 #              还指向 specs/。v1.0.4 的包里带着它们,验 v1.1.0 包时才发现。
 # 仓库结构说明的「内部件(不随包发出)」表与这里必须一致,有守卫。
 # COPYFILE_DISABLE=1:在 macOS 上打包时,bsdtar 会为每个带扩展属性的文件额外塞一个
-# `._<原名>` 的资源叉文件(客户解开后 docs/ 里会多出一堆 ._参数手册.md)。
-# 那些文件还带着本机的 com.apple.provenance 属性。交付给客户的包里不该有。
+# `._<原名>` 的资源叉文件(行方解开后 docs/ 里会多出一堆 ._参数手册.md)。
+# 那些文件还带着本机的 com.apple.provenance 属性。交付给行方的包里不该有。
 # 这个变量在 Linux 的 GNU tar 上是无害的空操作。
 COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
     --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' --exclude='docs/prototypes' \
@@ -79,9 +80,10 @@ COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
 (cd "$HERE" && python3 -m release.pack --tag "$TAG" --dist "$DIST" --date "$(date +%F)")
 (cd "$DIST" && shasum -a 256 release.yaml > release.yaml.sha256)
 cat >> "$DIST/MANIFEST.txt" <<EOF
-  → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/ 全部交付文档(清单见 docs/仓库结构说明.md「交付给客户的」一节)
+  → $PKG-k8s.tar.gz  k8s/ 清单模板 + docs/ 全部交付文档(清单见 docs/仓库结构说明.md「交付给行方的」一节)
   → release.yaml     发版台读的版本说明(镜像 digest、白名单全量、各版本的变化);用发版台时把整个目录拷进发布包目录即可
   → release-console.sh  发版台一条命令起:整个目录拷进发布包目录后运行 <目录>/release-console.sh(--help 看选项)
+  → rootspec-overlay.sh 把镜像里的三份根规范模板换成行内正式规范,另出一个新包目录(--help 看用法;版本说明有步骤)
 
 导入镜像:
   docker:      gunzip -c $PKG-<arch>.tar.gz | docker load

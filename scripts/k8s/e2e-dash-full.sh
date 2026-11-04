@@ -62,7 +62,7 @@ done
 [ "$code" = 200 ] || { echo "   3 分钟内没登录上:HTTP $code $(head -c 300 "$WORK/login.txt")" >&2; exit 1; }
 echo "   已就绪"
 
-echo "①b 被闲置回收后再登录:拉起的容器不能马上又被判成闲置(2026-09-24 客户现场)"
+echo "①b 被闲置回收后再登录:拉起的容器不能马上又被判成闲置(2026-09-24 现场)"
 $K annotate deploy runtime-$U "gaussdb-agent/last-activity=$(( $(date +%s) - 99999 ))" --overwrite >/dev/null
 $K scale deploy runtime-$U --replicas=0 >/dev/null
 for _ in $(seq 1 60); do [ -z "$($K get pod -l user=$U -o name 2>/dev/null)" ] && break; sleep 2; done

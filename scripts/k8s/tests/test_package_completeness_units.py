@@ -1,6 +1,6 @@
 """交付包必须装齐清单里会用到的每一个镜像。
 
-漏打一个镜像,客户在现场才会撞到 —— 而那时往往没有外网可以补拉,整个部署卡住。
+漏打一个镜像,行方在现场才会撞到 —— 而那时往往没有外网可以补拉,整个部署卡住。
 package-images.sh 原来只打了 runtime 与 kb-import 两个,网关与向量库基础镜像都没进去。
 
 这条闸很便宜:把 k8s/ 清单里引用的镜像和打包脚本里导出的镜像对一遍。
@@ -40,7 +40,7 @@ def test_packager_exports_every_agent_image():
     """我们发布的五个镜像都要进包(标准知识库 2026-10-27 起)。"""
     packaged = _packaged()
     assert packaged == {"runtime", "kb-import", "gateway", "frontend", "kbstd"}, \
-        "打包的镜像与预期不符:%s —— 漏一个客户现场就装不起来" % sorted(packaged)
+        "打包的镜像与预期不符:%s —— 漏一个现场就装不起来" % sorted(packaged)
 
 
 def test_every_image_the_manifests_use_is_in_the_package():
@@ -62,7 +62,7 @@ def test_builder_and_packager_agree():
 def test_the_retired_vector_db_is_gone_from_the_package_and_the_manifests():
     """2026-10-23 知识库向量库(openGauss vectordb)下线,索引改为 NAS 上的 index/store.sqlite。
 
-    打包脚本还带着它,客户就得为一个不再部署的组件多载一个几百 MB 的镜像;清单里还留着它,
+    打包脚本还带着它,行方就得为一个不再部署的组件多载一个几百 MB 的镜像;清单里还留着它,
     `kubectl apply -k` 会把它重新建出来、继续占一块 20Gi 的盘。两处都不能有。
     """
     pack = _PACKAGER.read_text(encoding="utf-8")
@@ -74,7 +74,7 @@ def test_the_retired_vector_db_is_gone_from_the_package_and_the_manifests():
 
 
 def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
-    """文档清单写死过一次,加了两份手册却忘了加进那一行 —— 客户拿到的包里没有最重要的
+    """文档清单写死过一次,加了两份手册却忘了加进那一行 —— 行方拿到的包里没有最重要的
     两份,而打包脚本一声不响地成功了。改成整个 docs/ 打进去,只排除内部用的。
     """
     body = _PACKAGER.read_text(encoding="utf-8")
@@ -94,7 +94,7 @@ def test_package_ships_the_whole_docs_tree_not_a_hardcoded_list():
 def test_repo_guide_internal_table_matches_what_the_package_excludes():
     """仓库结构说明「内部件(不随包发出)」表里列的每一项,打包脚本都必须真的排除。
 
-    表是写给客户看的承诺,打包脚本是事实。两边各改各的,就会出现「文档说不发、包里却有」。
+    表是写给行方看的承诺,打包脚本是事实。两边各改各的,就会出现「文档说不发、包里却有」。
     """
     guide = (_ROOT / "docs" / "仓库结构说明.md").read_text(encoding="utf-8")
     section = guide[guide.index("### 内部件"):]
@@ -110,8 +110,8 @@ def test_repo_guide_internal_table_matches_what_the_package_excludes():
 def test_package_does_not_ship_macos_resource_forks():
     """在 Mac 上打包时 bsdtar 会给每个带扩展属性的文件塞一个 `._<原名>`。
 
-    客户解开后 docs/ 里会多出 `._参数手册.md` 这一堆,还带着打包机的
-    com.apple.provenance 属性 —— 交付给客户的包里不该有这些。
+    行方解开后 docs/ 里会多出 `._参数手册.md` 这一堆,还带着打包机的
+    com.apple.provenance 属性 —— 交付给行方的包里不该有这些。
     """
     body = _PACKAGER.read_text(encoding="utf-8")
     assert "COPYFILE_DISABLE=1 tar czf" in body, "打包 tar 前要设 COPYFILE_DISABLE=1"
@@ -125,7 +125,7 @@ def test_deploy_doc_handles_the_arch_suffix_the_packager_actually_writes():
     package-images.sh 里 `SUFFIX=""; [ "$ARCH" != "$HOST_ARCH" ] && SUFFIX="-$ARCH"` ——
     在 Mac(arm64)上打包时,arm64 那份没有后缀、amd64 那份是
     `gaussdb-agent-runtime:<TAG>-amd64`。而部署手册原来写的期望输出与重打标签
-    命令都用不带后缀的标签:客户在 x86 集群上照着做,到 `docker tag` 那一步
+    命令都用不带后缀的标签:行方在 x86 集群上照着做,到 `docker tag` 那一步
     就是 "No such image",而前一步 `docker load` 是成功的。
     """
     pkg = _PACKAGER.read_text(encoding="utf-8")
@@ -140,7 +140,7 @@ def test_deploy_doc_handles_the_arch_suffix_the_packager_actually_writes():
 
 
 def test_customer_facing_docs_exist_where_the_package_expects_them():
-    """客户照着做的那几份必须都在 docs/ 下。"""
+    """行方照着做的那几份必须都在 docs/ 下。"""
     for name in ("接入手册-SSO与K8s.md", "部署手册-从零到上线.md",
                  "命令卡-测试环境搭建.md", "快速搭建-K8s.md", "单机演示-不用K8s.md",
                  "参数手册.md", "对接清单-各方要做什么.md", "功能清单-容器版.md",
@@ -152,7 +152,7 @@ def test_customer_facing_docs_exist_where_the_package_expects_them():
 def test_every_namespace_delete_in_the_docs_is_followed_by_releasing_the_pv():
     """手册里凡是让人删命名空间的地方,后面都要跟一句解除 PV 旧绑定。
 
-    2026-09-24 客户照「清理重来」删了命名空间再装,静态 PV(Retain)变成 Released、仍记着旧 PVC,
+    2026-09-24 行方照「清理重来」删了命名空间再装,静态 PV(Retain)变成 Released、仍记着旧 PVC,
     新 PVC 永远绑不上,所有用户容器卡在 Pending。
     """
     for name in ("命令卡-测试环境搭建.md", "部署手册-从零到上线.md"):
@@ -162,7 +162,7 @@ def test_every_namespace_delete_in_the_docs_is_followed_by_releasing_the_pv():
 
 
 def test_the_sso_simulator_ships_with_the_package():
-    """现场测试手册让客户跑 k8s/tools/sso-sim.py:它必须在包会整个打进去的 k8s/ 下(原来在 scripts/,包里没有)。"""
+    """现场测试手册让行方跑 k8s/tools/sso-sim.py:它必须在包会整个打进去的 k8s/ 下(原来在 scripts/,包里没有)。"""
     assert (_ROOT / "k8s" / "tools" / "sso-sim.py").is_file()
     assert not (_ROOT / "scripts" / "k8s" / "sso-sim.py").exists(), "只留一份,别两处各改各的"
     assert "k8s/tools/sso-sim.py" in (_ROOT / "docs" / "现场测试-模拟SSO.md").read_text(encoding="utf-8")
@@ -172,7 +172,7 @@ def test_packaged_files_are_readable_by_everyone():
     """离线包里的 k8s/ 与 docs/ 要对所有人可读(tar 原样保留权限)。
 
     2026-10-16 发现:在沙箱里改过的文件落到工作树上是 0600 —— runtime-doctor.sh、vectordb 的 Dockerfile
-    与几份原型都是。打进包后客户解压出来,换个账号(或 sudo 之外的运维账号)就读不了;前端那份已经因此
+    与几份原型都是。打进包后行方解压出来,换个账号(或 sudo 之外的运维账号)就读不了;前端那份已经因此
     让 nginx 回过 403(docker/tests 有守卫)。这里把包里的两个目录也钉住。
     """
     import os

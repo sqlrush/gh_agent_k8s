@@ -90,6 +90,10 @@ def test_anything_touching_user_objects_or_not_clearly_kernel_is_kept(sql):
     ("INSERT INTO grmp.script_config (a) VALUES (?)", syssql.KIND_TOOL),
     ("SELECT script_name, md5(script_content) FROM grmp.script_config", syssql.KIND_TOOL),
     ("CREATE TABLE grmp.script_config (a int)", syssql.KIND_TOOL),
+    # 2026-11-04 演练实测上榜的两条
+    ("CREATE SCHEMA grmp;", syssql.KIND_ADMIN), ("DROP SCHEMA IF EXISTS app CASCADE", syssql.KIND_ADMIN),
+    ("CREATE TEMP TABLE t_probe (x int)", syssql.KIND_TOOL),      # explain.multi_stmt_probe 的探测表
+    ("insert into t_probe values (?)", syssql.KIND_TOOL),
 ])
 def test_non_business_statements_are_excluded_by_kind(sql, kind):
     assert syssql.judge(sql) == (SYSTEM, kind)

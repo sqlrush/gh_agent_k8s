@@ -46,6 +46,8 @@ KIND_KERNEL, KIND_SESSION, KIND_ADMIN, KIND_TOOL = "内核与数据字典", "会
 KINDS = (KIND_KERNEL, KIND_SESSION, KIND_ADMIN, KIND_TOOL)
 # 中间件 schema:我方交付的白名单与配置表(scripts.sql 里的 grmp.script_config)。中间件每调一次诊断脚本都查它
 TOOL_SCHEMAS = frozenset({"grmp"})
+# 我方白名单脚本自己建的探测表(explain.multi_stmt_probe 建临时表 t_probe 验多语句)。改脚本要行方重导白名单,所以按名字认
+TOOL_TABLES = frozenset({"t_probe"})
 # 文档名单里太像业务表名的:业务系统常把代码表叫 dict,不带 schema 时不据此判(宁可多列一行)
 _DICT_TOO_GENERIC = frozenset({"dict", "dictionary"})
 # 不引用任何表时,只调这些(或只有常量)= 连接探活 / 取会话信息,不是业务
@@ -67,7 +69,7 @@ _TXN_WORD_RE = re.compile(r"(?is)^\s*(?:begin|end)(?:\s+(?:transaction|work))?(?
                           r"\s+read\s+(?:only|write))*\s*;?\s*$")
 _ADMIN_RE = re.compile(
     r"(?is)^\s*(?:(?:create|alter|drop)\s+(?:database|user|role|group|tablespace|resource\s+pool|workload\s+group|"
-    r"app\s+workload\s+group|audit\s+policy|masking\s+policy|directory|data\s+source|node)\b"
+    r"app\s+workload\s+group|audit\s+policy|masking\s+policy|directory|data\s+source|node|schema)\b"
     r"|grant\b|revoke\b|alter\s+system\b|checkpoint\b|vacuum\b|analy[sz]e\b|explain\b|reindex\s+(?:database|system)\b"
     r"|clean\s+connection\b)")
 # DDL 的对象不在 FROM 后面:CREATE TABLE grmp.script_config (…)、CREATE INDEX i ON grmp.t (…)
@@ -139,8 +141,11 @@ def is_system_relation(ref: str) -> bool:
 
 
 def is_tool_relation(ref: str) -> bool:
-    """中间件自己的表(grmp.*)。"""
-    return "." in ref and ref[:ref.index(".")].lower() in TOOL_SCHEMAS
+    """中间件自己的表(grmp.*)与我方脚本的探测表(t_probe)。"""
+    ref = ref.lower()
+    if "." in ref:
+        return ref[:ref.index(".")] in TOOL_SCHEMAS
+    return ref in TOOL_TABLES
 
 
 def is_system_function(name: str) -> bool:

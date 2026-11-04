@@ -39,7 +39,7 @@ SNAPS = {2980: "2026-10-17 10:45:29", 2981: "2026-10-17 10:46:29",
          2986: "2026-10-17 11:06:55", 2988: "2026-10-17 11:41:13"}
 
 
-def stmt(sid, calls, total_sec, rows=0, query="select 1"):
+def stmt(sid, calls, total_sec, rows=0, query="select * from fl.acct where id = ?"):
     return {"unique_sql_id": sid, "query": query, "calls": str(calls), "total_sec": str(total_sec),
             "avg_ms": "0", "rows": str(rows)}
 

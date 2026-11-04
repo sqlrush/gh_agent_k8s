@@ -83,7 +83,7 @@ def test_health_partial_run_is_not_archived_as_a_patrol(rdir, monkeypatch, scope
 def test_topsql_main_archives_with_by_in_name(rdir, monkeypatch):
     _load("gaussdb-topsql", "topsql", "render")
     import topsql  # noqa: E402
-    rows = [topsql.StmtRow(sql_id="1a9f", query="select 1", calls=3, total_sec=1.5, avg_ms=500.0, rows=3)]
+    rows = [topsql.StmtRow(sql_id="1a9f", query="select * from fl.acct where id = ?", calls=3, total_sec=1.5, avg_ms=500.0, rows=3)]
     monkeypatch.setattr(topsql.access, "for_conn", lambda *a, **k: object())
     monkeypatch.setattr(topsql, "top_sql", lambda runner, by, limit: rows)
     monkeypatch.setattr(topsql.common.config, "resolved_name", lambda c: "og")

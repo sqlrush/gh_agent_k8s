@@ -90,3 +90,34 @@ def test_root_prompts_name_paths_by_environment_variable(path):
     for var in ("$GSDB_SKILLS_DIR", "$GSDB_KB_DIR", "$GSDB_ROOTSPEC_HOME"):
         assert var in text, var
     assert "read 工具不展开变量" in text
+
+
+# 系统 SQL:查系统表 / 系统视图 / 数据字典、调系统函数的语句(只认真正的语句形态,正文里提到表名不算)
+_SYSOBJ = r"(?:pg_catalog\.)?(?:pg_\w+|gs_\w+|dbe_perf\.\w+|information_schema\.\w+|adm_\w+|db_\w+|my_\w+)"
+SYSTEM_SQL = re.compile(r"(?i)\bselect\b[^。；\n`]{0,160}?\bfrom\s+" + _SYSOBJ
+                        + r"|\bselect\s+(?:pg_|gs_)\w+\s*\(|\bgrant\b[^。；\n]{0,80}\bon\s+(?:pg_catalog\.)?(?:pg_|gs_|adm_)\w+")
+PROMPT_DOCS = PROMPTS + sorted(_ROOT.glob("skills/gaussdb-*/references/*.md"))
+
+
+@pytest.mark.parametrize("path", sorted(set(PROMPT_DOCS)), ids=lambda p: str(p.relative_to(_ROOT)))
+def test_prompts_carry_no_system_sql(path):
+    """2026-11-04:回答里不出现内核自己的 SQL 与查数据字典的 SQL —— 提示词里写了,模型就会照抄。处置写要做的事。"""
+    hits = [l.strip()[:80] for l in path.read_text(encoding="utf-8").splitlines() if SYSTEM_SQL.search(l)]
+    assert not hits, "提示词里有系统 SQL:%s" % hits[:3]
+
+
+def test_red_lines_forbid_system_sql_in_answers():
+    text = (_ROOT / "common" / "red_lines.md").read_text(encoding="utf-8")
+    assert "不写系统 SQL" in text and "只列业务 SQL" in text and "不写语句" in text
+
+
+@pytest.mark.parametrize("line,is_sql", [
+    ("由人工 `SELECT pg_terminate_backend(<pid>);`", True), ("SELECT * FROM pg_locks WHERE granted", True),
+    ("select text from adm_source where name = ?", True), ("`GRANT SELECT ON pg_catalog.adm_source TO <账号>;`", True),
+    ("SELECT n.nspname FROM pg_namespace n JOIN pg_class c ON c.relnamespace = n.oid", True),
+    ("此刻模式读 `pg_locks` / `pg_stat_activity`", False), ("本案发生时 pg_locks 无等待", False),
+    ("不执行 `ALTER SYSTEM` / `SET` / `gs_guc`", False), ("SELECT * FROM fl.orders WHERE id = ?", False),
+])
+def test_the_system_sql_guard_can_actually_fail(line, is_sql):
+    """守卫本身要能红:真语句认得出,正文里提到系统表名不误报。"""
+    assert bool(SYSTEM_SQL.search(line)) is is_sql, line

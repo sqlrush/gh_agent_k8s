@@ -158,7 +158,7 @@ python3 {baseDir}/scripts/kb.py cite-check --text "<回答>"      # 或 --file�
 
   <font color=#2f6fdb>DDL 变更时会话级锁等待上限不超过 30 秒</font>(引用自本行规范库 GS-CHG-003)
 
-  出自镜像里的根规范(`/workspace/docs/`,本行知识库不可用或查不到时检索)的句子同样包进蓝色标签,括号里写出处的文档与章节:
+  出自镜像里的根规范(`$GSDB_ROOTSPEC_HOME/docs/`,本行知识库不可用或查不到时检索)的句子同样包进蓝色标签,括号里写出处的文档与章节:
 
   <font color=#2f6fdb>生产库 DDL 变更须在变更窗口内执行</font>(引用自《文档名称》第X章/X节)
 

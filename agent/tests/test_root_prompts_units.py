@@ -39,7 +39,7 @@ def test_root_prompts_carry_no_version_or_change_marks(path):
 def test_retrieval_order_is_kb_then_root_specs_then_model(path):
     text = path.read_text(encoding="utf-8")
     assert "本行知识库 → 镜像里的根规范 → 模型自带知识" in text
-    kb, spec, fallback = (text.index("kb.py query"), text.index("python3 /workspace/search_docs.py"),
+    kb, spec, fallback = (text.index("kb.py query"), text.index("python3 $GSDB_ROOTSPEC_HOME/search_docs.py"),
                           text.index("知识库中未找到相关内容,以下为通用知识,仅供参考".replace(",", "，")))
     assert kb < spec < fallback, "顺序:知识库 → 根规范 → 兜底"
     assert "不是规范，不得引用" in text, "根规范模板不能被当成规范引用"
@@ -76,3 +76,17 @@ def test_runtime_prompt_leaves_report_generation_to_the_front_end():
     """「帮我生成报告」以后由行方自己的前端调用,根提示词里不再教模型怎么出报告、给链接。"""
     text = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     assert "帮我生成报告" not in text and "[打开报告]" not in text
+
+
+ENV_PATHS = re.compile(r"/data/|/workspace|/nas/|/opt/agent|/run/|/home/")
+
+
+@pytest.mark.parametrize("path", ROOT_PROMPTS, ids=lambda p: p.name)
+def test_root_prompts_name_paths_by_environment_variable(path):
+    """根提示词里不写测试环境的绝对路径(/data/config/…、/workspace/…、/nas/kb),写环境变量;变量在容器里设好、权限放行变量写法。"""
+    text = path.read_text(encoding="utf-8")
+    hits = [l.strip()[:60] for l in text.splitlines() if ENV_PATHS.search(l)]
+    assert not hits, "根提示词里还有环境的绝对路径:%s" % hits[:3]
+    for var in ("$GSDB_SKILLS_DIR", "$GSDB_KB_DIR", "$GSDB_ROOTSPEC_HOME"):
+        assert var in text, var
+    assert "read 工具不展开变量" in text

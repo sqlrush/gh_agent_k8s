@@ -1120,6 +1120,7 @@ def test_agents_md_only_sends_the_model_to_paths_that_exist():
     与 /workspace/docs/(docker/Dockerfile 公共阶段),权限也放行它(docker/podctl.py)。提示词里的路径只能是这两个。"""
     text = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     assert "本环境没有 `/workspace`" not in text
-    assert set(re.findall(r"/workspace/[\w./-]*", text)) <= {"/workspace/search_docs.py", "/workspace/docs/"}
+    assert set(re.findall(r"\$GSDB_ROOTSPEC_HOME/[\w./-]*", text)) <= {"$GSDB_ROOTSPEC_HOME/search_docs.py", "$GSDB_ROOTSPEC_HOME/docs/"}
+    assert "/workspace" not in text, "路径写环境变量 $GSDB_ROOTSPEC_HOME(镜像 ENV),不写绝对路径"
     assert "不要猜路径" in text and "kb.py query" in text and "kb.py show" in text
     assert "看文件内容用 read 工具" in text, "模型用 sed -n 看文件片段被拦(同一次测试),要指给它能用的办法"

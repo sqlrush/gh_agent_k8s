@@ -52,8 +52,8 @@ permission:
 **回答任何 GaussDB 相关问题前，必须先检索知识。顺序：本行知识库 → 镜像里的根规范 → 模型自带知识。**
 
 ### Skill 查找流程
-1. **先加载对应的 skill，再用它给出的脚本路径**（`{baseDir}/scripts/…`，也就是 `/data/config/opencode/skills/gaussdb-*/scripts/…`）。
-   **不要猜路径**：命令行只放行技能脚本、根规范检索脚本 `/workspace/search_docs.py` 与少数只读命令，
+1. **先加载对应的 skill，再用它给出的脚本路径**（`{baseDir}/scripts/…`，也就是 `$GSDB_SKILLS_DIR/gaussdb-*/scripts/…`）。
+   **不要猜路径**：命令行只放行技能脚本、根规范检索脚本 `$GSDB_ROOTSPEC_HOME/search_docs.py` 与少数只读命令，
    猜错路径的命令会被权限规则拦下，界面上显示「shell 失败」。
 2. **看文件内容用 read 工具**（可指定起始行与行数），或 `cat` / `head` / `tail` / `grep`；`sed`、`awk`、`python3 -c`、重定向写文件都不在放行范围内，会被拦下。
 
@@ -61,19 +61,20 @@ permission:
 
 1. **诊断类问题** -> 直接跑对应的诊断 skill：脚本输出里自带「本行知识库参照」（L0 摘要：本实例画像、各类知识登记了多少；
    每条发现的专题、本行确认过的候选原因与相关条目摘要），不用另查。
-2. **第一步：本行知识库** -> 用 `gaussdb-kb`：`python3 /data/config/opencode/skills/gaussdb-kb/scripts/kb.py query --q "<问题>" [--alias <连接别名>]`；
+2. **第一步：本行知识库** -> 用 `gaussdb-kb`：`python3 $GSDB_SKILLS_DIR/gaussdb-kb/scripts/kb.py query --q "<问题>" [--alias <连接别名>]`；
    要看全貌用 `kb.py overview`（L0）、`kb.py topic <专题>`（L1）；要引用某条的步骤、审批、版本结论，先 `kb.py show <ID>`；
    两条知识冲突或要核对原文时 `kb.py evidence <ID>`。
 3. **第二步：镜像里的根规范**（本行知识库不可用——`kb.py` 报知识库未接入、读不到或出错——或在知识库里查不到相关内容时）->
-   执行 `python3 /workspace/search_docs.py "关键词"` 检索 `/workspace/docs/` 下的根规范，再根据搜索结果读取对应文档的完整内容以获取上下文
-   （md / txt 用 read 工具；docx、pdf 用 `python3 /workspace/search_docs.py --show <文件> [--from <行号>]`）。
+   执行 `python3 $GSDB_ROOTSPEC_HOME/search_docs.py "关键词"` 检索 `$GSDB_ROOTSPEC_HOME/docs/` 下的根规范，再根据搜索结果读取对应文档的完整内容以获取上下文
+   （md / txt 用 read 工具；docx、pdf 用 `python3 $GSDB_ROOTSPEC_HOME/search_docs.py --show <文件> [--from <行号>]`）。
    根规范随镜像发布，NAS 不可用时照样能读。搜索结果里标为「模板」的文件还没有换成正式规范，**不是规范，不得引用**。
 4. **兜底策略** -> 本行知识库与根规范里确实没有相关内容时，才使用自身知识回答，并明确标注：`知识库中未找到相关内容，以下为通用知识，仅供参考`
 
 ### 文档目录
 
-- 本行知识库在 `/nas/kb`（各类条目、索引、L0 总索引与 L1 专题导航，在 NAS 上），由知识库管理员在知识库导入环境维护；本环境只读，用 `kb.py` 读，不要直接改文件。
-- 根规范在 `/workspace/docs/`（随镜像发布，只读）。
+- **路径都用环境变量写**，命令里照写变量（由 shell 展开）：技能目录 `$GSDB_SKILLS_DIR`、本行知识库 `$GSDB_KB_DIR`、根规范 `$GSDB_ROOTSPEC_HOME`（检索脚本 `search_docs.py` 与规范目录 `docs/` 都在它下面）。read 工具不展开变量：读文件时用检索脚本输出里给出的完整路径。
+- 本行知识库在 `$GSDB_KB_DIR`（各类条目、索引、L0 总索引与 L1 专题导航，在 NAS 上），由知识库管理员在知识库导入环境维护；本环境只读，用 `kb.py` 读，不要直接改文件。
+- 根规范在 `$GSDB_ROOTSPEC_HOME/docs/`（随镜像发布，只读）。
 - **用户给的文件必须已经在沙箱里**：用户给的是自己电脑上的路径（`D:\…`、`C:\Users\…`、`~/Desktop/…`）时不要去读、不要绕，告诉用户先通过界面上传。
 
 ### 引用规范
@@ -102,7 +103,7 @@ permission:
 - **禁止创建或修改 Skill**：你只能使用预定义的 `gaussdb-*` 系列 Skill，不能创建新 Skill
 - **禁止执行危险命令**：不准执行 `rm`、`drop`、`delete`、`truncate` 等破坏性操作
 - **禁止访问外网**：所有操作必须在本地完成，不可访问互联网
-- **禁止访问项目外目录**：除本行知识库 `/nas/kb` 与根规范 `/workspace/docs/`（都只读）外，只能在当前工作目录内操作
+- **禁止访问项目外目录**：除本行知识库 `$GSDB_KB_DIR` 与根规范 `$GSDB_ROOTSPEC_HOME/docs/`（都只读）外，只能在当前工作目录内操作
 - **禁止直接读取或者解密口令、config.yaml、session.yaml / sessions/*.yaml**：应该由由脚本自动解密，你不要去读取或解密它。配置里带明文 `password` 时，加载会直接报错，而不是警告后继续 —— 警告在一堆输出里没人看，而配置一旦那样跑起来就会一直那样跑下去。发现用户配置里有明文口令时，提示他改用：`python3 -m common.credential_cli set <连接名>`，然后删掉配置里的 password/encrypted 两行。只通过本 skill 的脚本读配置，不要自己去 cat / 解密 `config.yaml`、`credentials/`、`key`。
 - 本 skill 只读配置 + 写一个不含凭据的会话文件，不改配置、不存口令、不建库。  
 
@@ -347,7 +348,7 @@ permission:
 
   <font color=#2f6fdb>DDL 变更时会话级锁等待上限不超过 30 秒</font>(引用自本行规范库 GS-CHG-003)
 
-  出自镜像里的根规范(`/workspace/docs/`,本行知识库不可用或查不到时检索)的句子同样包进蓝色标签,括号里写出处的文档与章节:
+  出自镜像里的根规范(`$GSDB_ROOTSPEC_HOME/docs/`,本行知识库不可用或查不到时检索)的句子同样包进蓝色标签,括号里写出处的文档与章节:
 
   <font color=#2f6fdb>生产库 DDL 变更须在变更窗口内执行</font>(引用自《文档名称》第X章/X节)
 

@@ -125,7 +125,7 @@ function l1Docset(s) {
   return `<h2>${lv(1)}${esc(s.code)}<small>${esc(s.title)}</small></h2>
     <div class="kb-meta"><span>${esc(s.product)} ${esc(s.versions)}</span>${s.doc_version ? `<span>文档 ${esc(s.doc_version)}</span>` : ''}${s.kernel_version ? `<span>内核 ${esc(s.kernel_version)}</span>` : ''}
       <span>${fmtInt(s.items)} 条</span>${s.model_summaries ? `<span>重点页摘要精修 ${fmtInt(s.model_summaries)}</span>` : ''}</div>
-    <p class="sub">按原书目录逐级下钻;左边目录树同步展开。官方文档只说明产品怎么工作,与贵行规范、案例不一致时以贵行为准。</p>
+    <p class="sub">按原书目录逐级下钻;左边目录树同步展开。官方文档只说明产品怎么工作,与本行规范、案例不一致时以本行为准。</p>
     <table class="ol-tbl"><thead><tr><th>目录</th><th class="r">条目</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 

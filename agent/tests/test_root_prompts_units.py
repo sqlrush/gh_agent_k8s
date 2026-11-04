@@ -25,6 +25,8 @@ def test_prompts_do_not_call_the_bank_a_customer(path):
         text = text.replace(w, "")
     hits = [l.strip()[:60] for l in text.splitlines() if "客户" in l]
     assert not hits, "提示词里还有「客户」:%s" % hits[:3]
+    gui = [l.strip()[:60] for l in text.splitlines() if "贵行" in l]
+    assert not gui, "提示词里还有「贵行」(一律写本行):%s" % gui[:3]
 
 
 @pytest.mark.parametrize("path", ROOT_PROMPTS, ids=lambda p: p.name)
@@ -58,3 +60,18 @@ def test_import_prompt_is_about_importing_and_keeps_every_prohibition():
     for phrase in ("禁止创建或修改 Skill", "禁止执行危险命令", "禁止访问外网", "禁止出现明文口令", "禁止直接读取或者解密口令",
                    "禁止提供敏感信息", "禁止提供接口信息", "输出屏蔽规则"):
         assert phrase in text and phrase in runtime, "两份根提示词的禁止项一条都不能少:%s" % phrase
+
+
+@pytest.mark.parametrize("path", ROOT_PROMPTS, ids=lambda p: p.name)
+def test_red_lines_sit_inside_the_prohibitions(path):
+    """安全红线并入「禁止行为」:不再单独成一节,红线块在「### 禁止行为」与「### 允许行为」之间。"""
+    text = path.read_text(encoding="utf-8")
+    assert "## 安全红线" not in text
+    begin = text.index("<!-- RED-LINES:BEGIN")
+    assert text.index("\n### 禁止行为\n") < begin < text.index("<!-- RED-LINES:END -->") < text.index("\n### 允许行为\n")
+
+
+def test_runtime_prompt_leaves_report_generation_to_the_front_end():
+    """「帮我生成报告」以后由行方自己的前端调用,根提示词里不再教模型怎么出报告、给链接。"""
+    text = (_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "帮我生成报告" not in text and "[打开报告]" not in text

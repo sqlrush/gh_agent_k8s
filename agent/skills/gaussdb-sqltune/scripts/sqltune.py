@@ -449,10 +449,11 @@ def kb_section(tr: TuneResult) -> tuple:
     """「本行知识库参照」小节 + JSON;知识库任何问题都降级成「未接入(原因)」,不影响调优报告。"""
     try:
         from common.kb import query as kbquery
+        from common.kbsection import current_alias
     except ImportError as exc:
         text = f"## 本行知识库参照\n> 知识库未接入(common/kb 未安装:{exc})\n\n"
         return text, {"status": {"attached": False, "reason": f"common/kb 未安装:{exc}"}, "items": []}
-    return kbquery.section_for(kb_items(tr))
+    return kbquery.section_for(kb_items(tr), alias=current_alias())
 
 
 def _substitution_section(sub: SubstituteResult) -> str:

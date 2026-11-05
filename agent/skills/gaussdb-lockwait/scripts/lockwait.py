@@ -204,9 +204,10 @@ def kb_section(findings) -> str:
     """
     try:
         from common.kb import query as kbquery
+        from common.kbsection import current_alias
     except ImportError as exc:                       # 旧安装没有 common/kb
         return f"## 本行知识库参照\n> 知识库未接入(common/kb 未安装:{exc})\n\n"
-    return kbquery.section_for(list(findings))[0]
+    return kbquery.section_for(list(findings), alias=current_alias())[0]
 
 
 def render_markdown(rep: LockReport) -> str:

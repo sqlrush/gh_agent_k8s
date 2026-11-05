@@ -1,6 +1,6 @@
 ---
 name: gaussdb-lockwait
-version: 1.4.0
+version: 1.4.1
 description: "通过内置脚本对 OpenGauss/GaussDB 做锁等待与阻塞链诊断。用户觉得某条 SQL 卡住了、在等锁、堵着不动，或想知道谁把谁挡住了、挡在哪把锁上、挡了多久、阻塞链的根是谁时使用，包括“卡住了”“在等锁”“这条 SQL 不动了”“谁把谁堵住了”“是不是有锁等待”“帮我看看现在有没有阻塞”等请求。触发后运行 scripts/lockwait.py，输出真实的持有者/等待者明细、阻塞链与根，以及供人工核对的 kill 语句；不要只解释锁等待的概念。事后追查某段时间谁挡了谁（“昨晚 18:30 到 19:00 谁堵了谁”“那段时间的锁等待是谁引起的”“当时阻塞链的根是谁”）时，运行 scripts/lockwait.py --from … --to …，从活跃会话采样（ASP）回看阻塞对、阻塞链与根；采样没开或已过保留期时如实说明回看不了。用户问已经发生过的死锁（“死锁是哪几条语句”“帮我分析这段死锁日志”“deadlock detected 是怎么回事”）、或贴来含 deadlock detected 的日志时，运行 scripts/lockwait.py --deadlock-log - 解析日志段。"
 allowed-tools: ["exec", "read"]
 compatibility: opencode
@@ -89,7 +89,7 @@ python3 {baseDir}/scripts/lockwait.py --from 'YYYY-MM-DD HH:MM' [--to 'YYYY-MM-D
 1. 如果用户没有提供连接名：
    **选择连接 —— 先登录，不要自己猜连接名。** 取数前确认已登录：
    `python3 {baseDir}/../gaussdb-login/scripts/login.py --status`。
-   没有会话就先调 **gaussdb-login**：它读 `$GSDB_HOME/config.yaml`（默认 `~/.gdaa/config.yaml`）的首行 `connection_mode`，是 `gsql` 就把可选连接列成菜单让用户挑，是 `api` 就引导用户给出要访问的数据库。
+   没有会话就先调 **gaussdb-login**：它读 `$GSDB_HOME/config.yaml`（`GSDB_HOME` 不设时为 `/workspace/.opencode/skills/common`）的首行 `connection_mode`，是 `gsql` 就把可选连接列成菜单让用户挑，是 `api` 就引导用户给出要访问的数据库。
    登录之后本 skill **不需要传 `-c`** —— 省略时自动用登录选定的那条连接；只有要临时换一个库时才显式传 `-c <连接名>`。
    **api 模式下每条命令都要带 `--session <句柄>`**：句柄是 gaussdb-login 在**本对话里**登录成功时输出的那一串（平台也可能按用户注入环境变量 `GSDB_SESSION`）。不带句柄的命令会被拒绝并提示「本对话未登录」——这时让用户先 gaussdb-login 登录，**不要自己挑一个**、不要猜、不要去看会话目录；别人的会话对本对话不可见，换一个对话要重新登录。
    **不要自己去读 config.yaml 挑名字**：不同应用下可能有同名连接，猜错会在另一个库上做诊断，而输出看起来完全正常。口令在 `{baseDir}/../common/credentials/*.enc`，由脚本解密，**你不要去读/解密它**。

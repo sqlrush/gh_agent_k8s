@@ -114,8 +114,11 @@ SYS_DEPS = {  # 程序 → (用途, 哪些包要)
     "gsql(可选)": ("只在直连模式(driver: gsql)用;走中间件不需要。可用 GDAA_GSQL 指定路径", ("diag",)),
 }
 
-# 环境变量:名字 → (哪些包读, 必填, 说明)。守卫测试核对「交付代码里出现的变量名」与这里一致,新增变量必须先登记。
+# 环境变量:名字 → (哪些包读, 必填, 说明)。守卫测试核对「交付代码里出现的变量名、提示词与技能文档里写的 $变量」
+# 与这里一致,新增变量必须先登记。
 ENV = {
+    "GSDB_SKILLS_DIR": (("diag",), "必填", "技能目录(放 common/、scripts/ 与各技能的那一层);根提示词里的命令按它写。镜像里由启动脚本设为 opencode 的技能目录"),
+    "GSDB_ROOTSPEC_HOME": (("diag", "kbimport"), "必填", "根规范目录:下面是 docs/(规范文档)与检索脚本 search_docs.py,见「根规范目录约定」。镜像里是 /workspace"),
     "GSDB_HOME": (("diag", "kbimport"), "否", "状态目录(连接配置、会话、加密口令)。不设时为 /workspace/.opencode/skills/common"),
     "GDAA_HOME": (("diag", "kbimport"), "否", "GSDB_HOME 的旧名,兼容保留"),
     "GSDB_PASSWORD": (("diag", "kbimport"), "否", "直连模式的数据库口令(优先于加密口令文件);走中间件不用"),
@@ -151,9 +154,10 @@ ENV = {
 }
 
 # 根规范(行方 3 份规范文档)的约定:不在交付包里,随镜像发布
-ROOTSPEC = ("根提示词按「本行知识库 → 根规范 → 模型自带知识」的顺序检索。根规范放在 $GSDB_ROOTSPEC_HOME/docs/"
-            "(镜像里 GSDB_ROOTSPEC_HOME=/workspace),检索脚本 $GSDB_ROOTSPEC_HOME/search_docs.py 随镜像提供;"
-            "行内正式规范按《部署上线方案》在推进内网仓库之前换入,不进代码仓库。")
+ROOTSPEC = ("根提示词按「本行知识库 → 根规范 → 模型自带知识」的顺序检索。根规范放在 `$GSDB_ROOTSPEC_HOME/docs/`,"
+            "诊断环境用 `$GSDB_ROOTSPEC_HOME/search_docs.py` 检索它(镜像里 `GSDB_ROOTSPEC_HOME=/workspace`,检索脚本与三份模板随镜像提供)。"
+            "**本包不含检索脚本与规范文档**:自建运行环境时,检索脚本从同版本的 runtime 镜像里取 `/workspace/search_docs.py`;"
+            "行内正式规范由行内放进 `docs/`,不进代码仓库。")
 
 # 交付包里允许出现的顶层条目(自检核对:多一个都不行)
 TOP_LEVEL = {

@@ -91,6 +91,7 @@ def test_layout_constants_consistent():
 # ---------------------------------------------------------------- 依赖与环境变量
 
 _ENV_NAME = re.compile(r"""["']((?:GSDB|GDAA|GRMP|KB|OPENCODE|G)_[A-Z0-9_]+)["']""")
+_ENV_REF = re.compile(r"\$\{?((?:GSDB|GDAA|GRMP|KB|OPENCODE)_[A-Z0-9_]+)")     # 提示词与技能文档里写的 $变量
 
 
 def _env_names_in(package):
@@ -98,12 +99,15 @@ def _env_names_in(package):
     for src, _ in assemble.select(M, package, ROOT):
         if src.suffix in (".py", ".sh"):
             names |= set(_ENV_NAME.findall(src.read_text(encoding="utf-8")))
+        elif src.suffix == ".md":
+            names |= set(_ENV_REF.findall(src.read_text(encoding="utf-8")))
     return names
 
 
 @pytest.mark.parametrize("package", sorted(M.PACKAGES))
 def test_env_vars_documented(package):
-    """交付代码里出现的变量名都在清单 ENV 里登记(补充说明照它生成);登记给本包的变量本包代码确实读。"""
+    """交付代码里出现的变量名、提示词与技能文档里写的 $变量,都在清单 ENV 里登记(补充说明照它生成);
+    登记给本包的变量本包确实用到。"""
     found = _env_names_in(package)
     assert not found - set(M.ENV), "%s 包代码里有没登记的环境变量:%s" % (package, sorted(found - set(M.ENV)))
     claimed = {k for k, v in M.ENV.items() if package in v[0]}

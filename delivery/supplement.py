@@ -47,9 +47,9 @@ def render(manifest, package: str, root: pathlib.Path, source: Dict[str, str], v
         L += ["- `scripts/registry/`:技能运行时执行的 %d 条白名单脚本定义;`whitelist/`:给中间件团队导入的 DML。" % n]
     L += ["- `skills/`:%d 个技能:" % len(pkg["skills"]), ""]
     L += _table(("技能", "版本"), [(s, skill_version(root / "skills" / s / "SKILL.md")) for s in pkg["skills"]])
-    L += ["", "部署方式与镜像里一致:`common/`、`skills/` 下各技能%s放进 opencode 的技能目录(镜像里是 "
-          "`/opt/agent/config/opencode/skills/`),`AGENTS.md` 放进 opencode 的配置目录(镜像里是 `/opt/agent/config/opencode/`)。"
-          % ("、`scripts/`" if pkg["whitelist"] else ""), ""]
+    L += ["", "部署方式与镜像里一致:`common/`%s与 `skills/` 下的各个技能目录放进 opencode 的技能目录(镜像里是 "
+          "`/opt/agent/config/opencode/skills/`,技能直接在这一层,不再套 `skills/`),`AGENTS.md` 放进 opencode 的配置目录"
+          "(镜像里是 `/opt/agent/config/opencode/`)。" % ("、`scripts/`" if pkg["whitelist"] else ""), ""]
     L += _deps(manifest, package)
     L += _env(manifest, package)
     if pkg["whitelist"]:

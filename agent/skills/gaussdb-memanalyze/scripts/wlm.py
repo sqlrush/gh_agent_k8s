@@ -36,7 +36,7 @@ _OP_COLS = ("queryid", "plan_node_id", "plan_node_name", "duration",
 # problems". So an empty layer spells out every prerequisite with *this instance's*
 # value: a list of "possible causes" alone (the previous wording) left the reader
 # unable to tell "a parameter is off" from "the kernel never fills these views" —
-# faultlab 2026-10-24: S2/S6 spilled several GB and memanalyze never said why L4/L5
+# fault drill 2026-10-24: S2/S6 spilled several GB and memanalyze never said why L4/L5
 # were blank. On og5 (openGauss-lite 5.0.3, single node) every prerequisite is on and a
 # 9-second spilling sort still leaves gs_wlm_session_statistics / operator_statistics /
 # *_info at 0 rows: the kernel does not populate them.

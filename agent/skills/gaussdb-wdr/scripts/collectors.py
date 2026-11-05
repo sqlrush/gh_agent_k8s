@@ -158,7 +158,7 @@ def collect_loadprofile(runner, opt: Options) -> DimResult:
 # 死锁证据的措辞。**次数是硬数据,「哪几条语句成环」不是** ——
 # WDR 快照里只有一个计数器,没有任何关于环的信息。而 methodology 的归因表
 # 让模型去 Top SQL 里挑「cpu≈0 的同表 DML」当死锁对,那是**推断**:
-# 2026-10-17 压测那次推对了,只因为 faultlab 只让 fl.acct 上的 UPDATE 互相打架、
+# 2026-10-17 压测那次推对了,只因为故障演练只让 fl.acct 上的 UPDATE 互相打架、
 # 候选只有一条;日志里实际还有**三方环**(id=20 → 21 → 22),按 Top SQL 推只会
 # 得出「两条 UPDATE 在抢」。真实生产库上几十个 DML 混着跑,这种推断很不可靠 ——
 # 而输出看起来和推对时一模一样。
@@ -286,7 +286,7 @@ def _clip_sql(text: str) -> str:
     """存档用的全文:**保留换行**,只压每行里多余的空白、去掉空行。
 
     原来把整段压成一行(`" ".join(text.split())`)—— 带 `--` 行注释的 SQL 就整条变成了注释,
-    存档里的「全文」拿去 --sql-stdin 根本跑不起来(2026-10-19 测试发现,faultlab 的语句都带行注释)。
+    存档里的「全文」拿去 --sql-stdin 根本跑不起来(2026-10-19 测试发现,故障演练的语句都带行注释)。
     """
     lines = [" ".join(ln.split()) for ln in str(text or "").splitlines()]
     t = "\n".join(ln for ln in lines if ln)
@@ -469,7 +469,7 @@ def _off_list(champs: dict, shown: set) -> list:
 
 # --- Wait Events / Classes ---------------------------------------------------
 #
-# 等待类之外还要给出**事件名**。faultlab L1(2026-10-24,3149→3150):提交风暴造出的是 WALFlushWait,
+# 等待类之外还要给出**事件名**。故障演练 L1(2026-10-24,3149→3150):提交风暴造出的是 WALFlushWait,
 # 这一维只给了「LWLOCK_EVENT 50%」一行,看不出是 WAL 相关,只能另跑 waitevent 才知道。
 # 事件级增量取 waitevent.events:与 wdr.waits 同源(snap_global_wait_events 两端快照相减)、
 # 排除 STATUS/NONE 的谓词逐字一致,两边的总量对得上;它早就在白名单里(gaussdb-waitevent 用),

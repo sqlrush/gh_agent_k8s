@@ -6,6 +6,7 @@
   skills/<技能>/              本包技能的全部文件(testdata 等测试数据除外)
   scripts/registry/<ns>/     诊断包:技能实际调用的白名单脚本定义(运行时按它执行)
   whitelist/                 诊断包:给中间件团队的 DML(scripts.sql、历次增量、清单)
+  rootspec/search_docs.py    根规范检索脚本(清单的 extra)
   补充说明.md、.delivery.json  由 supplement.py / transform.py 生成
 """
 from __future__ import annotations
@@ -87,6 +88,10 @@ def select(manifest, package: str, repo: pathlib.Path) -> List[Pair]:
             if not p.is_file():
                 raise FileNotFoundError("白名单交付文件缺失:%s" % p)
             pairs.append((p, "whitelist/" + p.name))
+    for src, dst, _ in pkg.get("extra", ()):
+        if not (repo / src).is_file():
+            raise FileNotFoundError("清单 extra 里的文件不存在:%s" % src)
+        pairs.append((repo / src, dst))
     return pairs
 
 

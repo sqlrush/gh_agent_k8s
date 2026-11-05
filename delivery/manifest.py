@@ -31,6 +31,14 @@ PRECHECKS = (
 )
 WHITELIST_DIR = "docs/delivery"   # 给中间件团队的白名单 DML(全量 + 历次增量 + 清单),在测试仓库根下
 
+# 技能与 common 之外随包带的文件:(测试仓库里的位置, 交付包里的位置, 补充说明里的一句话)
+# 根规范检索脚本:两份根提示词都执行 $GSDB_ROOTSPEC_HOME/search_docs.py(镜像里在 /workspace/),自建环境也要有
+ROOTSPEC_SCRIPT = ("docker/search_docs.py", "rootspec/search_docs.py",
+                   "根规范检索脚本,放到 `$GSDB_ROOTSPEC_HOME/` 下(见「根规范目录约定」)")
+
+# 转化脚本从标签里取哪些路径(git archive);delivery/ 本身总是先取
+EXTRACT = ("agent", "delivery", WHITELIST_DIR, ROOTSPEC_SCRIPT[0])
+
 DIAG_SKILLS = (
     "gaussdb-config", "gaussdb-explain", "gaussdb-health", "gaussdb-kb", "gaussdb-lockwait", "gaussdb-login",
     "gaussdb-memanalyze", "gaussdb-procinfo", "gaussdb-proctune", "gaussdb-slowsql", "gaussdb-sqlfetch",
@@ -46,6 +54,7 @@ PACKAGES = {
         "skills": DIAG_SKILLS,
         "agents_md": "AGENTS.md",                 # 相对 agent/;交付包里都叫 AGENTS.md
         "whitelist": True,
+        "extra": (ROOTSPEC_SCRIPT,),
     },
     "kbimport": {
         "title": "知识库导入技能包",
@@ -53,6 +62,7 @@ PACKAGES = {
         "skills": KBIMPORT_SKILLS,
         "agents_md": "AGENTS-kb-import.md",
         "whitelist": False,                       # 导入不连库,不带白名单
+        "extra": (ROOTSPEC_SCRIPT,),
     },
 }
 
@@ -117,8 +127,9 @@ SYS_DEPS = {  # 程序 → (用途, 哪些包要)
 # 环境变量:名字 → (哪些包读, 必填, 说明)。守卫测试核对「交付代码里出现的变量名、提示词与技能文档里写的 $变量」
 # 与这里一致,新增变量必须先登记。
 ENV = {
-    "GSDB_SKILLS_DIR": (("diag",), "必填", "技能目录(放 common/、scripts/ 与各技能的那一层);根提示词里的命令按它写。镜像里由启动脚本设为 opencode 的技能目录"),
+    "GSDB_SKILLS_DIR": (("diag", "kbimport"), "必填", "技能目录(放 common/、scripts/ 与各技能的那一层);根提示词里的命令按它写。镜像里由启动脚本设为 opencode 的技能目录"),
     "GSDB_ROOTSPEC_HOME": (("diag", "kbimport"), "必填", "根规范目录:下面是 docs/(规范文档)与检索脚本 search_docs.py,见「根规范目录约定」。镜像里是 /workspace"),
+    "ROOTSPEC_DIR": (("diag", "kbimport"), "否", "直接指定根规范文档目录(优先于 $GSDB_ROOTSPEC_HOME/docs/);一般不用设"),
     "GSDB_HOME": (("diag", "kbimport"), "否", "状态目录(连接配置、会话、加密口令)。不设时为 /workspace/.opencode/skills/common"),
     "GDAA_HOME": (("diag", "kbimport"), "否", "GSDB_HOME 的旧名,兼容保留"),
     "GSDB_PASSWORD": (("diag", "kbimport"), "否", "直连模式的数据库口令(优先于加密口令文件);走中间件不用"),
@@ -155,12 +166,12 @@ ENV = {
 
 # 根规范(行方 3 份规范文档)的约定:不在交付包里,随镜像发布
 ROOTSPEC = ("根提示词按「本行知识库 → 根规范 → 模型自带知识」的顺序检索。根规范放在 `$GSDB_ROOTSPEC_HOME/docs/`,"
-            "诊断环境用 `$GSDB_ROOTSPEC_HOME/search_docs.py` 检索它(镜像里 `GSDB_ROOTSPEC_HOME=/workspace`,检索脚本与三份模板随镜像提供)。"
-            "**本包不含检索脚本与规范文档**:自建运行环境时,检索脚本从同版本的 runtime 镜像里取 `/workspace/search_docs.py`;"
-            "行内正式规范由行内放进 `docs/`,不进代码仓库。")
+            "用 `$GSDB_ROOTSPEC_HOME/search_docs.py` 检索(md / txt / docx;装了 pdftotext 时也搜 pdf;只读、不联网)。"
+            "部署时把本包的 `rootspec/search_docs.py` 放到 `$GSDB_ROOTSPEC_HOME/` 下;行内正式规范由行内放进 `$GSDB_ROOTSPEC_HOME/docs/`,"
+            "不进代码仓库。镜像里 `GSDB_ROOTSPEC_HOME=/workspace`,预留了三份模板(第一行带 ROOTSPEC-TEMPLATE 标记,不参与检索)。")
 
 # 交付包里允许出现的顶层条目(自检核对:多一个都不行)
 TOP_LEVEL = {
-    "diag": ("AGENTS.md", "common", "skills", "scripts", "whitelist", "补充说明.md", ".delivery.json"),
-    "kbimport": ("AGENTS.md", "common", "skills", "补充说明.md", ".delivery.json"),
+    "diag": ("AGENTS.md", "common", "skills", "scripts", "whitelist", "rootspec", "补充说明.md", ".delivery.json"),
+    "kbimport": ("AGENTS.md", "common", "skills", "rootspec", "补充说明.md", ".delivery.json"),
 }

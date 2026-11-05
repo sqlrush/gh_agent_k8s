@@ -8,7 +8,7 @@
     # 只生成到一个空目录(看内容、做别的用途)
     python3 delivery/transform.py --ref agent-v1.4.7 --package kbimport --out /tmp/kbimport
 
-做法:用 git archive 取标签里的代码(不读工作区),清单、装配、自检、补充说明也都用标签里那一版
+做法:用 git archive 取标签里的代码(不读工作区;取哪些路径由清单的 EXTRACT 定),清单、装配、自检、补充说明也都用标签里那一版
 (delivery/manifest.py 等)——同一个标签任何时候生成的结果都一样。交付分支只允许本脚本写:分支上有手工改动
 (内容与它记录的摘要对不上)就停下,不覆盖。内容没变就不提交。
 """
@@ -62,11 +62,12 @@ def digest(root: pathlib.Path) -> str:
     return h.hexdigest()
 
 
-def extract(repo: pathlib.Path, commit: str, dest: pathlib.Path) -> None:
-    paths = ["agent", "delivery", "docs/delivery"]
+def extract(repo: pathlib.Path, commit: str, dest: pathlib.Path, paths: List[str]) -> None:
     for p in paths:
         if not git(repo, "ls-tree", "--name-only", commit, p).strip():
-            raise Stop("%s 里没有 %s:这个提交早于转化脚本(agent-v1.4.7 起才有交付清单)" % (commit[:10], p))
+            if p == "delivery":
+                raise Stop("%s 里没有 delivery/:这个提交早于转化脚本(agent-v1.4.7 起才有交付清单)" % commit[:10])
+            raise Stop("%s 里没有交付清单要取的 %s" % (commit[:10], p))
     proc = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", commit] + paths, capture_output=True)
     if proc.returncode != 0:
         raise Stop("git archive 失败:%s" % proc.stderr.decode("utf-8", "replace")[:300])
@@ -129,10 +130,11 @@ def build(repo: pathlib.Path, ref: str, package: str, work: pathlib.Path, prev: 
     base = prev.get("base") if prev and prev["source"]["commit"] == commit else prev
     src = work / "src"
     src.mkdir()
-    extract(repo, commit, src)
+    extract(repo, commit, src, ["delivery"])            # 先取清单,再按清单取其余路径
     d = src / "delivery"
     sys.path.insert(0, str(d))
     manifest = _load("manifest", d / "manifest.py")
+    extract(repo, commit, src, [p for p in getattr(manifest, "EXTRACT", ("agent", "docs/delivery")) if p != "delivery"])
     assemble, checks, supplement = (_load(n, d / (n + ".py")) for n in ("assemble", "checks", "supplement"))
     if package not in manifest.PACKAGES:
         raise Stop("没有这个包:%s(清单里有 %s)" % (package, "、".join(manifest.PACKAGES)))

@@ -38,7 +38,7 @@ def git(repo: pathlib.Path, *args: str) -> str:
     return proc.stdout
 
 
-def copy_worktree(dest: pathlib.Path, paths=("agent", "delivery", MANIFEST.WHITELIST_DIR)) -> None:
+def copy_worktree(dest: pathlib.Path, paths=MANIFEST.EXTRACT) -> None:
     """把工作区里转化脚本会读的部分(已跟踪 + 未忽略的新文件)拷到 dest:测的是当前改动,不是上一个提交。"""
     out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "-co", "--exclude-standard", "--"] + list(paths),
                          capture_output=True, text=True, check=True).stdout     # -z:中文文件名不转义

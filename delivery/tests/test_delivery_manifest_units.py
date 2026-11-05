@@ -90,17 +90,17 @@ def test_layout_constants_consistent():
 
 # ---------------------------------------------------------------- 依赖与环境变量
 
-_ENV_NAME = re.compile(r"""["']((?:GSDB|GDAA|GRMP|KB|OPENCODE|G)_[A-Z0-9_]+)["']""")
-_ENV_REF = re.compile(r"\$\{?((?:GSDB|GDAA|GRMP|KB|OPENCODE)_[A-Z0-9_]+)")     # 提示词与技能文档里写的 $变量
+_ENV_NAME = re.compile(r"""["']((?:GSDB|GDAA|GRMP|KB|OPENCODE|ROOTSPEC|G)_[A-Z0-9_]+)["']""")
+_ENV_REF = re.compile(r"\$\{?((?:GSDB|GDAA|GRMP|KB|OPENCODE|ROOTSPEC)_[A-Z0-9_]+)")     # 提示词与技能文档里写的 $变量
 
 
-def _env_names_in(package):
+def _env_names_in(package, kinds=(".py", ".sh", ".md")):
     names = set()
     for src, _ in assemble.select(M, package, ROOT):
-        if src.suffix in (".py", ".sh"):
-            names |= set(_ENV_NAME.findall(src.read_text(encoding="utf-8")))
-        elif src.suffix == ".md":
-            names |= set(_ENV_REF.findall(src.read_text(encoding="utf-8")))
+        if src.suffix not in kinds:
+            continue
+        text = src.read_text(encoding="utf-8")
+        names |= set(_ENV_REF.findall(text) if src.suffix == ".md" else _ENV_NAME.findall(text))
     return names
 
 
@@ -112,6 +112,21 @@ def test_env_vars_documented(package):
     assert not found - set(M.ENV), "%s 包代码里有没登记的环境变量:%s" % (package, sorted(found - set(M.ENV)))
     claimed = {k for k, v in M.ENV.items() if package in v[0]}
     assert not claimed - found, "清单说 %s 包读这些变量,代码里却没有:%s" % (package, sorted(claimed - found))
+    # 提示词与技能文档里让模型写的 $变量,本包部署时一定要有:必须登记在本包名下
+    prompts = _env_names_in(package, (".md",))
+    assert not prompts - claimed, "%s 包的提示词里写了没登记给本包的变量:%s" % (package, sorted(prompts - claimed))
+
+
+@pytest.mark.parametrize("package", sorted(M.PACKAGES))
+def test_rootspec_script_delivered_when_prompt_uses_it(package):
+    """根提示词执行 $GSDB_ROOTSPEC_HOME/search_docs.py:用到它的包必须带上检索脚本。"""
+    pkg = M.PACKAGES[package]
+    prompt = (AGENT / pkg["agents_md"]).read_text(encoding="utf-8")
+    extras = {dst for _, dst, _ in pkg.get("extra", ())}
+    assert ("search_docs.py" in prompt) == ("rootspec/search_docs.py" in extras)
+    for src, _, desc in pkg.get("extra", ()):
+        assert (ROOT / src).is_file() and desc
+        assert any(src == p or src.startswith(p + "/") for p in M.EXTRACT), "%s 不在 EXTRACT 里,转化脚本取不到" % src
 
 
 def test_env_entries_well_formed():

@@ -5,8 +5,8 @@
 
 | 交付分支 / 标签 | 包 | 内容 | 对应镜像 |
 |---|---|---|---|
-| `diag` / `diag-vX` | 诊断技能包 | `AGENTS.md`、`common/`、17 个诊断技能 + `gaussdb-kb`、`scripts/registry/`(白名单脚本定义)、`whitelist/`(给中间件团队的 DML)、`补充说明.md` | runtime |
-| `kbimport` / `kbimport-vX` | 知识库导入技能包 | `AGENTS.md`(由 `AGENTS-kb-import.md` 改名)、`common/`、`gaussdb-kb-import` + `gaussdb-kb-init` + `gaussdb-kb`、`补充说明.md` | kb-import |
+| `diag` / `diag-vX` | 诊断技能包 | `AGENTS.md`、`common/`、17 个诊断技能 + `gaussdb-kb`、`scripts/registry/`(白名单脚本定义)、`whitelist/`(给中间件团队的 DML)、`rootspec/search_docs.py`(根规范检索脚本)、`补充说明.md` | runtime |
+| `kbimport` / `kbimport-vX` | 知识库导入技能包 | `AGENTS.md`(由 `AGENTS-kb-import.md` 改名)、`common/`、`gaussdb-kb-import` + `gaussdb-kb-init` + `gaussdb-kb`、`rootspec/search_docs.py`、`补充说明.md` | kb-import |
 
 `补充说明.md` 每版自动生成:版本对应、包内容与技能版本、依赖、环境变量(必填 / 默认值)、SQL 白名单与上一版的差异、根规范目录约定、变更摘要。
 `.delivery.json` 记录来源标签、提交与内容摘要,转化脚本靠它判断交付分支有没有被手改。
@@ -29,9 +29,9 @@ python3 delivery/transform.py --ref agent-v1.4.7 --package kbimport --out /tmp/k
 
 ## 它做了什么
 
-1. `git archive` 取标签里的 `agent/`、`delivery/`、`docs/delivery/`——不读工作区;清单与脚本也用标签里那一版,同一标签任何时候生成的结果逐字相同。
+1. `git archive` 取标签里的 `agent/`、`delivery/`、`docs/delivery/`、`docker/search_docs.py`(清单的 `EXTRACT`)——不读工作区;清单与脚本也用标签里那一版,同一标签任何时候生成的结果逐字相同。
 2. 在完整源码上核对红线、回答模板、知识库契约的注入与正文一致(交付包里不带这些工具,只能裁剪前核对)。
-3. 按 `manifest.py` **选**文件(不是排除法):技能按名单(去掉 `testdata/`、`tests/`),common 按归属,白名单脚本定义只带技能实际调用的。
+3. 按 `manifest.py` **选**文件(不是排除法):技能按名单(去掉 `testdata/`、`tests/`),common 按归属,白名单脚本定义只带技能实际调用的,另带清单 `extra` 里的根规范检索脚本。
 4. 自检(`checks.py`),任何一项不过就停:
    - 顶层条目、技能、文件与清单逐个对上;
    - 引用的 `common.*` 都在包里(静态);每个技能脚本在交付包里真 import 一遍(动态,`python -I`);

@@ -8,7 +8,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))   # 根 pytest.ini 用 importlib 模式
-from delivery_testlib import MANIFEST, assembled, checks, supplement  # noqa: E402
+from delivery_testlib import MANIFEST, ROOT, assembled, checks, supplement  # noqa: E402
 
 M = MANIFEST
 
@@ -45,6 +45,8 @@ def test_packages_contents(packages):
     assert (kbi / "common" / "kb" / "ingest.py").is_file() and not (diag / "common" / "kb" / "ingest.py").exists()
     assert not (kbi / "skills" / "gaussdb-kb-import" / "testdata").exists()
     assert "知识库导入" in (kbi / "AGENTS.md").read_text(encoding="utf-8")
+    script = (ROOT / M.ROOTSPEC_SCRIPT[0]).read_bytes()
+    assert (diag / "rootspec" / "search_docs.py").read_bytes() == script == (kbi / "rootspec" / "search_docs.py").read_bytes()
     regs = {"%s.%s" % (p.parent.name, p.stem) for p in (diag / "scripts" / "registry").glob("*/*.yaml")}
     assert regs and not any(n.startswith(("perf.", "session.")) for n in regs)
 
@@ -134,3 +136,4 @@ def test_supplement_sections(packages):
     assert "GRMP_PATH_PREFIX" in text and "KB_CLIP_ORIGINS" not in text
     kbi = supplement.render(M, "kbimport", packages["kbimport"][0], source, "kbimport-v9.9.9", None, None, None)
     assert "SQL 白名单" not in kbi and "KB_CLIP_ORIGINS" in kbi and "GRMP_PATH_PREFIX" not in kbi
+    assert "`rootspec/search_docs.py`:根规范检索脚本" in text and "`rootspec/search_docs.py`:根规范检索脚本" in kbi

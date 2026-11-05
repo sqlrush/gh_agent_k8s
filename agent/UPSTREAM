@@ -25,3 +25,4 @@ synced 2026-11-02: gh_skill feat/kb-supersede(58fa8c5)— 处置的「取代」:
 2026-11-03: 本仓库 agent-v1.4.4 —— gaussdb-kb-import 4.3.0、gaussdb-kb 4.2.0(SKILL.md 版本号;处置的「取代」与知识库状态共享);gh_skill 侧发版时对应 skills-v12.23
 2026-11-03: 本仓库 agent-v1.4.5 —— 两份根提示词(AGENTS.md 运行环境、AGENTS-kb-import.md 知识库导入环境)、根规范检索顺序、红线示例两种环境;技能、脚本输出与契约里指代行方的「客户」改为本行/行方/行内(措辞改动,各 SKILL.md 版本号不变);方向:本仓库 → gh_skill,gh_skill 侧发版时对应 skills-v12.24
 2026-11-04: 本仓库 agent-v1.4.6 —— 排行只列业务 SQL(common/syssql.py 四类非业务 SQL、common/sysdict.py 文档里的系统表与系统视图名单)、红线「不写系统 SQL」、锁等待恢复 / 存储过程核对写要做的事、贵行改本行、根提示词安全红线并入禁止行为、路径写环境变量、去掉报告链接;方向:本仓库 → gh_skill,gh_skill 侧发版时对应 skills-v12.25
+2026-11-05: 本仓库 agent-v1.4.7 —— 起不再与 gh_skill 同步(gh_skill 停在 skills-v12.25)。本仓库是唯一的代码来源;交付给行内的是联合仓库 gh_gs_k8s_agent 的 diag / kbimport 分支,由 delivery/transform.py 按 delivery/manifest.py 生成。本版:common/kb/query.py 不再读登录会话(current_alias 挪到 common/kbsection.py)、三个技能的 config.yaml 默认位置更正、注释与示例去掉测试环境痕迹

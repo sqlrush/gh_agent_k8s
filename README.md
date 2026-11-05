@@ -1,12 +1,15 @@
 # gh_agent_k8s
 
-把 opencode + [gh_skill](https://github.com/sqlrush/gh_skill) 的 GaussDB/openGauss DBA 技能集放进 Kubernetes：每个用户一个 Agent Pod，Pod 无状态，状态全部在 NAS 上；知识库导入与诊断运行分成两个镜像。
+把 opencode + GaussDB/openGauss DBA 技能集（最早来自 [gh_skill](https://github.com/sqlrush/gh_skill)）放进 Kubernetes：每个用户一个 Agent Pod，Pod 无状态，状态全部在 NAS 上；知识库导入与诊断运行分成两个镜像。
 
-## 与 gh_skill 的关系（开发规范）
+## 仓库分工（v1.4.7 起）
 
-- **gh_skill**：技能集本身，继续服务**非 Pod 的 opencode 独立部署**。只收与部署方式无关的技能功能修复。
-- **本仓库 `agent/`**：从 gh_skill 标签（`agent/UPSTREAM` 记录）复制来的技能代码，加上 Pod 适配改动。镜像从这里构建。
-- 规则：Pod 架构相关的适配代码只放本仓库；skill 本身的功能改动两个仓库同时改。首次导入用 `scripts/vendor-from-gh-skill.sh`，之后靠 cherry-pick 同步，不整目录覆盖。
+- **本仓库（测试仓库）**：唯一的代码来源，代码只在这里改。完整代码 + 行外自测用的模拟组件（模拟中间件 `agent/grmp_middleware/`、模拟 SSO、
+  假 opencode、故障演练、测试与夹具），以及镜像构建、K8s 清单、发版台、验收题库（`acceptance/`）。
+- **联合仓库 [gh_gs_k8s_agent](https://github.com/sqlrush/gh_gs_k8s_agent)（交付仓库）**：交付给行内的两个分支——`diag`（诊断技能包）与
+  `kbimport`（知识库导入技能包），只有 `common/`、`skills/`、`AGENTS.md`、SQL 白名单（诊断包）与自动生成的补充说明。
+  由 `delivery/transform.py` 从本仓库的发布标签生成，不手工改（见 `delivery/README.md`）。
+- **gh_skill（单机版）**：停在 `skills-v12.25`，不再同步；`agent/UPSTREAM` 保留历次同步记录。
 
 ## 设计
 
@@ -37,12 +40,14 @@
 ## 目录（规划）
 
 ```
-agent/       技能代码(common/ skills/ scripts/ tools/ tests/ …),来自 gh_skill + Pod 适配改动;UPSTREAM 记录来源
+agent/       技能代码(common/ skills/ scripts/ tools/ tests/ …),在本仓库开发(最早来自 gh_skill,UPSTREAM 记录历次同步)
 docker/      Dockerfile(base → runtime / kb-import)、entrypoint.sh、podctl.py(+tests)、opencode.jsonc.tmpl
 k8s/         base/(命名空间、NAS PVC、ConfigMap、角色表、NetworkPolicy) templates/(按工号渲染的 runtime / kb-import) local/(Mac 专用覆盖)
 scripts/     vendor-from-gh-skill.sh、build-images.sh、smoke-image.sh(+tcp-forward.py)、k8s/provision.py(网关建 Pod 的参考实现)、k8s/verify-cluster.sh
 docs/        交付文档(见下) + 内部件:specs/ 设计、plans/ 计划、security/ 扫描报告、env-contract.md 环境契约
 gateway/     接入网关(认工号、按工号建/收容器、反向代理),第四个镜像
+delivery/    转化脚本:发布标签 → 联合仓库的交付分支(diag 诊断技能包、kbimport 知识库导入技能包)
+acceptance/  验收题库:跑题、评分、出报告
 ```
 
 ## 交付文档
@@ -93,6 +98,7 @@ bash scripts/smoke-image.sh dev                   # 12 项冒烟,需要 ~/kf-ver
 - 2026-10-30 `agent-v1.4.3`：**存储过程源码的 ADM_SOURCE 兜底**——开了对象隔离的库，存储过程诊断与调优在 pg_proc 取不到源码时改查 ADM_SOURCE（包内过程从包体里切出，报告标出出处与包体行号）；取不到时报告写明原因，没有读权限给出授权语句（由客户 DBA 决定）。白名单新增 2 条，共 128 条。
 - 2026-11-04 `agent-v1.4.5`：**两份根提示词**（诊断环境、知识库导入环境各一份，问到对方的功能时说明本环境不含）；**根规范随镜像发布**（检索顺序 本行知识库 → 根规范 → 模型自带知识，NAS 挂不上时照样按原路径检索；镜像预留三份模板，行内部署时用离线包里的 `rootspec-overlay.sh` 换成正式规范）；提示词与脚本输出不再用「客户」指代行方，根提示词不带版本标记。白名单不变。gh_skill 同步 `skills-v12.24`。
 - 2026-11-04 `agent-v1.4.6`：**Top SQL 只列业务 SQL**（内核与数据字典、会话设置与事务控制、运维管理、中间件自身的语句一律排除，慢 SQL / 健康检查 / WDR 同一口径）；**回答里不出现系统 SQL**（锁等待恢复、存储过程核对写要做的事）；提示词「贵行」改「本行」、安全红线并入禁止行为、路径写环境变量、报告交给行方前端。白名单不变。gh_skill 同步 `skills-v12.25`。
+- 2026-11-05 `agent-v1.4.7`：**测试仓库与交付分支**——代码只在本仓库维护，交付给行内的诊断技能包、知识库导入技能包由 `delivery/transform.py` 从发布标签自动生成到联合仓库的 `diag` / `kbimport` 分支（按清单选文件、自检、自动生成补充说明，幂等、手改即停）；知识库层不再读登录会话；技能文档更正；验收题库迁入。白名单不变。gh_skill 停在 `skills-v12.25`，不再同步。
 - 2026-10-23 `agent-v1.3.2`：**慢 SQL / Top SQL 排除 GaussDB 自己的系统 SQL**（慢 SQL、Top SQL、健康检查、WDR 都写明排除了几条，`--include-system` 可看全）；**知识库向量库改为 sqlite-vec**（NAS 上一个索引文件，vectordb 组件下线，离线包变为四个镜像）；**知识库导入能看照片**（`MODEL_INPUT_MODALITIES` 声明图片输入，HEIC / TIFF 自动转 jpg）。白名单不变。gh_skill 同步 `skills-v12.18`。逐条见 `docs/版本说明.md`。
 - 2026-10-22 `agent-v1.3.1`：**时段锁回溯**（从活跃会话采样事后还原某段时间谁挡了谁、阻塞链的根）；**历史真实执行计划**（文本带占位符时给当时真实执行的计划，WDR 附录直接附上）；sqltune 支持搜索路径串；大盘深挖首句窗口带秒；部署手册写明事后分析依赖的保留期参数。白名单新增 5 条。gh_skill 同步 `skills-v12.17`。逐条见 `docs/版本说明.md`。
 - 剩下的在客户侧：NFS 压测 5 天、客户确认、网关（阶段 5）、**签名口径逐项确认**（交付手册 §7）；frontend 改造看客户要求。路线图见 `docs/plans/2026-09-17-roadmap.md`。

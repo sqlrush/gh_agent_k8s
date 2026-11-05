@@ -13,10 +13,10 @@
 min_upgrade_from: agent-v1.4.0
 versions:
   - version: agent-v1.4.7
-    mixed_with: [agent-v1.4.6]  # 网关没改;技能只改了文档与内部调用,槽位换到哪版用哪版
+    mixed_with: [agent-v1.4.6]  # 网关没改;技能与提示词跟着镜像走,槽位换到哪版用哪版(新脚本没导时技能按旧口径降级)
     required: []
-    steps: [rebuild_kb_import]    # 导入镜像换了(导入技能的文档更正)
-    whitelist: []
+    steps: [rebuild_kb_import]    # 导入镜像换了(红线与导入技能的文档更正)
+    whitelist: [scripts-delta-20261105.sql]
     notes:
       - "(按需)换过根规范的,用本版本的离线包重做 rootspec-overlay.sh 再推内网仓库(版本说明 v1.4.5「根规范模板替换」)"
   - version: agent-v1.4.6

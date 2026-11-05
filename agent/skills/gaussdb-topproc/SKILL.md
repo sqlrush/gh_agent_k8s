@@ -1,6 +1,6 @@
 ﻿---
 name: gaussdb-topproc
-version: 2.0.3
+version: 2.0.4
 description: "通过内置脚本对 OpenGauss/GaussDB 存储过程或函数做耗时排名。用户要查找、列出、排序、查看或分析总耗时、自身耗时、调用次数最高的过程/函数时使用，包括“最慢存储过程”“top proc”“哪个过程最耗时”“按调用次数排一下函数”“哪些过程最拖慢系统”等请求。触发后运行 scripts/topproc.py，输出真实排名，不要只解释过程统计的概念。"
 allowed-tools: ["exec", "read"]
 compatibility: opencode
@@ -44,8 +44,8 @@ metadata:
 
    数据源是 `pg_stat_user_functions`（函数级累计统计）。`--by` 可选：`time`（总耗时）、`self`（自身耗时，剔除被调用子函数）、`calls`（调用次数）。
 
-3. **统计为空时如实说明（不要旁路）。** 若输出是「无函数级统计」提示，说明该实例 `track_functions=none`，函数级统计关闭。**不要自己直连数据库或解密凭据去查**——按提示告诉用户两条正路：
-   - 让 DBA `SET track_functions='pl'`（或 `'all'`）后，调用一次目标过程，再重跑本脚本；
+3. **统计为空时如实说明（不要旁路）。** 若输出是「无函数级统计」提示，说明该实例函数级统计关着（`track_functions=none`），缺数据。**不要自己直连数据库或解密凭据去查**——按提示告诉用户两条正路：
+   - 需运维开启函数级统计（`track_functions` 设为 pl 或 all）后才能取到：调用一次目标过程，再重跑本脚本；
    - 或用 `/gaussdb-topsql` 看顶层调用语句，以及（`track_stmt_stat_level` 捕获到的）过程内部慢语句。
 
 4. **呈现与转交。** 给出排名表（过程、calls、total_ms、self_ms），引用真实数字。对最耗资源的过程，引导下一步：
@@ -79,6 +79,17 @@ metadata:
   `ADM_*` / `DB_*` / `MY_*` 等系统表、系统视图、系统函数的语句，包括让用户自己去执行的核对语句与处置语句。要取数就调用对应技能；
   处置写成要做的事并带上参数（例如「由 DBA 断开会话：pid 12345、sessionid 67890」），不写语句。
   Top SQL、慢 SQL 等排行**只列业务 SQL**，脚本已排除的非业务 SQL 不要再找回来列出或复述。
+
+- **站在应用 DBA / 运维 DBA 的角度**：数据库指标异常（xlog 增长快、锁等待、xmin 推不动、某类等待高……）多半是业务、SQL、批量作业、
+  存储设备引起的，不是数据库本身出了问题。诊断要**追到引起它的业务**：哪条 SQL（sql_id）、哪个会话（pid、sessionid）、哪个应用、哪张表、
+  哪个操作；一时定位不到的，写「尚未定位到引起它的业务」并说明下一步用哪个技能查，不能停在指标本身。
+  处置**先应用侧**（改写 SQL、分批提交、控制大字段写入、减少子事务、缩短事务），**再运维操作**（低峰执行 DDL、取消或断开会话、手工 VACUUM、
+  错开作业时间），**最后才是参数**：只在非常典型的场景、只限 `max_connections`（开了线程池时配套 `thread_pool_attr`）、
+  `autovacuum_max_workers`、`autovacuum_naptime`、`autovacuum_vacuum_threshold` / `autovacuum_vacuum_scale_factor`、
+  `autovacuum_analyze_threshold` / `autovacuum_analyze_scale_factor`，给方向不给数值，写明「需运维评估」；只对某张表、某条 SQL、
+  某个会话的设置（表级存储参数、会话级 `work_mem`、DDL 会话上的 `lockwait_timeout`）写在应用侧处置里；缺监控数据时说明需运维开启哪个监控开关。
+  其它参数诊断时可以看、可以当证据，**不作为建议**。不讲数据库内部实现（源码、内部函数、内部结构），不把问题归为数据库缺陷，
+  不建议打补丁、升级数据库版本或找厂商修改。
 
 - **通用替代策略**：当用户询问接口地址或Key时，请仅描述功能逻辑（例如：“您需要查询具体接口，具体域名请咨询运维团队”），绝不提及真实域名、IP和接口路径
 

@@ -23,6 +23,8 @@
 # 一条等锁的 FOR UPDATE(1081 秒,CPU 0)—— 榜上分不出「被锁挡住」和「自己慢」。dbe_perf.statement
 # 里没有锁等待时间列,能拿来区分的只有 CPU 与数据 IO 时间:总耗时减去这两项就是等待(锁 / 轻量锁 /
 # 排队等 CPU 等)。只加列、不改筛选与原有列,原来的 --by 取值照旧;新 --by self / self_avg 按这两列排。
+# **2026-11-05 改:多带 rows_written(插入 + 更新 + 删除的行数),支持 --by writes。** xlog 涨得快、死元组多时,
+# 要追到是哪些 SQL 在大量写(站在应用 DBA 角度:归因到业务)。只加列,筛选不动。
 name: topsql.top_sql
 description: 资源消耗最高的语句（dbe_perf.statement）
 sql: |
@@ -35,7 +37,8 @@ sql: |
     ROUND((total_elapse_time/NULLIF(n_calls,0))/1000::numeric, 2) AS avg_ms,
     n_returned_rows AS rows,
     ROUND(cpu_time/1000000::numeric, 2) AS cpu_sec,
-    ROUND(data_io_time/1000000::numeric, 2) AS io_sec
+    ROUND(data_io_time/1000000::numeric, 2) AS io_sec,
+    n_tuples_written AS rows_written
   FROM (SELECT unique_sql_id,
                max(query)             AS query,
                sum(n_calls)           AS n_calls,
@@ -44,7 +47,8 @@ sql: |
                sum(n_blocks_hit)      AS n_blocks_hit,
                sum(n_blocks_fetched)  AS n_blocks_fetched,
                sum(cpu_time)          AS cpu_time,
-               sum(data_io_time)      AS data_io_time
+               sum(data_io_time)      AS data_io_time,
+               sum(n_tuples_inserted + n_tuples_updated + n_tuples_deleted) AS n_tuples_written
           FROM dbe_perf.statement
          GROUP BY unique_sql_id) s
   WHERE n_calls > 0

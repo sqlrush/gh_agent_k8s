@@ -25,6 +25,7 @@ from model import (
     DIM_SLOWSQL, DIM_STORAGE, DIM_XACT, DimResult, Finding, Severity, degraded,
 )
 import running_sql
+import wal
 from thresholds import Thresholds, go_duration
 from util import f2, human_bytes, i64, sev_by_duration, summarize_err, trunc
 
@@ -345,7 +346,9 @@ def collect_logs(runner, th: Thresholds, _top: int) -> DimResult:
         sev = Severity.NOTICE
     if sev != Severity.OK:
         d.findings.append(Finding(DIM_LOGS, "CKPT_PRESSURE", sev, "checkpoint 请求占比",
-                                  f2(req_pct) + "%", f">{thr:.0f}%", "pg_stat_bgwriter checkpoints_req"))
+                                  f2(req_pct) + "%", f">{thr:.0f}%",
+                                  "pg_stat_bgwriter checkpoints_req。checkpoint 被频繁强制触发 = xlog 涨得快,"
+                                  "多是业务写入引起的:写入来源(哪些表、哪些 SQL、有没有大字段)见本报告 WAL 维度"))
     am = "未知"
     try:
         _am = runner.run("health.archive_mode")
@@ -496,7 +499,7 @@ def _sync_commit(runner, d: DimResult, repl_rows: list) -> str:
             % (commit, trunc(names, 30)), "至少 1 个",
             "集群已配置 replconninfo（%d 个对端）且要求同步确认，而 pg_stat_replication 里"
             "没有 sync_state=sync 的备库 —— **主库的提交会一直等下去**，表现为写入全部挂住。"
-            "处置：恢复备库，或由 DBA 临时把 synchronous_commit 降为 local" % peers))
+            "处置：由运维恢复备库；恢复前要先放行写入的，由运维按配置基线评估临时把 synchronous_commit 降为 local" % peers))
         return "⚠ 要求同步确认但没有同步备"
     return "集群，%d 个同步备在线（%s）" % (synced, cfg)
 
@@ -792,6 +795,7 @@ def registry():
         ("xact", collect_xact),
         ("conn", collect_conn),
         ("logs", collect_logs),
+        ("wal", wal.collect_wal),
         ("repl", collect_repl),
         ("schema", collect_schema),
         ("storage", collect_storage),

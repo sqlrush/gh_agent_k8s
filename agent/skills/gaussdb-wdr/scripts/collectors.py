@@ -11,7 +11,7 @@ import dataclasses
 
 from model import (
     DIM_CACHE, DIM_CHECKPOINT, DIM_DBSTAT, DIM_FILEIO, DIM_LOADPROFILE,
-    DIM_TOPSQL, DIM_WAITS, DimResult, Evidence, Finding, Options, Severity,
+    DIM_TOPSQL, DIM_WAITS, DIM_WRITES, DimResult, Evidence, Finding, Options, Severity,
     degraded, worst,
 )
 from native import generate_native, load_window
@@ -558,12 +558,59 @@ def collect_checkpoint(runner, opt: Options) -> DimResult:
         if req_pct > th.ckpt_req_warn:
             d.findings.append(Finding(DIM_CHECKPOINT, "WDR_CKPT_REQ_HIGH", Severity.WARN,
                                       "强制 checkpoint 占比", f2(req_pct) + "%", f">{th.ckpt_req_warn:.0f}%",
-                                      "snap_global_bgwriter_stat checkpoints_req/timed"))
+                                      "snap_global_bgwriter_stat checkpoints_req/timed。强制 checkpoint 多 = 这段时间 xlog 涨得快,"
+                                      "多是业务写入引起的:写入最多的表见 Write Sources 一节,写入最多的 SQL 见 Top SQL"))
         elif req_pct > th.ckpt_req_notice:
             d.findings.append(Finding(DIM_CHECKPOINT, "WDR_CKPT_REQ_HIGH", Severity.NOTICE,
                                       "强制 checkpoint 占比", f2(req_pct) + "%", f">{th.ckpt_req_notice:.0f}%",
-                                      "snap_global_bgwriter_stat checkpoints_req/timed"))
+                                      "snap_global_bgwriter_stat checkpoints_req/timed。强制 checkpoint 多 = 这段时间 xlog 涨得快,"
+                                      "多是业务写入引起的:写入最多的表见 Write Sources 一节,写入最多的 SQL 见 Top SQL"))
     d.headline = f"checkpoint timed {timed} / req {req}（req 占 {req_pct:.0f}%）"
+    return d
+
+
+# --- Write Sources(2026-11-05) -----------------------------------------------
+# 窗口内是谁在写:checkpoint 被频繁强制触发、xlog 涨得快时,追到写入最多的表(大字段写入折回所属业务表)与 redo 量。
+# 站在应用 DBA 角度:强制 checkpoint 是业务写入的结果,不是 checkpoint 参数的问题。写入最多的 SQL 在 Top SQL 里看。
+
+_REDO_BLOCK = 8192        # redo 块按 8KB 折算(官方 WDR「Redo size(blocks)」的块)
+
+
+def collect_writes(runner, opt: Options) -> DimResult:
+    b, e, top = int(opt.begin), int(opt.end), int(opt.top)
+    try:
+        rows = runner.run("wdr.table_writes", {"b": b, "e": e, "top": top * 2})
+    except access.QueryError as exc:
+        return degraded(DIM_WRITES, summarize_err(exc))
+    try:
+        redo = runner.run("wdr.redo_io", {"b": b, "e": e})
+    except access.QueryError:
+        redo = []
+    tables: dict = {}
+    for r in rows:
+        k = (str(r["schema"]), str(r["table"]))
+        t = tables.setdefault(k, {"ins": 0, "upd": 0, "del": 0, "toast": 0})
+        if str(r.get("is_toast") or "").lower() in ("t", "true", "1"):
+            t["toast"] += _i(r["ins"]) + _i(r["upd"])
+        else:
+            t["ins"] += _i(r["ins"]); t["upd"] += _i(r["upd"]); t["del"] += _i(r["del"])
+    ordered = sorted(tables.items(), key=lambda kv: sum(kv[1].values()), reverse=True)[:top]
+    d = DimResult(dimension=DIM_WRITES, available=True, headers=["表", "插入", "更新", "删除", "大字段(TOAST)写入"])
+    for (sch, tbl), t in ordered:
+        d.rows.append(["%s.%s" % (sch, tbl), i64(t["ins"]), i64(t["upd"]), i64(t["del"]), i64(t["toast"]) if t["toast"] else ""])
+    redo_txt = ""
+    if redo:
+        blocks = _i(redo[0].get("blocks"))
+        redo_txt = ("redo 写入 %s 块(约 %s)" % (i64(blocks), mib(blocks * _REDO_BLOCK)) if blocks >= 0
+                    else "redo 写入量算不出(窗口跨了实例重启,计数器归零)")
+    if ordered:
+        (sch, tbl), t = ordered[0]
+        lob = ("，其中大字段写入 %s 行" % i64(t["toast"])) if t["toast"] else ""
+        d.headline = "写入最多的表 %s.%s(插入 %s、更新 %s、删除 %s%s)" % (sch, tbl, i64(t["ins"]), i64(t["upd"]), i64(t["del"]), lob)
+    else:
+        d.headline = "窗口内没有表级写入"
+    if redo_txt:
+        d.headline += ";" + redo_txt
     return d
 
 
@@ -610,7 +657,7 @@ def collect_fileio(runner, opt: Options) -> DimResult:
 def registry():
     """Collectors in evidence-pack display order (= report section order)."""
     return [collect_loadprofile, collect_dbstat, collect_topsql, collect_waits,
-            collect_checkpoint, collect_cache, collect_fileio]
+            collect_checkpoint, collect_writes, collect_cache, collect_fileio]
 
 
 # 等待时长超过 DB time 这么多倍,就认定 DB time 不可信(留足余量:两个计数器的

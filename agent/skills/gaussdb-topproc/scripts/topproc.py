@@ -50,8 +50,8 @@ _SORT_COLS = {
 SORT_KEYS = ["time", "self", "calls"]
 
 _EMPTY_NOTE = (
-    "无函数级统计：pg_stat_user_functions 为空（多因 track_functions=none，函数级统计关闭）。"
-    "用 `SET track_functions='pl'`（或 'all'）后再调用过程重采；或用 gaussdb-topsql 看顶层调用，"
+    "无函数级统计：函数级统计为空（多因函数级统计没开，track_functions=none），缺数据。"
+    "需运维开启 track_functions（pl 或 all）后才能取到，再调用过程重采；或用 gaussdb-topsql 看顶层调用，"
     "以及（track_stmt_stat_level 捕获到的）过程内部语句。"
 )
 

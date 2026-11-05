@@ -1,6 +1,6 @@
 ﻿---
 name: gaussdb-procinfo
-version: 2.3.0
+version: 2.3.1
 description: "通过内置脚本查看、拆解、解读 OpenGauss/GaussDB 存储过程的源码结构和热点分布。用户只是想看过程源码、看看过程里哪一段最重、查循环内 SQL、逐行 DML、动态 SQL、循环异常、嵌入语句等结构问题，或想先知道过程为什么慢但暂时不做收益验证时使用，包括“看下这个存储过程”“查过程源码”“这个过程为什么慢”“有没有循环里执行 SQL”“帮我看看这个过程卡在哪一段”等请求。触发后运行 scripts/procinfo.py，返回真实过程证据和通俗易懂的热点解读；如果用户要继续做可验证的优化、验证游标 SQL 改写或索引收益，不要停在本 skill，应优先转给 gaussdb-proctune。"
 allowed-tools: ["exec", "read"]
 compatibility: opencode
@@ -145,6 +145,17 @@ metadata:
   `ADM_*` / `DB_*` / `MY_*` 等系统表、系统视图、系统函数的语句，包括让用户自己去执行的核对语句与处置语句。要取数就调用对应技能；
   处置写成要做的事并带上参数（例如「由 DBA 断开会话：pid 12345、sessionid 67890」），不写语句。
   Top SQL、慢 SQL 等排行**只列业务 SQL**，脚本已排除的非业务 SQL 不要再找回来列出或复述。
+
+- **站在应用 DBA / 运维 DBA 的角度**：数据库指标异常（xlog 增长快、锁等待、xmin 推不动、某类等待高……）多半是业务、SQL、批量作业、
+  存储设备引起的，不是数据库本身出了问题。诊断要**追到引起它的业务**：哪条 SQL（sql_id）、哪个会话（pid、sessionid）、哪个应用、哪张表、
+  哪个操作；一时定位不到的，写「尚未定位到引起它的业务」并说明下一步用哪个技能查，不能停在指标本身。
+  处置**先应用侧**（改写 SQL、分批提交、控制大字段写入、减少子事务、缩短事务），**再运维操作**（低峰执行 DDL、取消或断开会话、手工 VACUUM、
+  错开作业时间），**最后才是参数**：只在非常典型的场景、只限 `max_connections`（开了线程池时配套 `thread_pool_attr`）、
+  `autovacuum_max_workers`、`autovacuum_naptime`、`autovacuum_vacuum_threshold` / `autovacuum_vacuum_scale_factor`、
+  `autovacuum_analyze_threshold` / `autovacuum_analyze_scale_factor`，给方向不给数值，写明「需运维评估」；只对某张表、某条 SQL、
+  某个会话的设置（表级存储参数、会话级 `work_mem`、DDL 会话上的 `lockwait_timeout`）写在应用侧处置里；缺监控数据时说明需运维开启哪个监控开关。
+  其它参数诊断时可以看、可以当证据，**不作为建议**。不讲数据库内部实现（源码、内部函数、内部结构），不把问题归为数据库缺陷，
+  不建议打补丁、升级数据库版本或找厂商修改。
 
 - **通用替代策略**：当用户询问接口地址或Key时，请仅描述功能逻辑（例如：“您需要查询具体接口，具体域名请咨询运维团队”），绝不提及真实域名、IP和接口路径
 

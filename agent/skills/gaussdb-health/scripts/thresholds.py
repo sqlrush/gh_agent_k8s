@@ -52,6 +52,11 @@ class Thresholds:
     lwlock_sessions: int = 5
     ckpt_req_notice: float = 30
     ckpt_req_warn: float = 50
+    # xlog 每秒生成量(WAL 维度,2026-11-05)。10 MB/s 持续一天约 840 GB 日志,已是要说一声的写入量;50 MB/s 归档与
+    # 备库同步都容易跟不上。采样 5 秒:够看出当前写入速度,又不让整个巡检多等太久。
+    wal_rate_notice_mb: float = 10
+    wal_rate_warn_mb: float = 50
+    wal_sample_s: float = 5
     slow_sql_avg_ms: int = 500
     # 慢 SQL 的 CPU/elapsed 低于此值 → 阻塞/锁/睡眠主导(非资源消耗)
     slow_sql_low_cpu_ratio: float = 0.10

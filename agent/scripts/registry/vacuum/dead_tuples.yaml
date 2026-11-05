@@ -6,6 +6,9 @@
 # "0 秒前刚跑过"和"从没跑过"是相反的意思，折成 0 会让最该管的表看起来
 # 刚被服务过，掩盖它正是 vacuum_count=0、autovacuum_count=0 的那一类表。
 #
+# n_tup_upd / n_tup_hot_upd / n_tup_del(2026-11-05 加):死元组是这张表上的 UPDATE / DELETE 留下的,
+# 报告要说清「是哪类业务操作造成的」,不能只说「autovacuum 没追上」(站在应用 DBA 角度)。
+#
 # 系统 schema 排除表照抄 scripts/registry/health/bloat.yaml 的清单，
 # 避免系统表的死元组把真正的风险表挤出 LIMIT。
 name: vacuum.dead_tuples
@@ -22,6 +25,9 @@ sql: |
          EXTRACT(EPOCH FROM (now()-t.last_vacuum)) AS last_vacuum_age_s,
          t.vacuum_count AS vacuum_count,
          t.autovacuum_count AS autovacuum_count,
+         t.n_tup_upd AS n_tup_upd,
+         t.n_tup_hot_upd AS n_tup_hot_upd,
+         t.n_tup_del AS n_tup_del,
          CASE WHEN 'autovacuum_enabled=false' = ANY(c.reloptions) THEN false ELSE true END AS autovac_enabled,
          COALESCE(array_to_string(c.reloptions, ','), '') AS reloptions
     FROM pg_stat_user_tables t

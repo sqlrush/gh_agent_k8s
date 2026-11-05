@@ -124,7 +124,8 @@ def scan_plan(plan_text: str) -> list[Finding]:
         elif trimmed.startswith("sort"):
             out.append(Finding("sort", "warn", detail,
                 "Explicit sort; an index matching ORDER BY may remove it. "
-                "Check work_mem if the sort spills to disk."))
+                "If it spills to disk, first cut the rows this SQL sorts (filters, paging); "
+                "raise work_mem only for this SQL's session if still needed."))
     if "nested loop" in lower and "seq scan" in lower:
         out.append(Finding("nestloop_seqscan", "warn",
             "Nested Loop combined with Seq Scan",
@@ -132,7 +133,8 @@ def scan_plan(plan_text: str) -> list[Finding]:
             "consider an index on the join key."))
     if "hash join" in lower:
         out.append(Finding("hash_join", "info", "Hash Join present",
-            "Usually fine for large joins; verify hash memory fits work_mem."))
+            "Usually fine for large joins; if the hash spills, reduce the rows feeding the join first "
+            "(session-level work_mem for this SQL only if needed)."))
     return out
 
 

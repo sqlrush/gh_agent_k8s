@@ -169,8 +169,9 @@ def collect_sql(runner, cat: Catalog, cap: Capability, th: Thresholds, top: int,
             d.findings.append(Finding(
                 DIM_SQL, "MEM_SQL_SPILL", Severity.WARN, "SQL 下盘量",
                 human_mb(spill_mb), f">={human_mb(th.spill_warn_mb)}",
-                f"query_id {qid} 下盘 {human_mb(spill_mb)}，说明 work_mem 不足以容纳"
-                f"排序/哈希，算子被迫落盘（先定位到具体算子再调 work_mem）"))
+                f"query_id {qid} 下盘 {human_mb(spill_mb)}：这条 SQL 的排序 / 哈希处理的数据量超出了内存，"
+                f"算子被迫落盘。先定位到具体算子、看能不能少处理数据（加过滤、分页、用索引免排序）；"
+                f"确有必要时只在这条 SQL 的会话级调大 work_mem"))
 
         if est_mb > 0 and peak_mb / est_mb >= th.estimate_dev_ratio:
             d.findings.append(Finding(
@@ -247,7 +248,7 @@ def collect_operator(runner, cat: Catalog, cap: Capability, th: Thresholds, top:
             d.findings.append(Finding(
                 DIM_OPERATOR, "MEM_OP_SPILL", Severity.WARN, "算子下盘量",
                 human_mb(spill_mb), f">={human_mb(th.spill_warn_mb)}",
-                f"{where} 下盘 {human_mb(spill_mb)}，work_mem 不足以容纳该算子"))
+                f"{where} 下盘 {human_mb(spill_mb)}：该算子处理的数据量超出了内存，先看能不能少处理数据"))
 
         if est_rows and act_rows is not None and act_rows / est_rows >= th.rows_dev_ratio:
             d.findings.append(Finding(

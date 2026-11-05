@@ -278,7 +278,8 @@ def dim_waits(wd: Dict[str, Dict], th: WinThresholds, idle: bool) -> DimResult:
             d.findings.append(Finding(
                 DIM_WIN_WAITS, "WIN_WAIT_SKEW", Severity.NOTICE, "时段等待集中在 %s" % cls,
                 "%.0f%%" % share, ">%.0f%%" % th.wait_skew_pct,
-                "占全部等待时长的比例（含后台线程）。要拆到具体事件与会话，用同一时段的 WDR 或 gaussdb-waitevent"))
+                "占全部等待时长的比例（含后台线程）。这是实例级指标，要追到是哪些 SQL、哪些会话在等："
+                "锁类用同一时段的 gaussdb-lockwait 回看，其它类用同一时段的 WDR（Top SQL 按等待排）"))
     return d
 
 

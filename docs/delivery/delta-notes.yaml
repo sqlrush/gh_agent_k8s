@@ -1,0 +1,55 @@
+# 增量导入包里每条脚本的说明 —— agent/tools/delivery_delta.py 读这份。
+#
+# **为什么说明要单独维护、而增量清单不要手写。** 2026-10-18 第一次出增量包时,新增 / 变更清单是手写的 ——
+# 漏了 4 条正文变更。清单现在由工具对比行方在用的那一版**自动算**;这份文件只负责「为什么」。
+# 工具发现某条新增 / 变更在这里没有说明,会直接报错退出 —— 不许静默地出一个缺条目的包。
+# (2026-11-05 起在本仓库维护,gh_skill 那份停在 skills-v12.25。)
+#
+# added: 新增脚本 → [标题, 读取什么, 用途]
+# changed: 已有脚本的正文变更 → 一段说明(给中间件团队的变更评审看)
+
+added:
+  vacuum.xmin_holder:
+    - 卡住死元组回收的事务（持有最老 xmin 的会话）
+    - pg_running_xacts / pg_stat_activity / gs_txid_oldestxmin()
+    - 表膨胀、vacuum 回收不掉时，指出真正持有最老 xmin 的是哪个会话、哪个应用、正在执行什么语句（原来只能列出「此刻有哪些长事务」）。不取客户端地址。只读
+  vacuum.xid_lag:
+    - 最老 xmin 落后当前事务号多少
+    - gs_txid_oldestxmin() / gs_get_next_xid_csn()
+    - 给「xmin 推不动」一个量：落后几百是正常并发，持续涨到几十万以上说明有事务长时间不结束。不分配事务号。只读
+  health.xlog_position:
+    - 此刻的 xlog 写入位置
+    - pg_current_xlog_location()
+    - 健康检查隔几秒取两次，算出 xlog 每秒生成量（此前没有任何检查能测 xlog 涨得多快）。只读
+  health.table_writes:
+    - 各表的插入 / 更新 / 删除行数（大字段写入折回所属表）
+    - pg_stat_all_tables / pg_class / pg_namespace
+    - 健康检查隔几秒取两次，得出采样期间写入最多的表；大字段（TOAST）的写入折回所属业务表单列标出，用于判断是不是大字段批量写入导致 xlog 涨得快。只读
+  health.write_sql:
+    - 写入行数最多的语句
+    - dbe_perf.statement
+    - 按语句汇总插入 + 更新 + 删除的行数（统计重置以来），找出写得最多的业务 SQL。只读
+  health.write_sessions:
+    - 此刻正在执行写入的会话
+    - pg_stat_activity
+    - 正在执行 INSERT / UPDATE / DELETE / MERGE / COPY / CALL 的会话：哪个应用、执行了多久、语句是什么。表级写入计数要等语句结束才累加，长时间的批量写入或存储过程靠这一路说出是谁在写。只读
+  health.xlog_by_session:
+    - 当前事务 xlog 用量最大的会话
+    - pg_stat_activity.xlog_quantity
+    - GaussDB 上直接给出哪个会话、哪个应用、正在执行哪条 SQL 写了多少 xlog；库里没有这一列时技能如实说明、改看表与 SQL 两路。只读
+  wdr.table_writes:
+    - 时间段内各表的插入 / 更新 / 删除行数
+    - snapshot.snap_global_stat_all_tables / pg_class / pg_namespace
+    - 两个 WDR 快照之差，回答「那段时间是哪张表在写」（强制 checkpoint 多、xlog 涨得快时追到业务表）；大字段写入折回所属表。只读
+  wdr.redo_io:
+    - 时间段内 redo（xlog）写入量
+    - snapshot.snap_global_file_redo_iostat
+    - 两个 WDR 快照之差：redo 物理写次数与写入块数，对应官方 WDR 报告的 Redo size。只读
+
+changed:
+  vacuum.dead_tuples: >-
+    **多取三列**：这张表的更新、HOT 更新、删除次数（pg_stat_user_tables 的 n_tup_upd / n_tup_hot_upd / n_tup_del），
+    报告据此说明死元组来自哪类业务操作。筛选、排序不变。只读。
+  topsql.top_sql: >-
+    **多取一列**：按语句汇总的写入行数（插入 + 更新 + 删除），支持按写入排 Top SQL（xlog 涨得快、表上死元组多时找写得最多的 SQL）。
+    筛选、排序方式不变。只读。

@@ -22,7 +22,9 @@ sys.path.insert(0, str(ROOT))
 
 from common.grmp.script import load_script  # noqa: E402
 
-DELIVERY = ROOT / "docs" / "delivery" / "scripts.sql"
+# 交付 DML 在仓库根的 docs/delivery/(本仓库);技能包单独成仓时在 agent 根下
+DELIVERY = next((p for p in (ROOT.parent / "docs" / "delivery" / "scripts.sql", ROOT / "docs" / "delivery" / "scripts.sql")
+                 if p.is_file()), ROOT.parent / "docs" / "delivery" / "scripts.sql")
 REGISTRY = ROOT / "scripts" / "registry"
 
 _COLS = ("id, script_type, script_name, database_type, refered_appbusiness, kernel_version, region, "
@@ -42,6 +44,12 @@ def _row(name: str, create_user: str, database_type: str) -> str:
             f"{_q(rec.script_name)}, {_q(database_type)}, 1, 'ALL', NULL, NULL, NULL, 'centralization', "
             f"{_q(rec.script_content)}, {_q(rec.parameter_config)}, 'AGENT', 1, {_q(create_user)}, now(), "
             f"{_q(create_user)}, NULL, 0, NULL, 'ALL', uuid());\n")
+
+
+def _old_database_type(text: str, name: str) -> str:
+    """替换时沿用旧行的 database_type —— 行方按它路由执行库,改了等于换了执行目标。"""
+    m = re.search(r"'SQL', '" + re.escape(name) + r"', '([a-z]+)'", text)
+    return m.group(1) if m else ""
 
 
 def _existing_names(text: str) -> set:
@@ -71,6 +79,7 @@ def main(argv=None) -> int:
     have = _existing_names(text)
     added = []
     for name in args.names:
+        old_type = _old_database_type(text, name) if name in have else ""
         if name in have and args.replace:
             text = _drop_rows(text, name)
             print(f"替换(先删旧行):{name}")
@@ -78,7 +87,7 @@ def main(argv=None) -> int:
             print(f"跳过(已存在):{name}")
             continue
         prefix = name.split(".", 1)[0]
-        text += _row(name, args.create_user, dbtype.get(prefix, "postgres"))
+        text += _row(name, args.create_user, old_type or dbtype.get(prefix, "postgres"))
         added.append(name)
     DELIVERY.write_text(text, encoding="utf-8")
     print(f"追加 {len(added)} 条:{', '.join(added) or '无'};现共 {len(_existing_names(text))} 条")

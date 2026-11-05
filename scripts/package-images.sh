@@ -62,6 +62,7 @@ install -m 0755 "$HERE/scripts/rootspec-overlay.sh" "$DIST/rootspec-overlay.sh" 
 #   specs/     设计 spec —— 里面有备选方案、退路、残余风险、未定项与决策过程。
 #              交付文档不写我们的讨论过程,这一份从头到尾都是讨论过程。
 #   prototypes/ 大盘设计稿(示例数字、方案对比)
+#   acceptance/ + 智能体验收方案.md  验收题库的方案与网页版(跑题要连测试环境与模拟组件;在线页面在联合仓库)
 #   env-contract.md / k8s-deploy.md / delivery-容器化交付手册.md  早期文档,版本号停在 v0.4.1 / v0.7,
 #              还指向 specs/。v1.0.4 的包里带着它们,验 v1.1.0 包时才发现。
 # 仓库结构说明的「内部件(不随包发出)」表与这里必须一致,有守卫。
@@ -72,6 +73,7 @@ install -m 0755 "$HERE/scripts/rootspec-overlay.sh" "$DIST/rootspec-overlay.sh" 
 COPYFILE_DISABLE=1 tar czf "$DIST/$PKG-k8s.tar.gz" -C "$HERE" \
     --exclude='docs/plans' --exclude='docs/security' --exclude='docs/specs' --exclude='docs/prototypes' \
     --exclude='docs/env-contract.md' --exclude='docs/k8s-deploy.md' --exclude='docs/delivery-容器化交付手册.md' \
+    --exclude='docs/acceptance' --exclude='docs/智能体验收方案.md' \
     --exclude='._*' --exclude='.DS_Store' \
     k8s docs
 (cd "$DIST" && shasum -a 256 "$PKG-k8s.tar.gz" > "$PKG-k8s.tar.gz.sha256")

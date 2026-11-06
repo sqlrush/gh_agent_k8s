@@ -205,15 +205,6 @@ CREATE TABLE wal_log (
   wrote_at  timestamp DEFAULT now()
 );
 
--- W1:大字段批量写入的落点(2026-11-05)。正文是几 KB 的随机文本,压缩不了,每行都进 TOAST。每次 cleanup 清空。
-DROP TABLE IF EXISTS doc_blob CASCADE;
-CREATE TABLE doc_blob (
-  id        bigserial PRIMARY KEY,
-  who       varchar(32),
-  body      text,
-  wrote_at  timestamp DEFAULT now()
-);
-
 -- L2:100 行挤在同一个数据页上 —— 所有会话抢同一个缓冲区的内容锁。
 -- 这里建的是普通表;prepare / run 随后会在 ustore 可用时把它换成 ustore 表(见 prepare.runtime_ddl)。
 DROP TABLE IF EXISTS hotpage CASCADE;

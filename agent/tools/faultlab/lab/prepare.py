@@ -121,6 +121,10 @@ def runtime_ddl(ustore: bool) -> Dict[str, List[str]]:
                       "CREATE TABLE %s.xact_tick (id int PRIMARY KEY, n bigint NOT NULL DEFAULT 0)%s"
                       % (s, _with_storage(ustore)),
                       "INSERT INTO %s.xact_tick SELECT g, 0 FROM generate_series(1, 1000) g" % s],
+        # W1:大字段批量写入的落点。正文是几 KB 的随机文本,压缩不了,每行都进 TOAST。cleanup 清空。
+        "doc_blob": ["DROP TABLE IF EXISTS %s.doc_blob CASCADE" % s,
+                     "CREATE TABLE %s.doc_blob (id bigserial PRIMARY KEY, who varchar(32), body text, "
+                     "wrote_at timestamp DEFAULT now())" % s],
         # L5:每个子事务写一行,cleanup 清空。
         "subx_log": ["DROP TABLE IF EXISTS %s.subx_log CASCADE" % s,
                      "CREATE TABLE %s.subx_log (id bigint, who varchar(16), at timestamp DEFAULT now())" % s],

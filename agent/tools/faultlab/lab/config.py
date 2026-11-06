@@ -119,7 +119,7 @@ TABLES: Tuple[Table, ...] = (
 )
 
 # 运行期对象(runtime_ddl 建,不在 schema.sql 里):这几张表与 fl_slow_key 函数。
-RUNTIME_TABLES = ("xact_tick", "subx_log", "maint_hist", "dl_child")
+RUNTIME_TABLES = ("xact_tick", "subx_log", "maint_hist", "dl_child", "doc_blob")
 DL_CHILD_ROWS = next(t.rows for t in TABLES if t.name == "dl_child")
 
 BIG_CUSTOMER_ID = 1            # 占 30% 订单的那个大行方
@@ -252,7 +252,9 @@ WRITES: Tuple[Scenario, ...] = (
     Scenario("W1", "writes", "大字段批量写入:几 KB 随机正文一批批插入、每批即提交 → xlog 涨得快、checkpoint 被频繁强制触发", 1, 1, 60, 200),
 )
 W1_BATCH_ROWS = 300                       # 每批行数(每行约 5 KB 随机文本)
-W1_MAX_BYTES = 800 << 20                  # doc_blob 长到这么大就停写(连 TOAST)
+# doc_blob 长到这么大就停写(连 TOAST)。不能大:V4 的复制槽整个窗口都钉着 WAL,槽落后超过 WAL_GUARD_BYTES(2 GiB)
+# 守卫就会删槽,V4 那一项就看不到了;300 MB 的大字段约产生 0.5 GB WAL,加上别的场景仍在守卫线以内。
+W1_MAX_BYTES = 300 << 20
 
 ALL_SCENARIOS: Tuple[Scenario, ...] = SLOW + LOCK + DEADLOCK + VACUUM + LWLOCK + WRITES
 

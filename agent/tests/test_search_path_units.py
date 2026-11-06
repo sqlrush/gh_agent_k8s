@@ -294,3 +294,16 @@ def test_unsupported_two_statements_qualifies_with_the_first_segment():
 def test_fallback_note_for_a_path_names_the_first_segment_for_qualified_names():
     note = sp.fallback_note("fl, public", "探测脚本没有返回 1")
     assert "SET search_path = fl, public;" in note and "fl.<表>" in note and "public, public" not in note
+
+
+def test_business_path_drops_the_default_user_segment():
+    """statement_history 记的默认路径 `"$user",public`:原先整串判不合法、一段都不切,业务表找不到(2026-11-06)。
+    现在 `"$user"` 去掉、合法名外的引号去掉;只剩 public 时返回空串,由调用方按表名在目录里找 schema。"""
+    assert sp.business_path('"$user",public') == ""
+    assert sp.business_path('"$user", public') == ""
+    assert sp.business_path('"$user", gmag, public') == "gmag, public"
+    assert sp.business_path('"Gmag", public') == "Gmag, public"
+    assert sp.business_path("fl, public") == "fl, public"
+    assert sp.business_path("") == "" and sp.business_path(None) == ""
+    # 注入防线不变:不合法的段原样留着,照旧由 parse_search_path 判掉
+    assert not sp.valid_search_path(sp.business_path('fl, x;drop'))

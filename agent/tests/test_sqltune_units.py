@@ -645,13 +645,12 @@ def test_user_name_guess_yields_to_a_unique_catalog_match():
     assert sqltune.resolve_schema(r, "select * from t", "kf_app", "user_name") == ("gmag", "catalog")
 
 
-def test_ambiguous_tables_raise_with_candidates_instead_of_guessing():
-    import pytest
+def test_same_name_in_two_schemas_is_picked_not_refused():
+    """2026-11-06 行方:技能不要做跨 schema 的限制 —— 选一个(来源 catalog_picked,报告写明),不再拒绝。"""
     import sqltune
     r = _CatalogRunner([("gbatch", "t"), ("dsc_ora_public", "t")])
-    with pytest.raises(ValueError) as ei:
-        sqltune.resolve_schema(r, "select * from t", "", "")
-    assert "gbatch" in str(ei.value) and "dsc_ora_public" in str(ei.value) and "--schema" in str(ei.value)
+    assert sqltune.resolve_schema(r, "select * from t", "", "") == ("dsc_ora_public", "catalog_picked")
+    assert "--schema" in sqltune._SCHEMA_SOURCE_LABEL["catalog_picked"]
     assert sqltune.resolve_schema(r, "select * from t", "gbatch", "user_name") == ("gbatch", "user_name")   # 推测值在候选里就留
 
 

@@ -112,9 +112,32 @@ def test_explain_main_routes_a_missing_object_to_the_new_message(monkeypatch, ca
     assert "目标库「appdb」" in err and "--sql-id" in err and "ALTER ROLE" not in err
 
 
+def test_sqltune_tunes_from_the_recorded_plan_when_the_table_is_in_another_database(monkeypatch, capsys):
+    """行方「部分 SQL 无法调优」:现取计划找不到对象时,按 SQL 历史里的真实执行计划出分析,不再只报错。"""
+    plan = ("Datanode Name: dn1\nAggregate  (actual time=900.1..900.1 rows=1 loops=1)\n"
+            "  ->  Seq Scan on t_order  (actual time=0.1..880.0 rows=2000000 loops=1)\n"
+            "        Filter: (to_char(created_at, 'YYYYMMDD') = '20261106')")
+    monkeypatch.setattr(sqltune_mod.access, "for_conn", lambda *a, **k: _HistRunner(plan))
+    monkeypatch.setattr(sqltune_mod.access, "may_provide_session", lambda *a, **k: False)
+    monkeypatch.setattr(sqltune_mod.history_tune, "sql_fetch",
+                        lambda r, sid: SimpleNamespace(sql="SELECT count(*) FROM gmag.t_order WHERE to_char(created_at,"
+                                                          " 'YYYYMMDD') = '20261106'", schema="gmag"))
+
+    def _missing(*a, **k):
+        raise QueryError(MISSING)
+    monkeypatch.setattr(sqltune_mod, "tune_by_id", _missing)
+    monkeypatch.setattr(exec_db, "resolve", lambda name: ROUTED)
+    assert sqltune_mod.main(["126"]) == 0
+    out = capsys.readouterr().out
+    assert "SQL 调优(按执行历史)— sql_id 126" in out and "要诊断的库「appdb」与取数的库「postgres」不同" in out
+    assert "Seq Scan on t_order" in out and "Datanode Name" not in out and "没有经过假设索引验证" in out
+    assert "## 计划里看到的问题" in out and "ALTER ROLE" not in out
+
+
 def test_sqltune_replaces_the_search_path_hint(monkeypatch, capsys):
     monkeypatch.setattr(sqltune_mod.access, "for_conn", lambda *a, **k: _HistRunner())
     monkeypatch.setattr(sqltune_mod.access, "may_provide_session", lambda *a, **k: False)
+    monkeypatch.setattr(sqltune_mod.history_tune, "report", lambda *a, **k: "")     # 历史里没有这条的计划
 
     def _missing(*a, **k):
         raise QueryError(MISSING)

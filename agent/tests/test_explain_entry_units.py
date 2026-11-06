@@ -520,14 +520,15 @@ def test_stdin_without_schema_infers_it_from_the_catalog(monkeypatch, capsys):
     assert "search_path=gmag" in out and "推断" in out
 
 
-def test_stdin_with_ambiguous_tables_lists_candidates_and_stops(monkeypatch, capsys):
+def test_stdin_with_same_name_in_two_schemas_picks_one_and_says_so(monkeypatch, capsys):
+    """2026-11-06 行方:技能不要做跨 schema 的限制 —— 不再停下来问,取一个并在说明里写明候选。"""
     import io
     from common import search_path as sp
     sp.reset_probe_cache()
     r = _InferRunner([("gbatch", "t_lmpcdtl"), ("dsc_ora_public", "t_lmpcdtl")])
     monkeypatch.setattr(explain_mod.access, "for_conn", lambda *a, **k: r)
     monkeypatch.setattr(sys, "stdin", io.StringIO("SELECT * FROM t_lmpcdtl"))
-    assert explain_mod.main(["--sql-stdin"]) == 2
-    err = capsys.readouterr().err
-    assert "gbatch" in err and "dsc_ora_public" in err and "--schema" in err
-    assert not any(c[0].startswith("explain.plan_text") for c in r.calls)     # 没猜着去跑
+    assert explain_mod.main(["--sql-stdin"]) == 0
+    out = capsys.readouterr().out
+    assert "gbatch" in out and "dsc_ora_public" in out and "--schema" in out
+    assert any(c[0].startswith("explain.plan_text") for c in r.calls)

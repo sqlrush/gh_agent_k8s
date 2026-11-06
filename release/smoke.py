@@ -151,18 +151,32 @@ class Smoke:
         items = json.loads(data or b"[]")
         return sum(int(i.get("count") or 0) for i in items if key is None or i.get("label") == key or i.get("key") == key)
 
+    def _reports(self, path: str) -> Tuple[int, str]:
+        """(份数, 最新一份的时间)。份数有上限:每个实例只留最近 50 份(common/reports.DEFAULT_KEEP),
+        满了以后新报告挤掉最老的一份,份数不再增加 —— 只看份数会把正常出了报告判成没出(2026-11-06 测试环境攒满后撞到)。"""
+        code, data = self._req("GET", path)
+        if code == 404:
+            return 0, ""
+        if code != 200:
+            raise SmokeError("读 %s 失败(%d)" % (path, code))
+        items = json.loads(data or b"[]")
+        return (sum(int(i.get("count") or 0) for i in items),
+                max((str(i.get("last_at") or "") for i in items), default=""))
+
     def health_report(self, version: str) -> Optional[Check]:
         if not self.instance:
             return None
         t0 = self.clock()
         try:
-            before = self._count("/reports/health/targets.json")
+            before, b_last = self._reports("/reports/health/targets.json")
             reply, tools, err = self.chat(HEALTH.format(inst=self.instance), "发版台冒烟 %s 健康检查" % version)
-            after = self._count("/reports/health/targets.json")
+            after, a_last = self._reports("/reports/health/targets.json")
         except (SmokeError, OSError, ValueError) as exc:
             return self._record("只读诊断报告", False, str(exc), t0)
-        ok = after > before and not err
-        return self._record("只读诊断报告", ok, "报告 %d → %d 份%s" % (before, after, (",错误 " + err) if err else ""), t0)
+        ok = (after > before or a_last > b_last) and not err
+        full = ("(份数已到上限,最新一份 %s → %s)" % (b_last or "无", a_last or "无")) if after == before else ""
+        return self._record("只读诊断报告", ok, "报告 %d → %d 份%s%s" % (
+            before, after, full, (",错误 " + err) if err else ""), t0)
 
     def kb_query(self, version: str) -> Check:
         t0 = self.clock()

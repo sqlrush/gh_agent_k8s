@@ -12,6 +12,13 @@
 # 版本从新到旧;第一条必须是本仓库清单里的版本(守卫测试)。min_upgrade_from 之前的版本按《部署上线方案》§14 手工升级。
 min_upgrade_from: agent-v1.4.0
 versions:
+  - version: agent-v1.4.8
+    mixed_with: [agent-v1.4.7]  # 网关没改;只改了技能(登录放行实例上存在的库、取数库另记),槽位换到哪版用哪版
+    required: []
+    steps: [rebuild_kb_import]    # 导入镜像里的公共代码换了(连接多一个取数库字段)
+    whitelist: []                 # 不新增脚本:按 id 看历史计划用的 explain.plan_from_history 已在 20261022 增量里
+    notes:
+      - "(按需)换过根规范的,用本版本的离线包重做 rootspec-overlay.sh 再推内网仓库(版本说明 v1.4.5「根规范模板替换」)"
   - version: agent-v1.4.7
     mixed_with: [agent-v1.4.6]  # 网关没改;技能与提示词跟着镜像走,槽位换到哪版用哪版(新脚本没导时技能按旧口径降级)
     required: []

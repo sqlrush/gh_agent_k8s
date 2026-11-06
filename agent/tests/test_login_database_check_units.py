@@ -7,6 +7,10 @@ GRMP 一个 dataIp 只对一个库(2026-09-08)。用户把库名写错(那次模
 修法:登录时跑白名单里**已有**的 locate_context(返回 current_database() 与实例上的库清单),
 不一致就不建会话、告诉用户实际库名。只差大小写时按实际库名登录。
 脚本没登记(现场没导入那批白名单)时不拦,但输出里要明写「库名未核实」—— 不能假装核过。
+
+2026-11-06 行方:中间件对各实例都固定连 postgres,用户填业务库名一律对不上,「不一致就拦」让 api 模式谁都登不上。
+改为:库名在实例库清单里就放行(routed)—— 会话按用户要诊断的库登记,取数库另记 exec_database;
+不在清单里(写错)才拦。
 """
 import importlib.util
 import pathlib
@@ -70,6 +74,20 @@ def test_wrong_name_is_a_mismatch_with_the_real_name_and_the_alternatives(monkey
     assert chk.databases == ("appdb", "postgres", "reportdb")
 
 
+def test_another_database_on_the_instance_is_routed_not_refused(monkeypatch):
+    monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
+    chk = login._check_database(_conn("appdb"))
+    assert chk.status == "routed" and chk.target == "appdb" and chk.actual == "postgres"
+    chk = login._check_database(_conn("AppDB"))                       # 大小写以实例库清单为准
+    assert chk.status == "routed" and chk.target == "appdb"
+
+
+def test_without_the_database_list_a_different_name_is_still_refused(monkeypatch):
+    monkeypatch.setattr(login.access, "runner_for",
+                        lambda c: _Runner([{"db": "postgres", "usr": "grmp_ro", "databases": ""}]))
+    assert login._check_database(_conn("appdb")).status == "mismatch"
+
+
 def test_case_only_difference_logs_in_under_the_real_name(monkeypatch):
     monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
     assert login._check_database(_conn("Postgres")).status == "case"
@@ -110,9 +128,28 @@ def test_login_with_a_wrong_database_is_refused_and_saves_nothing(api_home, monk
     monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
     assert login.main(["--ip", "10.0.0.9", "--database", "og5"]) == 1
     err = capsys.readouterr().err
-    assert "postgres" in err and "og5" in err and "reportdb" in err
-    assert "--ip 10.0.0.9 --database postgres" in err
+    assert "上没有库「og5」" in err and "appdb、postgres、reportdb" in err
+    assert "--ip 10.0.0.9 --database <库名>" in err
     assert session.list_sessions() == [], "库名不对就不能建会话 —— 建了的话报告抬头就是错的"
+
+
+def test_login_to_another_database_on_the_instance_records_both(api_home, monkeypatch, capsys):
+    monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
+    assert login.main(["--ip", "10.0.0.9", "--database", "appdb"]) == 0
+    out = capsys.readouterr().out
+    assert "取数库" in out and "要诊断的库（appdb）与取数的库（postgres）不同" in out
+    assert "不要让用户去改 search_path 或授权" in out
+    (info,) = session.list_sessions()
+    conn = session._read(session.path_for(info.handle))
+    assert conn.database == "appdb" and conn.exec_database == "postgres"     # 报告抬头按要诊断的库
+
+
+def test_same_database_writes_no_exec_database(api_home, monkeypatch, capsys):
+    monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
+    assert login.main(["--ip", "10.0.0.9", "--database", "postgres"]) == 0
+    assert "取数库" not in capsys.readouterr().out
+    (info,) = session.list_sessions()
+    assert "exec_database" not in session.path_for(info.handle).read_text(encoding="utf-8")
 
 
 def test_login_with_a_case_difference_uses_the_real_name(api_home, monkeypatch, capsys):

@@ -86,7 +86,8 @@ COMMON = {
         "config.yaml", "config.example.yaml", "red_lines.md", "answer_templates/*",
     ),
     "diag": (
-        "access.py", "catalog_scope.py", "cli.py", "explain_actual.py", "guc_policy.py", "kbsection.py", "kernel_funcs.py",
+        "access.py", "catalog_scope.py", "cli.py", "exec_db.py", "explain_actual.py", "guc_policy.py", "kbsection.py",
+        "kernel_funcs.py",
         "lockmodes.py", "proc_locate.py", "proc_source.py", "procname.py", "schema_infer.py", "search_path.py",
         "spillnote.py", "sqlnotfound.py", "sqlqualify.py", "sqlrefs.py", "sysdict.py", "sysobjects.py",
         "syssql.py", "timewin.py", "windata.py",

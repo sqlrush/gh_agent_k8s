@@ -94,3 +94,12 @@ def test_source_inside_the_tag_and_wdr_followups_in_section_four():
     wdr = ("评估窗口:snap 1 → 2\n总体状态 🟠告警\n## ① 负载画像\n应用视角:a 数据库机制:b\n## ② 问题与元凶\n## ③ 解决方案\n"
            "## ④ 总结和结论\n总结。\n- 需要就 111 做一次调优吗?\n## 附录\n" + "附录正文\n" * 400)
     assert "展开提议" not in _bad(ac.check(wdr, "wdr"))
+
+
+def test_perspective_ignores_denials():
+    """2026-11-06 验收 H7、B1:否定说法(「不是内核 bug」「不建议据此打补丁」「参数不因单次指标调整」)不算违规。"""
+    ok = GOOD_FAULT.replace("## ④ 总结", "不是 GaussDB 内核 bug;不建议据此打补丁。生产实例 shared_buffers 等全局参数不因单次指标调整。\n\n## ④ 总结")
+    bad = {c.name for c in ac.check(ok, "fault") if not c.ok}
+    assert "视角:说法" not in bad and "视角:参数" not in bad
+    worse = GOOD_FAULT.replace("## ④ 总结", "疑似内核 bug,建议打补丁。\n\n## ④ 总结")
+    assert "视角:说法" in {c.name for c in ac.check(worse, "fault") if not c.ok}

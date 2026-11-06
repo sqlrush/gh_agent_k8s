@@ -428,6 +428,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             if missing:
                 print("模式：api（GRMP 中间件）")
                 print("端点：%s:%s\n" % (endpoint.resolve_host(), endpoint.port))
+                # 部署时登记了别名的,先把清单摆出来:用户说的多是别名(「og5」),缺参数时只说「要 IP 和库名」,
+                # 模型就会去问用户要 IP(2026-11-06 验收:A1、B8、B11 三题卡在这里,其余题先跑了 --list 才登上)。
+                if config.instance_aliases() and not (args.ip or args.database):
+                    print(_render_aliases(config.instance_aliases(), config.instance_alias_errors()))
+                    print("\n用户说的是清单里的别名时，用 `gaussdb-login --alias <别名>` 登录，不要向用户要 IP。"
+                          "不在清单里的库，才向用户要实例 IP 和库名。\n")
+                    return 2
                 print("还需要：%s\n" % "、".join(missing))
                 print("请提供**实例 IP** 与**数据库名**：")
                 print("    gaussdb-login --ip <实例IP> --database <数据库名>\n")

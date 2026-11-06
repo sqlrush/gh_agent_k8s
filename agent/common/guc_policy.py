@@ -83,7 +83,8 @@ MARKER_TEXT = {"A": "「需运维评估」(或只在表级设置)", "B": "只对
 _ADVICE = re.compile(r"调大|调小|调高|调低|调到|调整|调成|调为|设为|设成|设置为|设置成|改为|改成|改到|改回|增大|加大|减小|"
                      r"提高|降低|缩小|(?<![未已没被是])(开启|打开|关闭|关掉|启用|禁用)|建议设|ALTER SYSTEM|gs_guc|"
                      r"\bSET\s+[a-z_]+\s*(=|TO)", re.I)
-_NEGATION = re.compile(r"不要|禁止|严禁|不推|不建议|不能|不得|不再|不调|不改|不动|不给|无需|不必|不用|不作为|而不是|切勿|勿")
+_NEGATION = re.compile(r"不要|禁止|严禁|不推|不建议|不能|不得|不再|不调|不改|不动|不给|无需|不必|不用|不作为|而不是|切勿|勿|"
+                       r"不因|不宜|不应|不会|并非|解决不了|没用|无效")
 _SENTENCE = re.compile(r"[^。;；\n!?！？]+")
 _NAME = re.compile(r"(?<![A-Za-z0-9_])(%s)(?![A-Za-z0-9_])" % "|".join(sorted(map(re.escape, KNOWN), key=len, reverse=True)))
 

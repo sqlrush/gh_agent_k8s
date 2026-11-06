@@ -1,7 +1,7 @@
 ---
 name: gaussdb-login
 version: 1.3.2
-description: "登录并选定本次会话要连的 OpenGauss/GaussDB 数据库。**这是所有数据库操作的第一步**：其余 gaussdb-* skill 不带 -c 时都用这里选定的连接。用户说“连数据库”“登录数据库”“换一个库”“连哪个库”“看有哪些数据库可以连”“切到 app2 的库”，或在尚未登录的情况下要求做慢 SQL/健康检查/调优/WDR 等任何取数操作时使用。触发后运行 scripts/login.py：配置首行 connection_mode 是 gsql 就把可选连接列成菜单让用户挑，不要凭空假设连接名, 是 api 就引导用户提供要访问的数据库名。"
+description: "登录并选定本次会话要连的 OpenGauss/GaussDB 数据库。**这是所有数据库操作的第一步**：其余 gaussdb-* skill 不带 -c 时都用这里选定的连接。用户说“连数据库”“登录数据库”“换一个库”“连哪个库”“看有哪些数据库可以连”“切到 app2 的库”，或在尚未登录的情况下要求做慢 SQL/健康检查/调优/WDR 等任何取数操作时使用。触发后运行 scripts/login.py：配置首行 connection_mode 是 gsql 就把可选连接列成菜单让用户挑，不要凭空假设连接名, 是 api 就先 --list 看部署时登记的实例别名，用户说的是别名就 --alias 登录，不在清单里才向用户要实例 IP 和库名。"
 allowed-tools: ["exec", "read"]
 compatibility: opencode
 metadata:
@@ -38,7 +38,7 @@ python3 {baseDir}/scripts/login.py --list
 | 模式 | 含义 | 接下来 |
 |---|---|---|
 | `gsql` | 直连数据库 | 把 `--list` 列出的连接**原样展示给用户**，让他选 |
-| `api` | 走 GRMP 中间件 | 问用户要访问哪个数据库 |
+| `api` | 走 GRMP 中间件 | 先看 `--list` 里登记的实例别名；用户说的是别名就 `--alias` 登录，不在清单里才问用户要实例 IP 和库名 |
 
 ### 第二步：gsql 模式 —— 让用户挑
 

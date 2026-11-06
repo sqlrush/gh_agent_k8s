@@ -30,7 +30,7 @@ metadata:
 
 1. **选择连接 —— 先登录，不要自己猜连接名。** 取数前确认已登录：
    `python3 {baseDir}/../gaussdb-login/scripts/login.py --status`。
-   没有会话就先调 **gaussdb-login**：它读 `$GSDB_HOME/config.yaml`的首行 `connection_mode`，是 `gsql` 就把可选连接列成菜单让用户挑，是 `api` 就引导用户给出要访问的数据库。
+   没有会话就先调 **gaussdb-login**：它读 `$GSDB_HOME/config.yaml`的首行 `connection_mode`，是 `gsql` 就把可选连接列成菜单让用户挑，是 `api` 就先 `login.py --list` 看部署时登记的实例别名：用户说的是别名（如「og5」）就用 `--alias <别名>` 登录，不在清单里才向用户要实例 IP 和库名。
    登录之后本 skill **不需要传 `-c`** —— 省略时自动用登录选定的那条连接；只有要临时换一个库时才显式传 `-c <连接名>`。
    **api 模式下每条命令都要带 `--session <句柄>`**：句柄是 gaussdb-login 在**本对话里**登录成功时输出的那一串（平台也可能按用户注入环境变量 `GSDB_SESSION`）。不带句柄的命令会被拒绝并提示「本对话未登录」——这时让用户先 gaussdb-login 登录，**不要自己挑一个**、不要猜、不要去看会话目录；别人的会话对本对话不可见，换一个对话要重新登录。
    **不要自己去读 config.yaml 挑名字**：不同应用下可能有同名连接，猜错会在另一个库上做诊断，而输出看起来完全正常。口令在 `{baseDir}/../common/credentials/*.enc`，由脚本解密，**你不要去读/解密它**。

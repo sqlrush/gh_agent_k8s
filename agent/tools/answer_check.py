@@ -161,10 +161,23 @@ def _section(text: str, names: Sequence[str]) -> str:
     return ""
 
 
+_DENIED = re.compile(r"(不是|并非|也不是|不属于|而非|排除|不建议|不要|无需|不必|没有必要)[^。;；\n]{0,10}$")
+
+
+def _said(text: str, phrase: str) -> bool:
+    """说了这个说法(否定的不算:「不是内核 bug」「不建议据此打补丁」恰恰是对的说法)。"""
+    low, p = text.lower(), phrase.lower()
+    i = low.find(p)
+    while i >= 0:
+        if not _DENIED.search(low[max(0, i - 16):i]):
+            return True
+        i = low.find(p, i + 1)
+    return False
+
+
 def perspective_checks(text: str, kind: str) -> List[Check]:
     """视角三条:说法、参数、根因落到业务。"""
-    low = text.lower()
-    said = [w for w in PERSPECTIVE_BANNED if w.lower() in low]
+    said = [w for w in PERSPECTIVE_BANNED if _said(text, w)]
     out = [Check(not said, "视角:说法", "出现了 " + "、".join(said) if said else "没有归为数据库缺陷 / 打补丁 / 找厂商的说法")]
     if kind in DIAGNOSIS:
         bad = guc_policy.violations(text)

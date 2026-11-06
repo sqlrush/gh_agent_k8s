@@ -51,6 +51,10 @@ def render(manifest, package: str, root: pathlib.Path, source: Dict[str, str], v
     L += ["", "部署方式与镜像里一致:`common/`%s与 `skills/` 下的各个技能目录放进 opencode 的技能目录(镜像里是 "
           "`/opt/agent/config/opencode/skills/`,技能直接在这一层,不再套 `skills/`),`AGENTS.md` 放进 opencode 的配置目录"
           "(镜像里是 `/opt/agent/config/opencode/`)。" % ("、`scripts/`" if pkg["whitelist"] else ""), ""]
+    # 2026-11-06 行方升级:GSDB_HOME 不设时就是技能目录下的 common/,本地配置与会话都在里面,整包覆盖会把配置冲掉
+    L += ["**升级时保留本地状态**:`GSDB_HOME` 不设时就是技能目录下的 `common/`,里面的 `config.yaml`(连接方式、中间件地址)、"
+          "`credentials/`、`sessions/` 是本地状态。覆盖前先备份 `common/config.yaml`,覆盖后还原(包里的 `common/config.yaml` "
+          "只是模板);`credentials/`、`sessions/` 包里没有,不受影响。换完新开对话:旧对话里读进来的还是旧版技能说明。", ""]
     L += _deps(manifest, package)
     L += _env(manifest, package)
     if pkg["whitelist"]:

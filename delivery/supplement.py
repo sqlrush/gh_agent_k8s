@@ -55,6 +55,13 @@ def render(manifest, package: str, root: pathlib.Path, source: Dict[str, str], v
     L += ["**升级时保留本地状态**:`GSDB_HOME` 不设时就是技能目录下的 `common/`,里面的 `config.yaml`(连接方式、中间件地址)、"
           "`credentials/`、`sessions/` 是本地状态。覆盖前先备份 `common/config.yaml`,覆盖后还原(包里的 `common/config.yaml` "
           "只是模板);`credentials/`、`sessions/` 包里没有,不受影响。换完新开对话:旧对话里读进来的还是旧版技能说明。", ""]
+    if "gaussdb-login" in pkg["skills"]:
+        # 2026-11-08 行方测试报告:一半的「失败」是环境问题(新包没装进运行目录、白名单没导全、受限账号、监控开关),
+        # 用到时才以 HTTP 400 冒出来;装完先自检,一次查清、并写明找谁
+        L += ["**装完先自检**:登录任一实例后运行 `python3 $GSDB_SKILLS_DIR/gaussdb-login/scripts/selfcheck.py --session <句柄>`"
+              "(或在对话里说「做一次部署自检」)。它核对技能包版本、知识库目录、白名单是否导全、中间件能否跑多条语句、"
+              "关键脚本能否执行(含执行账号权限)、数据库监控开关,逐项给出结论和「找谁」。登录表格里的「技能包」一行"
+              "显示正在运行的版本,与本包版本对不上说明新包没装进技能目录。", ""]
     L += _deps(manifest, package)
     L += _env(manifest, package)
     if pkg["whitelist"]:

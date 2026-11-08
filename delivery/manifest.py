@@ -73,7 +73,7 @@ SKILL_EXCLUDE_DIRS = ("testdata", "tests", "__pycache__")
 COMMON = {
     "shared": (
         "__init__.py", "audit.py", "config.py", "credential.py", "credential_cli.py", "db.py", "finding.py",
-        "reports.py", "session.py",
+        "reports.py", "session.py", "version.py", "VERSION",
         "backends/__init__.py", "backends/base.py", "backends/gsql_backend.py", "backends/gsql_protocol.py",
         "backends/psycopg2_backend.py",
         "kb/__init__.py", "kb/atomic.py", "kb/bm25.py", "kb/cases.py", "kb/catalog.py", "kb/chmdoc.py",
@@ -161,6 +161,7 @@ ENV = {
     "GRMP_USER_ID_HEADER": (("diag",), "否", "调用人工号放进哪个请求头"),
     "GRMP_USER_ID_PARAM": (("diag",), "否", "调用人工号放进哪个报文键"),
     "G_EXPORT_DIR": (("diag",), "否", "慢 SQL 导出文件的目录"),
+    "GSDB_PLATFORM_ACCOUNTS": (("diag",), "否", "云平台运维账号(逗号分隔),它们执行的 SQL 不进业务 Top SQL / 慢 SQL;默认已含 rdsAdmin、rdsBackup、rdsMetric、rdsRepl、rdsProxy,这里填的是额外再加的"),
     "KB_CLIP_ORIGINS": (("kbimport",), "否", "允许剪藏的网站来源(逗号分隔);空 = 网页剪藏关闭"),
     "KB_CLIP_RECEIVER": (("kbimport",), "否", "设为 1 表示本环境有剪藏接收服务(容器部署由平台设置)"),
 }

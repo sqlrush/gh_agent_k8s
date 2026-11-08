@@ -47,6 +47,18 @@ added:
     - 两个 WDR 快照之差：redo 物理写次数与写入块数，对应官方 WDR 报告的 Redo size。只读
 
 changed:
+  health.storage: >-
+    **只量执行账号有权限的库与表空间**:库大小加 has_database_privilege(CONNECT)、表空间大小加 has_tablespace_privilege(CREATE)
+    或「本库默认表空间」的判断,没权限的那行返回 NULL(报告写「无权限查看」)。原先对每个库、每个表空间都量,受限账号碰到
+    一个没权限的就整条报错(行方 11-08 测试报告:健康检查 Storage 维度 HTTP 400)。只读。
+  health.slow_sql: >-
+    **多取一列 user_name**(执行账号):云平台运维账号(rdsAdmin 等)跑的监控采样 SQL 按账号排除出业务慢 SQL
+    (行方 11-08 测试报告:榜首是 rdsAdmin 的 ASP 采样 SQL)。筛选、排序不变。只读。
+  slowsql.slow_sql: >-
+    **多取一列 user_name**(执行账号),用途同 health.slow_sql。筛选、排序不变。只读。
+  topsql.top_sql: >-
+    **多取一列 user_name**(执行账号):按 sql_id 聚合后,只有一个账号执行过时给出账号、几个账号都执行过给 NULL,
+    用于把云平台运维账号的 SQL 排除出业务 Top SQL。筛选、排序不变。只读。
   vacuum.dead_tuples: >-
     **多取三列**：这张表的更新、HOT 更新、删除次数（pg_stat_user_tables 的 n_tup_upd / n_tup_hot_upd / n_tup_del），
     报告据此说明死元组来自哪类业务操作。筛选、排序不变。只读。

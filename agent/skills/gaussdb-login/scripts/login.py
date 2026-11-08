@@ -34,6 +34,7 @@ from common.config import MODE_API, MODE_GSQL, ConfigError, Connection  # noqa: 
 from common.credential import secret_for  # noqa: E402
 from common.db import Database  # noqa: E402
 from common.grmp import proxy as grmp_proxy  # noqa: E402
+from common.version import package_version  # noqa: E402
 
 
 def _fail(message: str) -> int:
@@ -321,6 +322,7 @@ def _describe(conn: Connection, note: str, path, role: str = "", handle: str = "
         out += render.table(
         ["项", "值"],
         [["模式", "api（GRMP 中间件）"],
+         ["技能包", package_version() or "未知（技能目录里没有 common/VERSION，可能还是旧包）"],
          ["应用", conn.app or "—"],         
          ["实例 IP（dataIp）", conn.data_ip],
          ["数据库", conn.database] ,
@@ -332,6 +334,7 @@ def _describe(conn: Connection, note: str, path, role: str = "", handle: str = "
          out += render.table(
         ["项", "值"],
         [["模式", "gsql（直连）"],
+         ["技能包", package_version() or "未知（技能目录里没有 common/VERSION，可能还是旧包）"],
          ["应用", conn.app or "—"],
          ["连接名",  conn.name]  ,
          ["目标", "%s:%s/%s" % (conn.host, conn.port, conn.database)],

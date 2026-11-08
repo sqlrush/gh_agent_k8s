@@ -140,7 +140,8 @@ def test_login_to_another_database_on_the_instance_records_both(api_home, monkey
     monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
     assert login.main(["--ip", "10.0.0.9", "--database", "appdb"]) == 0
     out = capsys.readouterr().out
-    assert "取数库" in out and "要诊断的库（appdb）与取数的库（postgres）不同" in out
+    assert "要诊断的库 | appdb（未直连）" in out and "实例 10.0.0.9 的 postgres 库" in out
+    assert "要诊断的库（appdb）与取数的库（postgres）不同" in out
     assert "不要让用户去改 search_path 或授权" in out
     (info,) = session.list_sessions()
     conn = session._read(session.path_for(info.handle))
@@ -150,7 +151,7 @@ def test_login_to_another_database_on_the_instance_records_both(api_home, monkey
 def test_same_database_writes_no_exec_database(api_home, monkeypatch, capsys):
     monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(ROW))
     assert login.main(["--ip", "10.0.0.9", "--database", "postgres"]) == 0
-    assert "取数库" not in capsys.readouterr().out
+    assert "未直连" not in capsys.readouterr().out
     (info,) = session.list_sessions()
     assert "exec_database" not in session.path_for(info.handle).read_text(encoding="utf-8")
 

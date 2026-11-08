@@ -84,6 +84,17 @@ def check_install() -> List[Item]:
     return items
 
 
+def used_names(registry: Registry) -> set:
+    """有技能调用的脚本:逻辑名全串出现在技能代码里(与 grmp_register 交付时剔掉「没有任何 skill 调用」的规则一致)。
+
+    容器镜像里带着全部定义(含 13 条不交付的),技能包里只带交付的 137 条 —— 按「有人调用」比,两种部署结论一致,
+    不会把没交付的那几条报成「缺」。"""
+    skills = pathlib.Path(__file__).resolve().parents[2]
+    text = "\n".join(f.read_text(encoding="utf-8", errors="replace") for f in skills.rglob("*.py")
+                     if f.name != pathlib.Path(__file__).name)
+    return {n for n in registry.names() if n in text}
+
+
 def check_whitelist(conn, registry: Registry) -> List[Item]:
     try:
         ops = access.runner_for(conn).client.list_operations()
@@ -93,7 +104,7 @@ def check_whitelist(conn, registry: Registry) -> List[Item]:
     if not have:
         return [Item("白名单", FAIL, "中间件对这个实例返回的脚本清单为空:清单按实例属性(部署形态、内核版本等)匹配返回,"
                      "我方登记的是集中式实例,这个实例的属性多半与之不匹配", MIDDLEWARE)]
-    want = set(registry.names())
+    want = used_names(registry)
     missing = sorted(want - have)
     if not missing:
         return [Item("白名单", OK, "本版本用到的 %d 条都已登记(中间件共 %d 条)" % (len(want), len(have)))]

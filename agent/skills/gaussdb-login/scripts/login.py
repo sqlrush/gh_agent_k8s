@@ -329,8 +329,10 @@ def _describe(conn: Connection, note: str, path, role: str = "", handle: str = "
          ["技能包", package_version() or "未知（技能目录里没有 common/VERSION，可能还是旧包）"],
          ["应用", conn.app or "—"],         
          ["实例 IP（dataIp）", conn.data_ip],
-         ["数据库", conn.database] ,
-         *([["取数库", conn.exec_database]] if conn.exec_database else []),
+         # 取数库不是目标库时分两行写明:行方 11-08 批量登录后以为「登录成功」= 业务库连上了(实际全在 postgres 上取数)
+         *([["要诊断的库", "%s（未直连）" % conn.database],
+            ["实际连接", "实例 %s 的 %s 库（所有取数都在这里执行）" % (conn.data_ip, conn.exec_database)]]
+           if conn.exec_database else [["数据库", conn.database]]),
          *([["库名核对", db_note]] if db_note else []),
          ["验证", note],
          ["主备", role or "未探测"]])

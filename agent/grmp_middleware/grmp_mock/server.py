@@ -23,6 +23,7 @@ from .instances import InstanceMap
 from .signature import SignaturePolicy
 from common.grmp import paths as grmp_paths
 from common.grmp.placeholder import ParamError
+from common.grmp.statement import split_statements
 from common.grmp.settings import Settings
 from .store import ScriptStore
 
@@ -73,6 +74,8 @@ class App:
         standby: bool = False,
         signature: Optional[SignaturePolicy] = None,
         path_prefix: Optional[str] = None,
+        single_statement: bool = False,
+        opaque_errors: bool = False,
     ):
         prefix = grmp_paths.normalize(path_prefix) if path_prefix is not None else grmp_paths.from_env()
         self.path_prefix = prefix or DEFAULT_PATH_PREFIX
@@ -93,6 +96,12 @@ class App:
         # 模拟备机:读 statement_history(unlogged 表)的脚本按真实 GRMP 的形态回 HTTP 400,
         # health.overview 的 in_recovery 置 t。复现现场 2026-09-01 的 400,让 skill 的降级路径可测。
         self._standby = standby
+        # 行方模式(2026-11-08 测试报告后加):我们的模拟中间件原先能跑一条脚本里的多条语句、出错原样回数据库报错,
+        # 和行方真实 GRMP 不一样 —— explain / sqltune 的「补全表名」退路在我们这里从没被执行过,Bug 1 因此漏到现场。
+        #   single_statement:脚本含多条语句时按行方的形态回 HTTP 400「agent诊断脚本执行失败」
+        #   opaque_errors:   执行失败一律只回「agent诊断脚本执行失败」(原始报错只记在本进程 stderr)
+        self._single_statement = single_statement
+        self._opaque_errors = opaque_errors
 
     # -- 入口 -------------------------------------------------------------
 
@@ -252,6 +261,10 @@ class App:
             print("[GRMP] FAIL %s :: standby(unlogged)" % record.script_name, file=sys.stderr, flush=True)
             return 400, envelope.fail_invoke(STANDBY_ERROR, task_id)
 
+        if self._single_statement and len(split_statements(record.script_content)) > 1:
+            print("[GRMP] FAIL %s :: 行方模式:一条脚本里有多条语句" % record.script_name, file=sys.stderr, flush=True)
+            return 400, envelope.fail_invoke(BANK_EXEC_FAILED, task_id)
+
         try:
             result = executor.execute(
                 record,
@@ -265,6 +278,10 @@ class App:
         except (ParamError, ExecError) as exc:
             return fail(str(exc))
         except Exception as exc:  # 数据库错误等
+            if self._opaque_errors:
+                print("[GRMP] FAIL %s :: 行方模式,原始报错不回给调用方:%s" % (record.script_name, str(exc)[:200]),
+                      file=sys.stderr, flush=True)
+                return 400, envelope.fail_invoke(BANK_EXEC_FAILED, task_id)
             return fail(str(exc))
 
         if self._standby:
@@ -273,6 +290,9 @@ class App:
               file=sys.stderr, flush=True)
         return 200, envelope.ok_invoke(result, task_id)
 
+
+# 行方真实 GRMP 执行失败时回给调用方的全部内容(2026-11 现场多张截图):数据库的原始报错不带回来
+BANK_EXEC_FAILED = "agent诊断脚本执行失败"
 
 # 现场 provider.core.log 里 JDBC 报错的原文形态(实例 id / 地址已换成占位)
 STANDBY_ERROR = ("SQL execution failed via JDBC on instance standby-mock: "

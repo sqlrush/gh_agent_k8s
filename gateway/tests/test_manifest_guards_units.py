@@ -191,6 +191,19 @@ def test_user_image_tag_matches_the_gateway_and_frontend_images():
     assert set(tags.values()) == {user}, "USER_IMAGE_TAG=%s,镜像标签 %s —— 三处要一致" % (user, tags)
 
 
+def test_skill_package_version_matches_the_release():
+    """技能包里的 agent/common/VERSION 与 USER_IMAGE_TAG 同一版本(2026-11-08 加)。
+
+    行方 11-06 把新的技能包下载了却没装进正在用的技能目录,现场一直跑旧版、排查了一晚上;VERSION 让登录输出与
+    部署自检直接显示「现在跑的是哪一版技能」。它不跟着发版改的话,显示出来的版本就是错的,比不显示更糟。
+    """
+    import re
+    base = _ROOT / "k8s" / "base"
+    user = re.search(r'USER_IMAGE_TAG:\s*"([^"]+)"', (base / "configmap-gateway.yaml").read_text(encoding="utf-8")).group(1)
+    ver = (_ROOT / "agent" / "common" / "VERSION").read_text(encoding="utf-8").strip()
+    assert user.startswith(ver + "-oc"), "agent/common/VERSION=%s,USER_IMAGE_TAG=%s —— 要同一版本" % (ver, user)
+
+
 def test_import_container_exposes_the_clip_receiver_and_policies_allow_only_the_gateway():
     """网页剪藏接收 4095(2026-10-27):容器端口、Service、开关变量、kb-import 入站、网关出站,base 与本地覆盖层各一份。
     漏一处的表现都是剪藏页报「连不上剪藏接收服务」,而导入容器本身健康。"""

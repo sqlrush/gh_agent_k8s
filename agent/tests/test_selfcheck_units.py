@@ -119,3 +119,9 @@ def test_gsql_mode_skips_the_middleware_whitelist(monkeypatch, tmp_path, capsys)
     monkeypatch.setattr(sc.access, "runner_for", lambda conn: _Runner([]))
     assert sc.main([]) == 0
     assert "| 白名单 |" not in capsys.readouterr().out
+
+
+def test_an_empty_list_is_explained_as_an_instance_attribute_mismatch(monkeypatch, tmp_path, capsys):
+    """2026-11-08 行方批量登录 92 个库,2 个拿到空清单:白名单不配在目标库上,是中间件按实例属性匹配脚本时没匹配上。"""
+    rc, out = _run(monkeypatch, tmp_path, _Runner([]), capsys)
+    assert rc == 1 and "脚本清单为空" in out and "集中式" in out and "灌" not in out

@@ -90,6 +90,9 @@ def check_whitelist(conn, registry: Registry) -> List[Item]:
     except Exception as exc:  # noqa: BLE001
         return [Item("中间件与白名单", FAIL, "命令清单取不到:%s" % _err(exc), MIDDLEWARE)]
     have = {str(d.get("cmd_name", "")) for d in ops if d.get("cmd_name")}
+    if not have:
+        return [Item("白名单", FAIL, "中间件对这个实例返回的脚本清单为空:清单按实例属性(部署形态、内核版本等)匹配返回,"
+                     "我方登记的是集中式实例,这个实例的属性多半与之不匹配", MIDDLEWARE)]
     want = set(registry.names())
     missing = sorted(want - have)
     if not missing:

@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GaussDB 智能体 · 巡检大盘（原型）</title>
+<!-- 巡检大盘 UI 原型(2026-11-11):假数据、不连后端。视觉沿用现有大盘(frontend/styles/base.css,R6「智能运维舱」)。
+     说明见同目录 guide.html;方案见 docs/specs/2026-11-11-inspection-design.html -->
+<style>
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-Light.woff2) format("woff2"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-SemiBold.woff2) format("woff2"); font-weight: 600; font-display: swap; }
+:root {
+  --sans: "Plex", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --bg: #f4f6fa; --panel: #ffffff; --fill: #f7f8fa; --fill-2: #f0f2f5; --line: #e6e9ef; --line-2: #cfd5de;
+  --t1: #1d2129; --t2: #4e5969; --t3: #86909c; --t4: #c9cdd4;
+  --primary: #2462e8; --primary-hover: #1a50c8; --primary-tint: #eef3fe; --primary-line: #bed0fa;
+  --ai-1: #2462e8; --ai-2: #7c5cff; --ai-3: #16b4c8; --ai-grad: linear-gradient(120deg, var(--ai-1), var(--ai-2) 55%, var(--ai-3));
+  --ok: #1f9d63; --notice: #b98200; --warn: #e2621f; --crit: #d5342b; --na: #86909c;
+  --ok-tint: #e8f6ee; --notice-tint: #fcf4dd; --warn-tint: #fdeee5; --crit-tint: #fcebea; --na-tint: #f0f2f5;
+  --gray-mark: #dfe3ea; --track: #edf0f5;
+  --h-bg-1: #0a1430; --h-bg-2: #13265a; --h-t1: #f3f6fb; --h-t2: #b6c2d9; --h-t3: #8492ad;
+  --h-glass: rgba(255,255,255,.07); --h-glass-line: rgba(255,255,255,.13);
+  --h-ok: #4cc38a; --h-notice: #e8b84a; --h-warn: #f2925a; --h-crit: #f26b63; --h-na: #8b95a8;
+  --r-xl: 22px; --r-lg: 18px; --r-md: 12px;
+  --shadow-1: 0 1px 2px rgba(17,24,39,.04), 0 4px 16px rgba(17,24,39,.04);
+  --shadow-2: 0 18px 50px rgba(10,20,48,.22), 0 2px 6px rgba(10,20,48,.08);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--sans); font-size: 14px; line-height: 1.5715; color: var(--t1); background: var(--bg); -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--primary); text-decoration: none; cursor: pointer; } a:hover { color: var(--primary-hover); }
+.num { font-variant-numeric: tabular-nums; } .t2 { color: var(--t2); } .t3 { color: var(--t3); }
+[hidden] { display: none !important; }
+[data-lv="0"] { --c: var(--ok); --ct: var(--ok-tint); --hc: var(--h-ok); } [data-lv="1"] { --c: var(--notice); --ct: var(--notice-tint); --hc: var(--h-notice); }
+[data-lv="2"] { --c: var(--warn); --ct: var(--warn-tint); --hc: var(--h-warn); } [data-lv="3"] { --c: var(--crit); --ct: var(--crit-tint); --hc: var(--h-crit); }
+[data-lv="na"] { --c: var(--na); --ct: var(--na-tint); --hc: var(--h-na); }
+.glyph { display: inline-flex; color: var(--c); flex: none; } .glyph svg { width: 16px; height: 16px; }
+.hero .glyph { color: var(--hc); }
+.tag { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; line-height: 1; white-space: nowrap; background: var(--ct, var(--fill-2)); color: var(--t1); }
+.tag .glyph svg { width: 13px; height: 13px; }
+.tag.blue { background: var(--primary-tint); color: var(--primary); } .tag.gray { background: var(--fill-2); color: var(--t2); }
+.tag.line { background: transparent; box-shadow: inset 0 0 0 1px var(--line-2); color: var(--t2); }
+.tag.pur { background: #f1edff; color: #5b3fd6; } .tag.cyan { background: #e4f7fa; color: #0c7f8f; }
+
+/* 骨架 */
+.topbar { position: sticky; top: 0; z-index: 30; height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 20px 0 16px;
+  background: rgba(255,255,255,.72); backdrop-filter: blur(20px) saturate(170%); -webkit-backdrop-filter: blur(20px) saturate(170%); border-bottom: 1px solid rgba(17,24,39,.06); }
+.logo { display: flex; align-items: center; gap: 10px; width: 200px; }
+.logo .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--ai-grad); color: #fff; display: grid; place-items: center; box-shadow: 0 4px 12px rgba(36,98,232,.35); }
+.logo .mark svg { width: 17px; height: 17px; } .logo b { font-size: 15px; font-weight: 600; }
+.pick { height: 34px; padding: 0 10px 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.pick:hover { border-color: var(--primary-line); }
+.pick span { color: var(--t3); font-size: 12.5px; }
+.pick select { border: 0; background: transparent; outline: 0; cursor: pointer; font-size: 13.5px; padding-right: 2px; }
+.topbar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.user { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.user .av { width: 30px; height: 30px; border-radius: 50%; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; font-size: 12.5px; font-weight: 600; }
+.shell { display: grid; grid-template-columns: 220px minmax(0,1fr); min-height: calc(100vh - 60px); }
+.side { position: sticky; top: 60px; height: calc(100vh - 60px); padding: 14px 10px; overflow: auto; border-right: 1px solid var(--line); background: rgba(255,255,255,.6); }
+.side .grp { font-size: 12px; color: var(--t3); padding: 14px 12px 6px; }
+.side a { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border-radius: 10px; color: var(--t2); font-size: 14px; }
+.side a svg { width: 17px; height: 17px; flex: none; }
+.side a:hover { background: var(--fill-2); color: var(--t1); }
+.side a.on { background: var(--panel); color: var(--primary); font-weight: 500; box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line); }
+.side a .cnt { margin-left: auto; font-size: 12px; min-width: 20px; height: 20px; border-radius: 10px; display: grid; place-items: center; padding: 0 6px; background: var(--crit-tint); color: var(--crit); font-weight: 500; }
+.side a .ext { margin-left: auto; color: var(--t3); display: inline-flex; } .side a .ext svg { width: 13px; height: 13px; }
+.content { padding: 18px 28px 56px; min-width: 0; max-width: 1560px; }
+.crumb { font-size: 13px; color: var(--t3); display: flex; gap: 8px; align-items: center; } .crumb b { color: var(--t1); font-weight: 400; }
+.page-head { display: flex; align-items: center; gap: 12px; margin: 8px 0 4px; }
+.page-head h1 { margin: 0; font-size: 22px; line-height: 30px; font-weight: 600; }
+.page-head .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.page-desc { display: flex; flex-wrap: wrap; gap: 4px 24px; font-size: 13px; color: var(--t2); margin-bottom: 16px; } .page-desc b { color: var(--t1); font-weight: 400; }
+.btn { height: 34px; padding: 0 15px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); font-size: 14px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.btn:hover { color: var(--primary); border-color: var(--primary); } .btn svg { width: 15px; height: 15px; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 6px 16px rgba(36,98,232,.28); }
+.btn.primary:hover { background: var(--primary-hover); color: #fff; }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+.seg { display: inline-flex; background: var(--fill-2); border-radius: 10px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; height: 28px; padding: 0 12px; border-radius: 7px; font-size: 13px; color: var(--t2); cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--panel); color: var(--primary); box-shadow: var(--shadow-1); font-weight: 500; }
+
+/* 主视觉带 */
+.hero { position: relative; border-radius: var(--r-xl); padding: 22px; color: var(--h-t1); overflow: hidden; isolation: isolate; margin-bottom: 18px;
+  background: radial-gradient(900px 380px at 12% -10%, rgba(36,98,232,.55), transparent 60%), radial-gradient(700px 360px at 88% 0%, rgba(124,92,255,.38), transparent 62%),
+              radial-gradient(600px 300px at 60% 120%, rgba(22,180,200,.28), transparent 60%), linear-gradient(160deg, var(--h-bg-1), var(--h-bg-2)); }
+.hero::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .35; background-image: radial-gradient(rgba(255,255,255,.10) 1px, transparent 1px); background-size: 22px 22px; mask-image: linear-gradient(180deg, #000, transparent 85%); }
+.hero-grid { display: grid; grid-template-columns: minmax(0,.85fr) minmax(0,1.6fr); gap: 18px; }
+.glass { background: var(--h-glass); border: 1px solid var(--h-glass-line); border-radius: var(--r-lg); backdrop-filter: blur(18px) saturate(140%); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 10px 30px rgba(0,0,0,.18); }
+.hero .k { font-size: 12.5px; color: var(--h-t2); } .hero .t3 { color: var(--h-t3); } .hero a { color: #a9c3ff; }
+.ringbox { padding: 18px 18px 16px; display: flex; flex-direction: column; align-items: center; }
+.ringbox .title { align-self: stretch; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--h-t2); }
+.ring { width: 230px; height: 230px; margin: 10px 0 6px; }
+.ring text { font-family: var(--sans); }
+.ring-legend { display: flex; gap: 6px 16px; flex-wrap: wrap; justify-content: center; font-size: 13.5px; color: var(--h-t2); }
+.ring-legend span { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; } .ring-legend b { color: var(--h-t1); font-weight: 600; }
+.ring-legend .glyph svg { width: 14px; height: 14px; }
+.insight { position: relative; padding: 18px 20px 16px; display: flex; flex-direction: column; }
+.insight::before { content: ""; position: absolute; inset: 0; border-radius: var(--r-lg); padding: 1px; background: linear-gradient(120deg, rgba(122,162,255,.9), rgba(160,136,255,.7) 50%, rgba(80,210,225,.8));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+.insight .who { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--h-t2); }
+.insight .who .orb { width: 22px; height: 22px; border-radius: 7px; background: var(--ai-grad); display: grid; place-items: center; box-shadow: 0 0 18px rgba(124,92,255,.55); }
+.insight .who .orb svg { width: 13px; height: 13px; color: #fff; } .insight .who b { color: var(--h-t1); font-weight: 600; font-size: 14px; }
+.insight .who .src { margin-left: auto; font-size: 12px; color: var(--h-t3); }
+.insight h2 { margin: 12px 0 0; font-size: 20px; line-height: 1.5; font-weight: 600; }
+.insight .lines { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.insight .lines li { font-size: 14px; color: var(--h-t2); line-height: 1.65; display: flex; gap: 8px; }
+.insight .lines li::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #9db8ff; margin-top: 9px; flex: none; }
+.insight .lines b { color: var(--h-t1); font-weight: 500; }
+.ev { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; margin: 0 2px; border-radius: 6px; font-size: 12px; color: var(--h-t1); background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16); cursor: pointer; vertical-align: 1px; }
+.ev:hover { background: rgba(255,255,255,.18); } .ev .glyph svg { width: 12px; height: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 14px; }
+.chip-ask { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: var(--h-t1); font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip-ask:hover { background: rgba(255,255,255,.14); } .chip-ask svg { width: 13px; height: 13px; color: #b9a8ff; }
+.hero-stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+.hero-stats > div { padding: 12px 16px; }
+.hero-stats .l { font-size: 12.5px; color: var(--h-t2); display: flex; align-items: center; gap: 6px; }
+.hero-stats .v { font-size: 26px; font-weight: 500; line-height: 1.25; margin-top: 4px; } .hero-stats .v small { font-size: 12.5px; color: var(--h-t3); font-weight: 400; margin-left: 4px; }
+.hero-stats .s { font-size: 12px; color: var(--h-t3); margin-top: 2px; }
+.d-up { color: var(--h-crit); } .d-dn { color: var(--h-ok); }
+
+/* 便当盒 */
+.bento { display: grid; grid-template-columns: repeat(12, minmax(0,1fr)); gap: 18px; margin-bottom: 18px; }
+.b4 { grid-column: span 4; } .b5 { grid-column: span 5; } .b6 { grid-column: span 6; } .b7 { grid-column: span 7; } .b8 { grid-column: span 8; } .b12 { grid-column: span 12; }
+.tile { background: var(--panel); border-radius: var(--r-lg); box-shadow: var(--shadow-1); border: 1px solid rgba(17,24,39,.04); min-width: 0; display: flex; flex-direction: column; }
+.tile-h { display: flex; align-items: center; gap: 10px; padding: 18px 20px 0; min-height: 50px; flex-wrap: wrap; }
+.tile-h h3 { margin: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; }
+.tile-h .desc { font-size: 12.5px; color: var(--t3); }
+.tile-h .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tile-b { padding: 14px 20px 20px; flex: 1; } .tile-b.flush { padding: 6px 0 6px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tbl th { text-align: left; font-weight: 500; color: var(--t3); padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: 12.5px; cursor: default; }
+.tbl th.sort { cursor: pointer; } .tbl th.sort:hover { color: var(--primary); }
+.tbl td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+.tbl tbody tr { cursor: pointer; } .tbl tbody tr:last-child td { border-bottom: 0; } .tbl tbody tr:hover td { background: #f8faff; }
+.tbl .r { text-align: right; font-variant-numeric: tabular-nums; } .tbl .ops { text-align: right; } .tbl .ops a + a { margin-left: 12px; }
+.tbl td.wrap { white-space: normal; min-width: 180px; }
+.tile-b.flush .tbl th:first-child, .tile-b.flush .tbl td:first-child { padding-left: 20px; }
+.tile-b.flush .tbl th:last-child, .tile-b.flush .tbl td:last-child { padding-right: 20px; }
+.rk { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: var(--fill-2); color: var(--t2); font-size: 12.5px; font-weight: 600; }
+.rk.top { background: var(--crit-tint); color: var(--crit); }
+.dbn b { font-weight: 500; } .dbn small { display: block; color: var(--t3); font-size: 12px; }
+.valbar { display: flex; align-items: center; gap: 10px; min-width: 210px; }
+.valbar .b { flex: 1; height: 6px; border-radius: 3px; background: var(--track); position: relative; }
+.valbar .b i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--c, var(--primary)); min-width: 2px; }
+.valbar b { font-weight: 500; font-variant-numeric: tabular-nums; min-width: 86px; text-align: right; } .valbar b small { color: var(--t3); font-weight: 400; margin-left: 2px; font-size: 12px; }
+.pct { font-size: 12.5px; color: var(--t2); } .pct.hi { color: var(--crit); font-weight: 500; }
+.delta { font-size: 12.5px; font-variant-numeric: tabular-nums; } .delta.up { color: var(--crit); } .delta.dn { color: var(--ok); } .delta.flat { color: var(--t3); }
+.instchip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--t2); background: var(--fill); border: 1px solid var(--line); height: 22px; padding: 0 7px; border-radius: 6px; }
+.instchip .glyph svg { width: 12px; height: 12px; }
+.hb .r { display: grid; grid-template-columns: minmax(0,150px) minmax(0,1fr) 70px; gap: 12px; align-items: center; padding: 7px 0; font-size: 13.5px; cursor: pointer; }
+.hb .r:hover .l { color: var(--primary); }
+.hb .r .l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .hb .r .l small { display: block; color: var(--t3); font-size: 12px; }
+.hb .r .b { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--track); gap: 2px; }
+.hb .r .b i { display: block; height: 100%; background: var(--c); }
+.hb .r .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--t2); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--t2); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; } .legend .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+.trend { width: 100%; height: auto; display: block; }
+.trend text { fill: var(--t3); font-size: 11px; font-family: var(--sans); }
+.trend .bar { cursor: pointer; } .trend .bar:hover rect { opacity: .85; } .trend .cur rect.frame { stroke: var(--primary); stroke-width: 2; fill: none; }
+.note { font-size: 12.5px; color: var(--t2); background: var(--fill); border-radius: 10px; padding: 10px 12px; margin-top: 14px; line-height: 1.6; }
+.note b { color: var(--t1); font-weight: 500; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 14px; }
+.filters input { height: 32px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; background: var(--panel); width: 220px; outline: 0; }
+.filters input:focus { border-color: var(--primary-line); }
+.lvchip { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); display: inline-flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; color: var(--t2); }
+.lvchip.on { border-color: var(--c, var(--primary)); background: var(--ct, var(--primary-tint)); color: var(--t1); }
+.lvchip .glyph svg { width: 13px; height: 13px; }
+.scopebanner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--primary-tint); color: var(--t2); font-size: 13px; margin-bottom: 14px; border: 1px solid var(--primary-line); }
+.scopebanner.inst { background: #f4f1ff; border-color: #d9ceff; }
+.prog { width: 140px; height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; display: inline-block; vertical-align: middle; }
+.prog i { display: block; height: 100%; background: var(--primary); border-radius: 3px; transition: width .4s; }
+.prog.part i { background: var(--warn); }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.st i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--t3)); }
+.st.run i { background: var(--primary); box-shadow: 0 0 0 4px var(--primary-tint); animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(36,98,232,.08); } }
+/* 抽屉 */
+.mask { position: fixed; inset: 0; background: rgba(10,20,48,.28); z-index: 50; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 560px; max-width: 94vw; background: var(--panel); z-index: 51; box-shadow: var(--shadow-2); display: flex; flex-direction: column; }
+.drawer .dh { padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+.drawer .dh .x { float: right; border: 0; background: transparent; font-size: 20px; color: var(--t3); cursor: pointer; }
+.drawer .dh h2 { margin: 0; font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.drawer .dh .meta { font-size: 12.5px; color: var(--t3); margin-top: 4px; }
+.drawer .db { padding: 16px 22px 24px; overflow: auto; flex: 1; }
+.drawer .df { padding: 12px 22px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; }
+.fnd { border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; margin-bottom: 10px; }
+.fnd .h { display: flex; align-items: center; gap: 8px; } .fnd .h b { font-weight: 500; } .fnd .h code { margin-left: auto; font-size: 11.5px; color: var(--t3); }
+.fnd .m { font-size: 12.5px; color: var(--t2); margin-top: 4px; } .fnd .e { font-size: 12.5px; color: var(--t3); margin-top: 2px; }
+.kv { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; margin: 4px 0 14px; }
+.kv div { background: var(--fill); border-radius: 10px; padding: 8px 10px; } .kv small { display: block; color: var(--t3); font-size: 12px; } .kv b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.sec { font-size: 13px; color: var(--t3); margin: 14px 0 8px; }
+/* 弹窗与提示 */
+.modal { position: fixed; z-index: 52; top: 12vh; left: 50%; transform: translateX(-50%); width: 520px; max-width: 94vw; background: var(--panel); border-radius: 18px; box-shadow: var(--shadow-2); padding: 20px 22px; }
+.modal h2 { margin: 0 0 12px; font-size: 18px; }
+.modal label { display: block; font-size: 13px; color: var(--t2); margin: 12px 0 6px; }
+.modal select, .modal input[type=text] { width: 100%; height: 34px; border: 1px solid var(--line-2); border-radius: 9px; padding: 0 10px; background: var(--panel); }
+.modal .opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.modal .opt { border: 1px solid var(--line); border-radius: 12px; padding: 10px; cursor: pointer; font-size: 13px; }
+.modal .opt b { display: block; font-weight: 500; } .modal .opt small { color: var(--t3); }
+.modal .opt.on { border-color: var(--primary); background: var(--primary-tint); }
+.modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.toast { position: fixed; z-index: 60; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1d2129; color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 13.5px; box-shadow: var(--shadow-2); max-width: 720px; }
+.protonote { margin-top: 26px; font-size: 12.5px; color: #7a5b00; background: #fff8e1; border: 1px dashed #e8c66a; border-radius: 12px; padding: 10px 14px; line-height: 1.7; }
+.protonote b { color: #5c4300; }
+.empty { color: var(--t3); font-size: 13px; padding: 18px 20px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span><b>巡检大盘</b></div>
+  <label class="pick"><span>IDC</span><select id="selIdc"></select></label>
+  <label class="pick"><span>应用</span><select id="selApp"></select></label>
+  <label class="pick"><span>巡检</span><select id="selRun"></select></label>
+  <div class="right">
+    <button class="btn primary" id="btnNew"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>发起巡检</button>
+    <div class="user"><span class="av">张</span>张工 · DBA</div>
+  </div>
+</header>
+<div class="shell">
+  <nav class="side" id="side"></nav>
+  <main class="content" id="main"></main>
+</div>
+<div id="layer"></div>
+
+<script>
+'use strict';
+/* ---------------------------------------------------------------- 小工具 */
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const G = {
+  0: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5.1 8.1 2 2 3.9-4" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  1: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M8 4.6v4.1" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".95" fill="#fff"/></svg>',
+  2: '<svg viewBox="0 0 16 16"><path d="M7.1 1.9a1 1 0 0 1 1.8 0l6.2 11.2a1 1 0 0 1-.9 1.5H1.8a1 1 0 0 1-.9-1.5z" fill="currentColor"/><path d="M8 6v3.6" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.8" r=".9" fill="#fff"/></svg>',
+  3: '<svg viewBox="0 0 16 16"><path d="M5.2 1h5.6L15 5.2v5.6L10.8 15H5.2L1 10.8V5.2z" fill="currentColor"/><path d="m5.8 5.8 4.4 4.4m0-4.4-4.4 4.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  na: '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.4 2"/><path d="M5.4 8h5.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
+const LVN = { 3: '严重', 2: '告警', 1: '关注', 0: '正常', na: '未采到' };
+const lk = (l) => (l === null || l === undefined ? 'na' : String(l));
+const glyph = (l) => `<span class="glyph" data-lv="${lk(l)}">${G[lk(l)]}</span>`;
+const tag = (l, t) => `<span class="tag" data-lv="${lk(l)}">${glyph(l)}${esc(t ?? LVN[lk(l)])}</span>`;
+const sv = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const I = {
+  home: sv('<path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/>'),
+  rank: sv('<path d="M5 20V10M12 20V4M19 20v-7"/>'),
+  task: sv('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/>'),
+  bell: sv('<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>'),
+  list: sv('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'),
+  heart: sv('<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>'),
+  sql: sv('<path d="M5 6h14M5 12h14M5 18h9"/>'),
+  wdr: sv('<path d="M4 19h16M7 16V9M12 16V5M17 16v-4"/>'),
+  chat: sv('<path d="M4 5h16v11H9l-5 4z"/>'),
+  ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 16 16 8M9 8h7v7"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5c.5 4.6 2.9 7 7.5 7.5-4.6.5-7 2.9-7.5 7.5-.5-4.6-2.9-7-7.5-7.5 4.6-.5 7-2.9 7.5-7.5z"/></svg>',
+};
+function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const fmt = (v, d = 0) => (v === null || v === undefined || Number.isNaN(v) ? '—' : Number(v).toLocaleString('zh-CN', { maximumFractionDigits: d, minimumFractionDigits: d }));
+
+/* ---------------------------------------------------------------- 假数据(全部虚构;地址用 10.0.0.x 占位) */
+const IDCS = [{ id: 'IDC-A', name: 'IDC-A 主中心' }, { id: 'IDC-B', name: 'IDC-B 同城中心' }];
+const APPS = [
+  { id: 'APP-0101', name: '核心账务', owner: '账务运维组', inst: 8, dbs: ['acct', 'ledger', 'bill', 'settle', 'acctarc', 'rpt', 'intf', 'cfg'] },
+  { id: 'APP-0203', name: '支付清算', owner: '支付运维组', inst: 6, dbs: ['pay', 'clear', 'route', 'risk', 'recon', 'notify'] },
+  { id: 'APP-0310', name: '客户信息', owner: '客户运维组', inst: 4, dbs: ['cust', 'kyc', 'tag', 'contact', 'auth'] },
+  { id: 'APP-0412', name: '渠道网关', owner: '渠道运维组', inst: 3, dbs: ['gw', 'session', 'audit'] },
+];
+const FIND = [
+  { code: 'LONG_IDLE_XACT', dim: '长事务与空闲事务', metric: '空闲事务最长时长', unit: '秒', thr: '600', scope: 'db' },
+  { code: 'DEAD_TUPLE_HIGH', dim: '死元组与膨胀', metric: '死元组比', unit: '%', thr: '20', scope: 'db' },
+  { code: 'STALE_STATS', dim: 'Schema / 对象', metric: '统计信息陈旧表', unit: '张', thr: '5', scope: 'db' },
+  { code: 'INVALID_INDEX', dim: 'Schema / 对象', metric: '失效索引', unit: '个', thr: '0', scope: 'db' },
+  { code: 'SLOW_SQL_SPIKE', dim: 'Slow SQL', metric: '24 小时慢 SQL', unit: '条', thr: '200', scope: 'db' },
+  { code: 'ROLLBACK_RATIO_HIGH', dim: '事务 / 并发', metric: '回滚率', unit: '%', thr: '5', scope: 'db' },
+  { code: 'TEMP_FILE_SPIKE', dim: 'IO / 临时文件', metric: '临时文件', unit: 'MB', thr: '2048', scope: 'db' },
+  { code: 'LOCK_CHAIN', dim: '锁阻塞链', metric: '最长阻塞', unit: '秒', thr: '30', scope: 'inst' },
+  { code: 'CONN_NEAR_LIMIT', dim: '连接', metric: '连接使用率', unit: '%', thr: '80', scope: 'inst' },
+  { code: 'REPL_LAG', dim: '复制 / 备机', metric: '复制延迟', unit: '秒', thr: '10', scope: 'inst' },
+  { code: 'CKPT_REQ_HIGH', dim: '检查点 / WAL', metric: '请求型检查点占比', unit: '%', thr: '30', scope: 'inst' },
+];
+const RUNS_N = 14;
+function buildRuns() {
+  const now = new Date('2026-11-11T02:00:00+08:00').getTime();
+  const out = [];
+  for (let i = 0; i < RUNS_N; i++) {
+    const t = new Date(now - (RUNS_N - 1 - i) * 86400000);
+    out.push({ id: 'r-' + t.toISOString().slice(0, 10).replace(/-/g, '') + '-0200', at: t, trigger: 'task', profile: i % 7 === 6 ? 'deep' : 'daily' });
+  }
+  return out;
+}
+const RUNS = buildRuns();
+function buildTargets() {
+  const r = rng(20261111); const insts = []; const dbs = []; let ip = 20;
+  APPS.forEach((app, ai) => {
+    for (let k = 0; k < app.inst; k++) {
+      const idc = IDCS[k % 2 === 0 || ai === 3 ? 0 : 1].id; ip += 1;
+      const inst = { ip: '10.0.0.' + ip, app: app.id, idc, role: k % 3 === 2 ? '备' : '主', spec: ['8C32G', '16C64G', '32C128G'][Math.floor(r() * 3)], dbs: [] };
+      insts.push(inst);
+      const ndb = 1 + Math.floor(r() * 3);
+      for (let j = 0; j < ndb; j++) {
+        const name = app.dbs[(k + j * 3) % app.dbs.length] + (j > 0 && r() > 0.6 ? '_h' : '') + (k > 3 ? String(k) : '');
+        const db = { key: inst.ip + '/' + name, name, inst: inst.ip, app: app.id, idc, role: inst.role, seed: Math.floor(r() * 1e9) };
+        inst.dbs.push(name); dbs.push(db);
+      }
+    }
+  });
+  return { insts, dbs };
+}
+const T = buildTargets();
+/** 某次巡检里某个库 / 实例的结果(按 run 序号确定性生成,让趋势有变化) */
+function dbResult(db, ri) {
+  const r = rng(db.seed + ri * 7919); const base = rng(db.seed);
+  const size = 20 + base() * 900, tpsBase = 20 + base() * 1800, hot = base();
+  // 每项指标各自一个「体质」,让不同的库毛病不同(全是同一个 hot 时每个库都长一个样)
+  const hIdle = base() ** 3, hDead = base() ** 1.6, hSlow = base() ** 1.4, hRb = base() ** 3, hTemp = base() ** 2.5, hHit = base() ** 3, hStale = base() ** 1.8, hInv = base();
+  const drift = Math.sin((ri + hot * 9) / 2.3);
+  const m = {
+    slow_cnt: Math.round(Math.max(0, hSlow * 560 + drift * 90 + r() * 60)), slow_total_s: 0,
+    tps: tpsBase * (0.85 + r() * 0.3), rollback: Math.max(0.1, hRb * 11 + drift * 1.2 + r() * 0.8),
+    deadlocks: Math.max(0, Math.round(hRb * 8 + drift * 2 - 2 + r() * 2)), temp_mb: Math.round(Math.max(0, hTemp * 4600 + drift * 500 + r() * 300 - 400)),
+    hit: Math.min(99.99, 99.95 - hHit * 3.6 - Math.max(0, drift) * 0.6 - r() * 0.3), size_gb: size + ri * size * 0.004,
+    growth_gb: Math.max(0, size * (0.002 + hot * 0.02) * (0.7 + r() * 0.6)), dead: Math.max(0.5, hDead * 42 + drift * 5 + r() * 3),
+    stale: Math.max(0, Math.round(hStale * 15 + drift * 3 + r() * 2 - 3)), invalid_idx: hInv > 0.9 ? 1 + Math.floor(r() * 2) : 0,
+    sess: Math.round(10 + hot * 260 + r() * 40), idle_xact_s: Math.round(Math.max(0, hIdle * 2300 + drift * 300 + r() * 200 - 250)),
+    tx_sample: Math.round(tpsBase * 3600),
+  };
+  m.slow_total_s = Math.round(m.slow_cnt * (0.8 + hSlow * 4));
+  if (hot < 0.08) m.tx_sample = 600;
+  const fs = [];
+  const add = (code, sev, val, ev) => { const f = FIND.find((x) => x.code === code); fs.push({ ...f, sev, value: val, evidence: ev }); };
+  if (m.idle_xact_s > 600) add('LONG_IDLE_XACT', m.idle_xact_s > 1200 ? 3 : 2, m.idle_xact_s, `会话 pid=4${(db.seed % 9000) + 1000} 应用 batch-job 空闲事务持有快照 ${m.idle_xact_s} 秒`);
+  if (m.dead > 20) add('DEAD_TUPLE_HIGH', m.dead > 35 ? 2 : 1, m.dead.toFixed(1), `表 ${db.name}.t_order_detail 死元组 ${m.dead.toFixed(1)}%,上次 autovacuum 3 天前`);
+  if (m.stale > 5) add('STALE_STATS', 1, m.stale, `${m.stale} 张表的统计信息超过 7 天未更新且变化行数 > 10%`);
+  if (m.invalid_idx > 0) add('INVALID_INDEX', 2, m.invalid_idx, `索引 idx_${db.name}_ref 状态为失效(建索引中断)`);
+  if (m.slow_cnt > 200) add('SLOW_SQL_SPIKE', m.slow_cnt > 400 ? 2 : 1, m.slow_cnt, `24 小时慢 SQL ${m.slow_cnt} 条,总耗时 ${m.slow_total_s} 秒(SQL 执行历史按库归属)`);
+  if (m.rollback > 5 && m.tx_sample >= 1000) add('ROLLBACK_RATIO_HIGH', m.rollback > 8 ? 2 : 1, m.rollback.toFixed(1), `回滚 ${m.rollback.toFixed(1)}%,样本 ${fmt(m.tx_sample)} 个事务`);
+  if (m.temp_mb > 2048) add('TEMP_FILE_SPIKE', 1, m.temp_mb, `24 小时临时文件 ${fmt(m.temp_mb)} MB(排序 / 哈希落盘)`);
+  // 少量「没切到业务库 / 采集失败」,演示未采到
+  const na = (db.seed % 23 === 0 && ri >= RUNS_N - 3) ? '库级维度未采到:没切到业务库(白名单未导入 dbName 增量)' : (db.seed % 31 === 0 && ri === RUNS_N - 1 ? '采集超时(单库任务 5 分钟上限)' : '');
+  const level = na && fs.length === 0 ? null : fs.reduce((a, f) => Math.max(a, f.sev), 0);
+  return { db, m, fs, level, na };
+}
+function instResult(inst, ri) {
+  const r = rng(parseInt(inst.ip.split('.')[3], 10) * 131 + ri * 17); const hot = rng(parseInt(inst.ip.split('.')[3], 10) * 977)();
+  const m = { dbtime: Math.round(800 + hot * 9000 + r() * 1200), wal: +(0.5 + hot * 18 + r() * 2).toFixed(1), repl: inst.role === '备' ? +(hot * 22 * r()).toFixed(1) : 0,
+    conn: Math.round(22 + hot * 70 + r() * 8), ckpt: Math.round(hot * 55 * r()), lock_s: Math.round(Math.max(0, hot * 90 * r() - 20)),
+    top: [{ id: String(3000000000 + (inst.ip.length * 7919 + ri) % 99999999), q: 'UPDATE t_order_detail SET status = $1 WHERE order_id = $2', share: 18 + hot * 30 },
+          { id: String(2000000000 + (inst.ip.length * 104729) % 99999999), q: 'SELECT … FROM t_acct_flow WHERE acct_no = $1 AND biz_date BETWEEN $2 AND $3', share: 9 + hot * 12 }] };
+  const fs = [];
+  const add = (code, sev, val, ev) => { const f = FIND.find((x) => x.code === code); fs.push({ ...f, sev, value: val, evidence: ev }); };
+  if (m.conn > 80) add('CONN_NEAR_LIMIT', m.conn > 90 ? 3 : 2, m.conn, `连接 ${m.conn}% (max_connections 实例级),前三名应用占 71%`);
+  if (m.lock_s > 30) add('LOCK_CHAIN', 2, m.lock_s, `阻塞链深度 3,头部会话持锁 ${m.lock_s} 秒`);
+  if (m.repl > 10) add('REPL_LAG', m.repl > 18 ? 3 : 2, m.repl, `备机回放延迟 ${m.repl} 秒`);
+  if (m.ckpt > 30) add('CKPT_REQ_HIGH', 1, m.ckpt, `请求型检查点 ${m.ckpt}%,WAL 生成 ${m.wal} MB/s`);
+  return { inst, m, fs, level: fs.reduce((a, f) => Math.max(a, f.sev), 0) };
+}
+
+/* ---------------------------------------------------------------- 状态 */
+const S = { idc: 'all', app: 'APP-0101', run: RUNS.length - 1, page: 'overview', dim: 'level', board: 'db', lv: new Set(), q: '', sortDesc: true, extraRuns: [] };
+const inScope = (x) => (S.idc === 'all' || x.idc === S.idc) && (S.app === 'all' || x.app === S.app);
+const appName = (id) => (APPS.find((a) => a.id === id) || { name: id }).name;
+function snapshot(ri) {
+  const dbs = T.dbs.filter(inScope).map((d) => dbResult(d, ri));
+  const insts = T.insts.filter(inScope).map((i) => instResult(i, ri));
+  return { dbs, insts };
+}
+function diffIssues(cur, prev) {
+  const key = (r, f) => r.db.key + '|' + f.code;
+  const p = new Set(prev.dbs.flatMap((r) => r.fs.map((f) => key(r, f))));
+  const c = new Set(cur.dbs.flatMap((r) => r.fs.map((f) => key(r, f))));
+  let n = 0, o = 0; c.forEach((k) => (p.has(k) ? o++ : n++)); let g = 0; p.forEach((k) => { if (!c.has(k)) g++; });
+  return { new: n, ongoing: o, resolved: g, isNew: (r, f) => !p.has(key(r, f)) };
+}
+const cntLv = (rows) => { const c = { 3: 0, 2: 0, 1: 0, 0: 0, na: 0 }; rows.forEach((r) => c[lk(r.level)]++); return c; };
+
+/* ---------------------------------------------------------------- 骨架 */
+function renderPickers() {
+  const idc = document.getElementById('selIdc'), app = document.getElementById('selApp'), run = document.getElementById('selRun');
+  idc.innerHTML = `<option value="all">全部</option>` + IDCS.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  app.innerHTML = `<option value="all">全部应用</option>` + APPS.map((x) => `<option value="${x.id}">${esc(x.name)} · ${x.id}</option>`).join('');
+  run.innerHTML = RUNS.map((x, i) => `<option value="${i}">${x.at.toLocaleDateString('zh-CN')} 02:00 · ${x.profile === 'deep' ? '深检' : '日检'}${i === RUNS.length - 1 ? '(最近)' : ''}</option>`).reverse().join('');
+  idc.value = S.idc; app.value = S.app; run.value = String(S.run);
+  idc.onchange = () => { S.idc = idc.value; render(); };
+  app.onchange = () => { S.app = app.value; render(); };
+  run.onchange = () => { S.run = +run.value; render(); };
+}
+function renderSide() {
+  const cur = snapshot(S.run); const alerts = ALERTS.filter((a) => inScope(a)).filter((a) => a.result === '复现').length;
+  const items = [['overview', '巡检总览', I.home], ['rank', '跨库排名', I.rank], ['runs', '巡检任务', I.task], ['alerts', '告警触发', I.bell, alerts], ['inventory', '巡检清单', I.list]];
+  document.getElementById('side').innerHTML = `<div class="grp">巡检</div>` +
+    items.map(([k, n, ic, c]) => `<a data-p="${k}" class="${S.page === k ? 'on' : ''}">${ic}${n}${c ? `<span class="cnt">${c}</span>` : ''}</a>`).join('') +
+    `<div class="grp">单库大盘(现有)</div>
+     <a data-ext="health">${I.heart}健康检查<span class="ext">${I.ext}</span></a>
+     <a data-ext="topsql">${I.sql}Top SQL<span class="ext">${I.ext}</span></a>
+     <a data-ext="wdr">${I.wdr}WDR 分析<span class="ext">${I.ext}</span></a>
+     <div class="grp">对话</div><a data-ext="chat">${I.chat}新对话<span class="ext">${I.ext}</span></a>
+     <div class="note" style="margin:14px 6px 0">本页 ${cur.dbs.length} 个库、${cur.insts.length} 个实例。<br>单库大盘在新标签页打开,数据源切到巡检目录。</div>`;
+  document.querySelectorAll('#side a[data-p]').forEach((a) => (a.onclick = () => { S.page = a.dataset.p; render(); window.scrollTo(0, 0); }));
+  document.querySelectorAll('#side a[data-ext]').forEach((a) => (a.onclick = () => toast(a.dataset.ext === 'chat' ? '新标签页打开 opencode 对话(现有入口)' : `新标签页打开现有单库大盘 /dash/${a.dataset.ext}(先在排名或抽屉里选一个库,带上 ?src=inspect&key=…)`)));
+}
+function head(title, desc, actions = '') {
+  const run = RUNS[S.run];
+  return `<div class="crumb">巡检 <span>/</span> <b>${esc(title)}</b></div>
+  <div class="page-head"><h1>${esc(title)}</h1><div class="actions">${actions}</div></div>
+  <div class="page-desc"><span>范围 <b>${S.idc === 'all' ? '全部 IDC' : esc(IDCS.find((x) => x.id === S.idc).name)} · ${S.app === 'all' ? '全部应用' : esc(appName(S.app)) + ' ' + S.app}</b></span>
+  <span>巡检 <b>${run.at.toLocaleDateString('zh-CN')} 02:00 ${run.profile === 'deep' ? '深检' : '日检'}</b></span><span>触发 <b>定时任务</b></span><span>${desc}</span></div>`;
+}
+
+/* ---------------------------------------------------------------- 总览 */
+function ringSvg(c) {
+  const total = c[3] + c[2] + c[1] + c[0] + c.na; const R = 88, W = 18, C = 2 * Math.PI * R; let off = 0;
+  const seg = ['3', '2', '1', '0', 'na'].map((k) => {
+    const len = total ? (c[k] / total) * C : 0; const s = `<circle cx="115" cy="115" r="${R}" fill="none" stroke="var(--hc)" data-lv="${k}" stroke-width="${W}" stroke-dasharray="${Math.max(0, len - 2)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 115 115)" style="stroke:${k === '0' ? 'rgba(255,255,255,.28)' : ''}"></circle>`;
+    off += len; return len > 0 ? s : '';
+  }).join('');
+  const bad = c[3] + c[2];
+  return `<svg class="ring" viewBox="0 0 230 230"><circle cx="115" cy="115" r="${R}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="${W}"/>${seg}
+  <text x="115" y="108" text-anchor="middle" fill="var(--h-t1)" font-size="40" font-weight="600">${bad}</text>
+  <text x="115" y="134" text-anchor="middle" fill="var(--h-t2)" font-size="13">个库需要处理</text>
+  <text x="115" y="154" text-anchor="middle" fill="var(--h-t3)" font-size="12">共 ${total} 个库</text></svg>`;
+}
+function overview() {
+  const cur = snapshot(S.run), prev = snapshot(Math.max(0, S.run - 1)), d = diffIssues(cur, prev), c = cntLv(cur.dbs);
+  const ic = cntLv(cur.insts); const worst = [...cur.dbs].sort(levelCmp).slice(0, 6);
+  const fcount = {}; cur.dbs.forEach((r) => r.fs.forEach((f) => { fcount[f.dim] = fcount[f.dim] || { 3: 0, 2: 0, 1: 0 }; fcount[f.dim][f.sev]++; }));
+  cur.insts.forEach((r) => r.fs.forEach((f) => { fcount[f.dim + '(实例级)'] = fcount[f.dim + '(实例级)'] || { 3: 0, 2: 0, 1: 0 }; fcount[f.dim + '(实例级)'][f.sev]++; }));
+  const dims = Object.entries(fcount).sort((a, b) => (b[1][3] * 100 + b[1][2] * 10 + b[1][1]) - (a[1][3] * 100 + a[1][2] * 10 + a[1][1]));
+  const maxd = Math.max(1, ...dims.map(([, v]) => v[3] + v[2] + v[1]));
+  const naRows = cur.dbs.filter((r) => r.na);
+  const top1 = worst[0];
+  const tf = top1 ? [...top1.fs].sort((a, b) => b.sev - a.sev) : [];
+  const ADVICE = { LONG_IDLE_XACT: '先找应用确认事务提交逻辑', DEAD_TUPLE_HIGH: '确认 autovacuum 是否跟得上', SLOW_SQL_SPIKE: '看慢 SQL 排名里的前几条', INVALID_INDEX: '由 DBA 评估重建失效索引',
+    ROLLBACK_RATIO_HIGH: '应用侧确认失败重试', STALE_STATS: '安排 ANALYZE', TEMP_FILE_SPIKE: '看排序 / 哈希落盘的 SQL' };
+  const topWhat = tf.slice(0, 2).map((f) => f.metric).join('与');
+  const appsTbl = S.app === 'all' ? appsCompare() : '';
+  return head('巡检总览', `覆盖 <b>${cur.dbs.length - naRows.length}/${cur.dbs.length}</b> 个库`, `<a class="btn sm" data-go="rank">跨库排名 →</a>`) + `
+  <section class="hero"><div class="hero-grid">
+    <div class="glass ringbox"><div class="title">库的级别分布 <span class="t3" style="margin-left:auto">按最坏一条</span></div>${ringSvg(c)}
+      <div class="ring-legend">${['3', '2', '1', '0', 'na'].map((k) => `<span data-lvf="${k}">${glyph(k === 'na' ? null : +k)}${LVN[k]} <b>${c[k]}</b></span>`).join('')}</div></div>
+    <div class="glass insight"><div class="who"><span class="orb">${I.spark}</span><b>巡检摘要</b><span class="src">模型根据本次确定性结果撰写 · 引用已校验</span></div>
+      <h2>${esc(S.app === 'all' ? '全部应用' : appName(S.app))}本次 ${c[3]} 个库严重、${c[2]} 个告警,新增问题 ${d.new} 个${tf.length ? `;最急的是 ${esc(top1.db.name)} 的${esc(topWhat)}` : ''}。</h2>
+      <ul class="lines">
+        ${tf.length ? `<li><span><b>${esc(top1.db.name)}</b>(${esc(top1.db.inst)})${tf.slice(0, 2).map((f) => `${esc(f.metric)} ${esc(f.value)}${esc(f.unit)}`).join('、')},建议${esc(ADVICE[tf[0].code] || '先看库详情')} ${tf.slice(0, 2).map((f) => `<span class="ev" data-dbk="${esc(top1.db.key)}">${glyph(f.sev)}${f.code}</span>`).join('')}</span></li>` : ''}
+        <li><span>慢 SQL 集中在 ${cur.dbs.filter((r) => r.m.slow_cnt > 200).length} 个库,其中 ${cur.dbs.filter((r) => r.m.slow_cnt > 400).length} 个超过 400 条 / 24 小时 <span class="ev" data-go="rank" data-dim="slow">${glyph(2)}SLOW_SQL_SPIKE</span></span></li>
+        <li><span>实例级:${ic[3] + ic[2]} 个实例有严重 / 告警(连接使用率、复制延迟),它们上面的库在排名里带「所在实例」标记 <span class="ev" data-go="rank" data-board="inst">${glyph(2)}实例榜</span></span></li>
+        <li><span>${naRows.length ? `<b>${naRows.length} 个库没采全</b>:${esc(naRows[0].na)}` : '本次全部采到'}</span></li>
+      </ul>
+      <div class="chips"><button class="chip-ask" data-deep="1">${I.spark}深挖 ${esc(top1 ? top1.db.name : '')} 的${esc(tf[0] ? tf[0].metric : '问题')}</button><button class="chip-ask" data-go="rank" data-dim="slow">${I.spark}看慢 SQL 排名</button><button class="chip-ask" data-cmp="1">${I.spark}和上周同一天比</button></div>
+    </div></div>
+    <div class="hero-stats">
+      <div class="glass"><div class="l">库 / 实例</div><div class="v">${cur.dbs.length}<small>库</small> ${cur.insts.length}<small>实例</small></div><div class="s">${new Set(cur.dbs.map((r) => r.db.app)).size} 个应用 · ${new Set(cur.dbs.map((r) => r.db.idc)).size} 个 IDC</div></div>
+      <div class="glass"><div class="l">问题</div><div class="v">${d.new + d.ongoing}<small>个</small></div><div class="s"><span class="d-up">新增 ${d.new}</span> · 持续 ${d.ongoing} · <span class="d-dn">已消除 ${d.resolved}</span></div></div>
+      <div class="glass"><div class="l">覆盖率</div><div class="v">${Math.round(((cur.dbs.length - naRows.length) / Math.max(1, cur.dbs.length)) * 100)}<small>%</small></div><div class="s">${naRows.length} 个库未采全(原因见库详情)</div></div>
+      <div class="glass"><div class="l">本次耗时</div><div class="v">${Math.round(40 + cur.dbs.length * 2.1)}<small>秒</small></div><div class="s">中间件 ${cur.insts.length * 30 + cur.dbs.length * 8} 次调用 · 4 路并行</div></div>
+    </div>
+  </section>
+  <div class="bento">
+    <div class="tile b5"><div class="tile-h"><h3>问题按维度</h3><span class="desc">本次 · 库级 + 实例级</span></div><div class="tile-b"><div class="hb">
+      ${dims.slice(0, 9).map(([k, v]) => `<div class="r" data-go="rank" data-dim="${dimFor(k)}"><div class="l">${esc(k)}</div><div class="b">${['3', '2', '1'].map((s) => v[s] ? `<i data-lv="${s}" style="width:${(v[s] / maxd) * 100}%"></i>` : '').join('')}</div><div class="v">${v[3] + v[2] + v[1]}</div></div>`).join('') || '<div class="empty">没有问题</div>'}
+      </div><div class="legend">${['3', '2', '1'].map((s) => `<span data-lv="${s}"><i class="sw"></i>${LVN[s]}</span>`).join('')}</div></div></div>
+    <div class="tile b7"><div class="tile-h"><h3>近 14 次巡检</h3><span class="desc">每次的问题数(按级别)· 点柱子切到那一次</span></div><div class="tile-b">${trendSvg()}</div></div>
+  </div>
+  <div class="bento">
+    <div class="tile ${appsTbl ? 'b7' : 'b12'}"><div class="tile-h"><h3>最需关注的库</h3><span class="desc">按级别带排序:严重数 → 告警数 → 关注数 → 新增</span><div class="tools"><a data-go="rank">全部排名 →</a></div></div>
+      <div class="tile-b flush">${dbTable(worst, prev, d, true)}</div></div>
+    ${appsTbl}
+  </div>
+  <div class="protonote"><b>原型说明</b>:数字全部是假数据。级别由脚本按阈值判定(与单库健康大盘同一份代码),摘要由模型根据本次结果撰写并校验引用;摘要失败时这块显示「本次没有摘要」,其余不受影响。不编综合分,圆环与排序都按级别。</div>`;
+}
+function dimFor(k) { if (/Slow/.test(k)) return 'slow'; if (/死元组/.test(k)) return 'dead'; if (/Schema/.test(k)) return 'stale'; if (/长事务/.test(k)) return 'idle'; if (/事务/.test(k)) return 'rollback'; if (/临时/.test(k)) return 'temp'; return 'level'; }
+function appsCompare() {
+  const rows = APPS.filter((a) => S.idc === 'all' || T.dbs.some((d) => d.app === a.id && d.idc === S.idc)).map((a) => {
+    const rs = T.dbs.filter((d) => d.app === a.id && (S.idc === 'all' || d.idc === S.idc)).map((d) => dbResult(d, S.run)); return { a, c: cntLv(rs), n: rs.length };
+  }).sort((x, y) => (y.c[3] * 100 + y.c[2] * 10 + y.c[1]) - (x.c[3] * 100 + x.c[2] * 10 + x.c[1]));
+  return `<div class="tile b5"><div class="tile-h"><h3>各应用对比</h3><span class="desc">同一 IDC 范围 · 点一行进入该应用</span></div><div class="tile-b"><div class="hb">
+  ${rows.map(({ a, c, n }) => `<div class="r" data-app="${a.id}"><div class="l">${esc(a.name)}<small>${a.id} · ${n} 个库</small></div><div class="b">${['3', '2', '1', '0', 'na'].map((k) => c[k] ? `<i data-lv="${k}" style="width:${(c[k] / n) * 100}%;${k === '0' ? 'background:var(--gray-mark)' : ''}"></i>` : '').join('')}</div><div class="v">${c[3] + c[2]} 需处理</div></div>`).join('')}
+  </div></div></div>`;
+}
+function trendSvg() {
+  const W = 760, H = 210, pad = 28, bw = (W - pad * 2) / RUNS_N; const data = RUNS.map((_, i) => { const s = snapshot(i); const c = { 3: 0, 2: 0, 1: 0 }; s.dbs.concat(s.insts).forEach((r) => r.fs.forEach((f) => c[f.sev]++)); return c; });
+  const max = Math.max(1, ...data.map((c) => c[3] + c[2] + c[1]));
+  const y = (v) => H - 30 - (v / max) * (H - 50);
+  return `<svg class="trend" viewBox="0 0 ${W} ${H}">${[0, 0.5, 1].map((t) => `<line x1="${pad}" x2="${W - pad}" y1="${y(max * t)}" y2="${y(max * t)}" stroke="var(--line)"/><text x="${pad - 6}" y="${y(max * t) + 4}" text-anchor="end">${Math.round(max * t)}</text>`).join('')}
+  ${data.map((c, i) => { let base = 0; const x = pad + i * bw + bw * 0.18, w = bw * 0.64; const segs = ['1', '2', '3'].map((k) => { const h = (c[k] / max) * (H - 50); const r = `<rect x="${x}" y="${y(base + c[k])}" width="${w}" height="${Math.max(0, h)}" rx="3" data-lv="${k}" fill="var(--c)"></rect>`; base += c[k]; return r; }).join('');
+    return `<g class="bar ${i === S.run ? 'cur' : ''}" data-run="${i}">${segs}${i === S.run ? `<rect class="frame" x="${x - 3}" y="${y(base) - 3}" width="${w + 6}" height="${H - 30 - y(base) + 6}" rx="5"></rect>` : ''}<text x="${x + w / 2}" y="${H - 12}" text-anchor="middle">${RUNS[i].at.getMonth() + 1}/${RUNS[i].at.getDate()}${RUNS[i].profile === 'deep' ? '·深' : ''}</text></g>`; }).join('')}</svg>
+  <div class="legend">${['3', '2', '1'].map((s) => `<span data-lv="${s}"><i class="sw"></i>${LVN[s]}</span>`).join('')}<span class="t3">「深」= 每周深检(多了未使用索引、7 天 WDR)</span></div>`;
+}
+const levelCmp = (a, b) => {
+  const k = (r) => [r.level === null ? -1 : r.level, r.fs.filter((f) => f.sev === 3).length, r.fs.filter((f) => f.sev === 2).length, r.fs.filter((f) => f.sev === 1).length];
+  const x = k(a), y = k(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return y[i] - x[i]; return 0;
+};
+function instOf(ip) { return instResult(T.insts.find((i) => i.ip === ip), S.run); }
+function dbTable(rows, prev, d, compact) {
+  if (!rows.length) return '<div class="empty">没有符合条件的库</div>';
+  return `<table class="tbl"><thead><tr><th>#</th><th>库</th><th>级别</th><th>问题</th><th>所在实例</th>${compact ? '' : '<th>应用 / IDC</th>'}<th class="ops"></th></tr></thead><tbody>
+  ${rows.map((r, i) => { const ir = instOf(r.db.inst); const sev = { 3: 0, 2: 0, 1: 0 }; r.fs.forEach((f) => sev[f.sev]++); const nw = r.fs.filter((f) => d.isNew(r, f)).length;
+    return `<tr data-db="${esc(r.db.key)}"><td><span class="rk ${i < 3 && r.level >= 2 ? 'top' : ''}">${i + 1}</span></td>
+    <td class="dbn"><b>${esc(r.db.name)}</b><small>${esc(appName(r.db.app))} · ${r.db.role}库</small></td><td>${tag(r.level)}</td>
+    <td class="wrap">${r.na ? `<span class="tag" data-lv="na" style="margin:2px 4px 2px 0">${glyph(null)}部分未采到</span>` : ''}${r.fs.length ? [...r.fs].sort((a, b) => b.sev - a.sev).slice(0, 2).map((f) => `<span class="tag" data-lv="${f.sev}" style="margin:2px 4px 2px 0">${glyph(f.sev)}${esc(f.metric)} ${esc(f.value)}${esc(f.unit)}</span>`).join('') + (r.fs.length > 2 ? `<span class="t3">+${r.fs.length - 2}</span>` : '') + (nw ? ` <span class="tag blue">新增 ${nw}</span>` : '') : (r.na ? `<span class="t3">${esc(r.na)}</span>` : '<span class="t3">无</span>')}</td>
+    <td><span class="instchip">${glyph(ir.level)}${esc(r.db.inst)}</span></td>${compact ? '' : `<td class="t2">${esc(r.db.app)} · ${esc(r.db.idc)}</td>`}
+    <td class="ops"><a data-drill="${esc(r.db.key)}">下钻 ↗</a><a data-deepdb="${esc(r.db.key)}">深挖 →</a></td></tr>`; }).join('')}</tbody></table>`;
+}
+
+/* ---------------------------------------------------------------- 跨库排名 */
+const DIMS = [
+  { k: 'level', n: '健康级别', unit: '', get: null, desc: '严重数 → 告警数 → 关注数 → 新增;不编综合分' },
+  { k: 'slow', n: '慢 SQL', unit: '条', get: (m) => m.slow_cnt, sub: (m) => `总耗时 ${fmt(m.slow_total_s)} 秒`, src: 'SQL 执行历史按 db_name 聚合(新脚本 inspect.db_slow_sql,postgres)', warn: 200 },
+  { k: 'tps', n: '事务量', unit: '/秒', d: 0, get: (m) => m.tps, src: 'WDR 快照按库求增量(新脚本 inspect.wdr_db_stat,postgres)', vol: true },
+  { k: 'rollback', n: '回滚率', unit: '%', d: 1, get: (m) => (m.tx_sample >= 1000 ? m.rollback : null), sub: (m) => (m.tx_sample >= 1000 ? `样本 ${fmt(m.tx_sample)} 事务` : '样本不足,不参与排名'), src: '同上;样本 < 1000 个事务不排', warn: 5 },
+  { k: 'deadlock', n: '死锁', unit: '次', get: (m) => m.deadlocks, src: '同上(窗口 24 小时)', warn: 1 },
+  { k: 'temp', n: '临时文件', unit: 'MB', get: (m) => m.temp_mb, src: '同上', warn: 2048 },
+  { k: 'hit', n: '缓存命中率', unit: '%', d: 2, asc: true, get: (m) => m.hit, src: '同上(越低越靠前)', warnBelow: 98 },
+  { k: 'growth', n: '存储增长', unit: 'GB/日', d: 2, get: (m) => m.growth_gb, sub: (m) => `当前 ${fmt(m.size_gb, 0)} GB`, src: 'health.storage(已有,按库列出)与上次比' },
+  { k: 'dead', n: '死元组', unit: '%', d: 1, get: (m) => m.dead, src: 'vacuum.dead_tuples(已有,带 dbName 在业务库执行)', warn: 20 },
+  { k: 'stale', n: '统计信息陈旧', unit: '张表', get: (m) => m.stale, src: 'health.stale_stats(已有,带 dbName)', warn: 5 },
+  { k: 'idle', n: '空闲事务', unit: '秒', get: (m) => m.idle_xact_s, sub: (m) => `会话 ${m.sess}`, src: 'pg_stat_activity 按库(新脚本 inspect.db_sessions,postgres)', warn: 600 },
+];
+const IDIMS = [
+  { k: 'dbtime', n: 'DB time', unit: '秒/时', get: (m) => m.dbtime, src: 'WDR / 时段体检(实例级)' },
+  { k: 'conn', n: '连接使用率', unit: '%', get: (m) => m.conn, src: 'health 连接维度(上限是实例参数)', warn: 80 },
+  { k: 'wal', n: 'WAL 生成', unit: 'MB/s', d: 1, get: (m) => m.wal, src: 'health WAL / 写入来源' },
+  { k: 'repl', n: '复制延迟', unit: '秒', d: 1, get: (m) => m.repl, src: 'health 复制 / 备机', warn: 10 },
+  { k: 'top', n: 'Top SQL 榜首占比', unit: '%', d: 1, get: (m) => m.top[0].share, sub: (m) => m.top[0].q, src: 'dbe_perf.statement(没有库名列,只能按实例)' },
+];
+function rank() {
+  const cur = snapshot(S.run), prev = snapshot(Math.max(0, S.run - 1)), d = diffIssues(cur, prev);
+  const isInst = S.board === 'inst'; const list = isInst ? IDIMS : DIMS; let dim = list.find((x) => x.k === S.dim) || list[0];
+  if (isInst && !IDIMS.find((x) => x.k === S.dim)) dim = IDIMS[0];
+  const segs = `<div class="seg" id="segBoard"><button data-b="db" class="${!isInst ? 'on' : ''}">库榜 · ${cur.dbs.length} 个库</button><button data-b="inst" class="${isInst ? 'on' : ''}">实例榜 · ${cur.insts.length} 个实例</button></div>`;
+  const dimSeg = `<div class="seg" id="segDim">${list.map((x) => `<button data-k="${x.k}" class="${x.k === dim.k ? 'on' : ''}">${x.n}</button>`).join('')}</div>`;
+  const banner = isInst ? `<div class="scopebanner inst">${glyph(1)}<span><b>实例级数据</b>:含该实例上所有库,不拆到库(内核按实例统计;Top SQL 的视图没有库名列)。库榜上用「所在实例」标签带出这里的级别。</span></div>`
+    : `<div class="scopebanner">${glyph(0)}<span><b>库榜</b>:同一范围内所有库统一排名 · 当前维度「${esc(dim.n)}」· 来源 ${esc(dim.src || '库级与可归属到库的实例级 Finding')} · 分位 = 在本范围内的位置</span></div>`;
+  const filters = `<div class="filters"><input id="q" placeholder="搜库名 / 实例 / 应用" value="${esc(S.q)}">${['3', '2', '1', '0', 'na'].map((k) => `<span class="lvchip ${S.lv.has(k) ? 'on' : ''}" data-lv="${k}" data-lvf="${k}">${glyph(k === 'na' ? null : +k)}${LVN[k]}</span>`).join('')}<span class="t3" style="font-size:12.5px">点表头「值」可切换升降序</span></div>`;
+  let body;
+  if (isInst) body = instRankTable(cur, prev, dim);
+  else if (dim.k === 'level') body = dbTable(filterRows(cur.dbs).sort(levelCmp), prev, d, false);
+  else body = metricTable(filterRows(cur.dbs), prev, dim);
+  return head('跨库排名', isInst ? '实例级指标单独排' : '库级指标统一排', segs) + banner + `<div style="margin-bottom:12px">${dimSeg}</div>` + filters +
+    `<div class="tile"><div class="tile-b flush">${body}</div></div>
+    <div class="protonote"><b>排名口径</b>:① 只有能归属到库的指标进库榜;② 比率类有最小样本量,不够就标「样本不足」不参与排名;③ 「与上次」按同一库上一次巡检比;④ 「分位」是在当前范围内的位置,P90 以上标红;⑤ 下钻打开现有单库大盘(数据源切到巡检目录),深挖以你的身份开对话。</div>`;
+}
+function filterRows(rows) {
+  const q = S.q.trim().toLowerCase();
+  return rows.filter((r) => (!S.lv.size || S.lv.has(lk(r.level))) && (!q || (r.db.name + r.db.inst + r.db.app + appName(r.db.app)).toLowerCase().includes(q)));
+}
+function metricTable(rows, prev, dim) {
+  const pv = new Map(prev.dbs.map((r) => [r.db.key, r]));
+  const withV = rows.map((r) => ({ r, v: dim.get(r.m) })); const valid = withV.filter((x) => x.v !== null);
+  const dir = (dim.asc ? 1 : -1) * (S.sortDesc ? 1 : -1);
+  valid.sort((a, b) => (a.v - b.v) * dir);
+  const out = valid.concat(withV.filter((x) => x.v === null)); const max = Math.max(...valid.map((x) => x.v), 1); const min = Math.min(...valid.map((x) => x.v));
+  const sortedAsc = [...valid].map((x) => x.v).sort((a, b) => a - b);
+  const pctOf = (v) => { const i = sortedAsc.findIndex((x) => x >= v); const p = Math.round(((i + 1) / sortedAsc.length) * 100); return dim.asc ? 100 - p + 1 : p; };
+  return `<table class="tbl"><thead><tr><th>#</th><th>库</th><th class="sort" id="thVal">${esc(dim.n)}(${esc(dim.unit)}) ${S.sortDesc ? '▼' : '▲'}</th><th>分位</th><th>与上次</th><th>级别</th><th>所在实例</th><th>应用 / IDC</th><th class="ops"></th></tr></thead><tbody>
+  ${out.map(({ r, v }, i) => { const p = pv.get(r.db.key); const pvv = p ? dim.get(p.m) : null; const delta = v !== null && pvv !== null ? v - pvv : null; const pc = v !== null ? pctOf(v) : null; const ir = instOf(r.db.inst);
+    const bad = v !== null && ((dim.warn !== undefined && v >= dim.warn) || (dim.warnBelow !== undefined && v < dim.warnBelow));
+    const w = v === null ? 0 : dim.asc ? ((max - v) / Math.max(0.0001, max - min)) * 100 : (v / max) * 100;
+    return `<tr data-db="${esc(r.db.key)}"><td><span class="rk ${i < 3 && v !== null && bad ? 'top' : ''}">${v === null ? '—' : i + 1}</span></td>
+    <td class="dbn"><b>${esc(r.db.name)}</b><small>${esc(dim.sub ? dim.sub(r.m) : r.db.role + '库')}</small></td>
+    <td><div class="valbar" data-lv="${bad ? 2 : 0}"><div class="b"><i style="width:${Math.max(1, w)}%;background:${bad ? 'var(--warn)' : 'var(--primary)'}"></i></div><b>${v === null ? '<span class="t3">样本不足</span>' : fmt(v, dim.d || 0) + `<small>${esc(dim.unit)}</small>`}</b></div></td>
+    <td>${pc === null ? '<span class="t3">—</span>' : `<span class="pct ${pc >= 90 && !dim.vol ? 'hi' : ''}">P${pc}</span>`}</td>
+    <td>${delta === null ? '<span class="delta flat">—</span>' : `<span class="delta ${Math.abs(delta) < 1e-9 ? 'flat' : (delta > 0) !== !!dim.asc ? 'up' : 'dn'}">${delta > 0 ? '+' : ''}${fmt(delta, dim.d || 0)}</span>`}</td>
+    <td>${tag(r.level)}</td><td><span class="instchip">${glyph(ir.level)}${esc(r.db.inst)}</span></td><td class="t2">${esc(r.db.app)} · ${esc(r.db.idc)}</td>
+    <td class="ops"><a data-drill="${esc(r.db.key)}">下钻 ↗</a><a data-deepdb="${esc(r.db.key)}">深挖 →</a></td></tr>`; }).join('')}</tbody></table>`;
+}
+function instRankTable(cur, prev, dim) {
+  const pv = new Map(prev.insts.map((r) => [r.inst.ip, r])); const q = S.q.trim().toLowerCase();
+  const rows = cur.insts.filter((r) => (!S.lv.size || S.lv.has(lk(r.level))) && (!q || (r.inst.ip + r.inst.app + r.inst.dbs.join(' ')).toLowerCase().includes(q)))
+    .map((r) => ({ r, v: dim.get(r.m) })).sort((a, b) => (b.v - a.v) * (S.sortDesc ? 1 : -1));
+  const max = Math.max(1, ...rows.map((x) => x.v));
+  return `<table class="tbl"><thead><tr><th>#</th><th>实例</th><th class="sort" id="thVal">${esc(dim.n)}(${esc(dim.unit)}) ${S.sortDesc ? '▼' : '▲'}</th><th>与上次</th><th>级别</th><th>上面的库</th><th>规格 / 角色</th><th class="ops"></th></tr></thead><tbody>
+  ${rows.map(({ r, v }, i) => { const p = pv.get(r.inst.ip); const delta = p ? v - dim.get(p.m) : null; const bad = dim.warn !== undefined && v >= dim.warn;
+    return `<tr data-inst="${r.inst.ip}"><td><span class="rk ${i < 3 && bad ? 'top' : ''}">${i + 1}</span></td><td class="dbn"><b>${r.inst.ip}</b><small>${esc(appName(r.inst.app))} · ${r.inst.idc}${dim.sub ? ' · ' + esc(dim.sub(r.m)).slice(0, 38) + '…' : ''}</small></td>
+    <td><div class="valbar"><div class="b"><i style="width:${(v / max) * 100}%;background:${bad ? 'var(--warn)' : 'var(--primary)'}"></i></div><b>${fmt(v, dim.d || 0)}<small>${esc(dim.unit)}</small></b></div></td>
+    <td>${delta === null ? '—' : `<span class="delta ${delta > 0 ? 'up' : delta < 0 ? 'dn' : 'flat'}">${delta > 0 ? '+' : ''}${fmt(delta, dim.d || 0)}</span>`}</td><td>${tag(r.level)}</td>
+    <td class="wrap t2">${r.inst.dbs.map(esc).join('、')}</td><td class="t2">${r.inst.spec} · ${r.inst.role}</td>
+    <td class="ops"><a data-drilli="${r.inst.ip}">下钻 ↗</a><a data-deepi="${r.inst.ip}">深挖 →</a></td></tr>`; }).join('')}</tbody></table>`;
+}
+
+/* ---------------------------------------------------------------- 巡检任务 */
+const TASKS = [
+  { name: '每日日检', profile: '日检', cron: '每天 02:00', scope: '全部应用', next: '11-12 02:00', on: true, by: '定时任务' },
+  { name: '每周深检', profile: '深检', cron: '每周日 03:00', scope: '全部应用', next: '11-15 03:00', on: true, by: '定时任务' },
+  { name: '核心账务批量后复核', profile: '快检', cron: '每天 06:30', scope: '核心账务 APP-0101', next: '11-11 06:30', on: true, by: '定时任务' },
+  { name: '变更平台调用', profile: '调用方指定', cron: '按需(API)', scope: '调用方指定', next: '—', on: true, by: '外部调用 · 变更平台' },
+];
+function runsList() {
+  const base = RUNS.map((r, i) => ({ id: r.id, at: r.at, trigger: '定时任务', name: r.profile === 'deep' ? '每周深检' : '每日日检', profile: r.profile === 'deep' ? '深检' : '日检', scope: '全部应用', status: i === RUNS.length - 4 ? '部分失败' : '完成', prog: 100, dur: 96 + (i * 7) % 40, issues: 30 + (i * 13) % 17, cov: i === RUNS.length - 4 ? 93 : 100, ri: i }));
+  const api = [
+    { id: 'r-20261110-1532-a1c4', at: new Date('2026-11-10T15:32:00+08:00'), trigger: '外部调用', name: '变更平台:CHG-1108 上线后复核', profile: '快检', scope: '支付清算 APP-0203', status: '完成', prog: 100, dur: 21, issues: 4, cov: 100 },
+    { id: 'r-20261111-0912-7f3a', at: new Date('2026-11-11T09:12:00+08:00'), trigger: '监控告警', name: '告警 ALM-55301 连接使用率 93%', profile: '快检', scope: '10.0.0.23', status: '完成', prog: 100, dur: 9, issues: 2, cov: 100 },
+    { id: 'r-20261111-1004-c2d9', at: new Date('2026-11-11T10:04:00+08:00'), trigger: '监控告警', name: '告警 ALM-55342 复制延迟 21 秒', profile: '快检', scope: '10.0.0.27', status: '进行中', prog: 60, dur: null, issues: null, cov: null },
+  ];
+  return [...S.extraRuns, ...api, ...base].sort((a, b) => b.at - a.at);
+}
+function runs() {
+  const list = runsList();
+  return head('巡检任务', `任务定义 ${TASKS.length} 个 · 最近 ${list.length} 次运行`, `<button class="btn sm" id="btnNew2">发起巡检</button>`) + `
+  <div class="tile" style="margin-bottom:18px"><div class="tile-h"><h3>任务定义</h3><span class="desc">定时任务由巡检服务调度;外部调用经 API(调用方各有令牌)</span></div><div class="tile-b flush">
+  <table class="tbl"><thead><tr><th>名称</th><th>套餐</th><th>时间</th><th>范围</th><th>触发</th><th>下次</th><th>状态</th></tr></thead><tbody>
+  ${TASKS.map((t) => `<tr><td><b style="font-weight:500">${esc(t.name)}</b></td><td>${esc(t.profile)}</td><td>${esc(t.cron)}</td><td>${esc(t.scope)}</td><td>${trig(t.by)}</td><td class="num">${esc(t.next)}</td><td>${t.on ? '<span class="st" data-lv="0"><i></i>启用</span>' : '停用'}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="tile"><div class="tile-h"><h3>运行记录</h3><span class="desc">点一行切到那一次巡检的总览</span><div class="tools"><div class="seg" id="segTrig">${['全部', '定时任务', '外部调用', '监控告警'].map((x) => `<button data-t="${x}" class="${(S.trig || '全部') === x ? 'on' : ''}">${x}</button>`).join('')}</div></div></div><div class="tile-b flush">
+  <table class="tbl"><thead><tr><th>运行</th><th>触发</th><th>套餐</th><th>范围</th><th>状态</th><th>进度</th><th class="r">耗时</th><th class="r">问题</th><th class="r">覆盖率</th></tr></thead><tbody>
+  ${list.filter((x) => !S.trig || S.trig === '全部' || x.trigger.startsWith(S.trig)).map((x) => `<tr data-ri="${x.ri ?? ''}"><td class="dbn"><b>${esc(x.name)}</b><small>${esc(x.id)} · ${x.at.toLocaleString('zh-CN', { hour12: false }).slice(0, 16)}</small></td>
+  <td>${trig(x.trigger)}</td><td>${esc(x.profile)}</td><td class="t2">${esc(x.scope)}</td><td>${stat(x.status)}</td>
+  <td><span class="prog ${x.status === '部分失败' ? 'part' : ''}"><i style="width:${x.prog}%"></i></span></td><td class="r">${x.dur === null ? '—' : x.dur + ' 秒'}</td><td class="r">${x.issues ?? '—'}</td><td class="r">${x.cov === null ? '—' : x.cov + '%'}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="protonote"><b>说明</b>:「部分失败」= 有库采集超时或没切到业务库,覆盖率如实显示,原因在库详情里。外部调用返回 run_id,完成后按调用方给的地址回调(带签名);告警触发的快检只跑相关维度,详见「告警触发」。</div>`;
+}
+const trig = (t) => t.startsWith('定时') ? `<span class="tag blue">${esc(t)}</span>` : t.startsWith('外部') ? `<span class="tag cyan">${esc(t)}</span>` : `<span class="tag pur">${esc(t)}</span>`;
+const stat = (s) => s === '完成' ? '<span class="st" data-lv="0"><i></i>完成</span>' : s === '进行中' ? '<span class="st run"><i></i>进行中</span>' : s === '排队' ? '<span class="st" data-lv="na"><i></i>排队</span>' : `<span class="st" data-lv="2"><i></i>${esc(s)}</span>`;
+
+/* ---------------------------------------------------------------- 告警触发 */
+const ALERTS = [
+  { id: 'ALM-55342', src: '统一监控', at: '11-11 10:04', inst: '10.0.0.27', db: '', app: 'APP-0101', idc: 'IDC-B', metric: '复制延迟', val: '21 秒', dedup: 1, run: 'r-20261111-1004-c2d9', result: '进行中', dims: '复制 / 备机、WAL / 写入来源', notify: '待发', deep: '' },
+  { id: 'ALM-55301', src: '统一监控', at: '11-11 09:12', inst: '10.0.0.23', db: '', app: 'APP-0101', idc: 'IDC-A', metric: '连接使用率', val: '93%', dedup: 3, run: 'r-20261111-0912-7f3a', result: '复现', dims: '连接、长事务、会话按库聚合', notify: '已推送 账务运维组', deep: '已开(insp-bot)' },
+  { id: 'ALM-55288', src: '统一监控', at: '11-11 08:40', inst: '10.0.0.31', db: 'pay', app: 'APP-0203', idc: 'IDC-B', metric: '锁等待', val: '45 秒', dedup: 1, run: 'r-20261111-0840-5b21', result: '未复现', dims: '锁阻塞链、长事务', notify: '已推送(未复现)', deep: '' },
+  { id: 'ALM-55251', src: '应用监控', at: '11-11 07:58', inst: '10.0.0.36', db: 'cust', app: 'APP-0310', idc: 'IDC-A', metric: '响应变慢', val: 'P99 1.8 秒', dedup: 2, run: 'r-20261111-0758-9e07', result: '复现', dims: '等待事件、慢 SQL、Top SQL 15 分钟', notify: '已推送 客户运维组', deep: '' },
+  { id: 'ALM-55190', src: '统一监控', at: '11-10 23:15', inst: '10.0.0.22', db: 'ledger', app: 'APP-0101', idc: 'IDC-B', metric: '表空间增长', val: '+38 GB/日', dedup: 1, run: 'r-20261110-2315-41aa', result: '采集失败', dims: '占用量、死元组与膨胀', notify: '已推送(采集失败)', deep: '' },
+];
+function alerts() {
+  const rows = ALERTS.filter(inScope);
+  const lv = (r) => r.result === '复现' ? 2 : r.result === '未复现' ? 0 : r.result === '采集失败' ? null : 1;
+  return head('告警触发', `监控告警 → 去重 → 快检 → 复现 / 未复现 → 通知 → 深挖`) + `
+  <div class="bento"><div class="tile b12"><div class="tile-b"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px">
+  ${['监控告警(Webhook)', '去重 15 分钟 / 维护窗口抑制', '快检:只跑相关维度', '判定:相关维度 ≥ 告警 = 复现', '通知:回写监控 + 推送订阅人', '深挖:人点或严重自动(默认关)'].map((x, i) => `<span class="tag ${i === 0 ? 'pur' : 'gray'}" style="height:28px;font-size:13px">${i + 1}. ${esc(x)}</span>${i < 5 ? '<span class="t3">→</span>' : ''}`).join('')}
+  </div></div></div></div>
+  <div class="tile"><div class="tile-h"><h3>告警记录</h3><span class="desc">${rows.length} 条 · 当前范围</span></div><div class="tile-b flush">
+  ${rows.length ? `<table class="tbl"><thead><tr><th>告警</th><th>来源</th><th>对象</th><th>指标</th><th>合并</th><th>快检结果</th><th>快检维度</th><th>通知</th><th class="ops"></th></tr></thead><tbody>
+  ${rows.map((r) => `<tr data-alert="${r.id}"><td class="dbn"><b>${r.id}</b><small>${r.at}</small></td><td>${esc(r.src)}</td><td class="dbn"><b>${r.inst}${r.db ? ' / ' + esc(r.db) : ''}</b><small>${esc(appName(r.app))} · ${r.idc}</small></td>
+  <td>${esc(r.metric)} <b style="font-weight:500">${esc(r.val)}</b></td><td class="r">${r.dedup > 1 ? r.dedup + ' 条' : '—'}</td>
+  <td>${r.result === '进行中' ? stat('进行中') : tag(lv(r), r.result)}</td><td class="wrap t2">${esc(r.dims)}</td><td class="t2">${esc(r.notify)}</td>
+  <td class="ops"><a data-runid="${r.run}">巡检记录</a>${r.deep ? `<a data-deepa="${r.id}">深挖会话 ↗</a>` : r.result === '复现' ? `<a data-deepa="${r.id}">深挖 →</a>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">当前范围没有告警触发的巡检</div>'}
+  </div></div>
+  <div class="protonote"><b>说明</b>:同实例同指标 15 分钟内的告警合并成一次快检(「合并」列)。告警风暴:同一应用同时超过 5 条合并为一次应用快检。「采集失败」不当成正常,原因写在巡检记录里。自动深挖默认关(会消耗模型额度),开了也只对「严重且复现」、限 1 路并发。</div>`;
+}
+
+/* ---------------------------------------------------------------- 清单 */
+function inventory() {
+  const cur = snapshot(S.run);
+  return head('巡检清单', '应用 ↔ 实例来自 CMDB(P0 先上传表格);库由巡检自动发现') + `
+  <div class="tile"><div class="tile-h"><h3>实例与库</h3><span class="desc">清单版本 2026-11-11T020000Z · 新发现 2 个库 · 清单过期 1 个</span><div class="tools"><button class="btn sm" data-toast="上传 CSV / YAML 后先显示差异预览,确认后生效">上传清单</button></div></div><div class="tile-b flush">
+  <table class="tbl"><thead><tr><th>实例</th><th>应用</th><th>IDC</th><th>角色 / 规格</th><th>库(自动发现)</th><th>巡检窗口</th><th>标注</th></tr></thead><tbody>
+  ${cur.insts.map((r, i) => `<tr><td><b style="font-weight:500">${r.inst.ip}</b></td><td>${esc(appName(r.inst.app))} <span class="t3">${r.inst.app}</span></td><td>${r.inst.idc}</td><td class="t2">${r.inst.role} · ${r.inst.spec}</td>
+  <td class="wrap">${r.inst.dbs.map((d, j) => `<span class="tag ${i === 2 && j === 0 ? 'blue' : 'gray'}" style="margin:2px 4px 2px 0">${esc(d)}${i === 2 && j === 0 ? ' · 新发现' : ''}</span>`).join('')}${i === 4 ? '<span class="tag" data-lv="1">old_rpt · 清单过期</span>' : ''}</td>
+  <td class="t2">${r.inst.app === 'APP-0101' ? '03:00–05:00(避开批量)' : '02:00–05:00'}</td><td class="t2">${i === 5 ? '测试库不进排名' : '—'}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+
+/* ---------------------------------------------------------------- 抽屉 / 弹窗 / 提示 */
+function openDb(key) {
+  const db = T.dbs.find((x) => x.key === key); if (!db) return; const r = dbResult(db, S.run); const ir = instOf(db.inst);
+  const pr = dbResult(db, Math.max(0, S.run - 1)); const d = diffIssues({ dbs: [r] }, { dbs: [pr] });
+  document.getElementById('layer').innerHTML = `<div class="mask" id="mask"></div><aside class="drawer">
+  <div class="dh"><button class="x" id="dx">×</button><h2>${glyph(r.level)}${esc(db.name)} ${tag(r.level)}</h2>
+  <div class="meta">${esc(appName(db.app))} ${db.app} · ${db.idc} · 实例 ${db.inst}(${db.role}) · 本次 ${RUNS[S.run].at.toLocaleDateString('zh-CN')} 02:00 ${RUNS[S.run].profile === 'deep' ? '深检' : '日检'}</div></div>
+  <div class="db">
+    <div class="kv"><div><small>慢 SQL(24 小时)</small><b>${fmt(r.m.slow_cnt)} 条</b></div><div><small>事务量</small><b>${fmt(r.m.tps)} /秒</b></div><div><small>回滚率</small><b>${r.m.tx_sample >= 1000 ? fmt(r.m.rollback, 1) + '%' : '样本不足'}</b></div>
+    <div><small>死元组(最高表)</small><b>${fmt(r.m.dead, 1)}%</b></div><div><small>库大小</small><b>${fmt(r.m.size_gb, 0)} GB(+${fmt(r.m.growth_gb, 2)}/日)</b></div><div><small>会话 / 空闲事务</small><b>${r.m.sess} / ${fmt(r.m.idle_xact_s)} 秒</b></div></div>
+    ${r.na ? `<div class="note"><b>没采全</b>:${esc(r.na)}。库级维度这次记「未采到」,不算正常。</div>` : ''}
+    <div class="sec">库级发现(${r.fs.length})· 新增 ${d.new} · 已消除 ${d.resolved}</div>
+    ${r.fs.length ? r.fs.map((f) => `<div class="fnd" data-lv="${f.sev}"><div class="h">${glyph(f.sev)}<b>${esc(f.metric)} ${esc(f.value)}${esc(f.unit)}</b>${d.isNew(r, f) ? '<span class="tag blue">新增</span>' : '<span class="tag gray">持续</span>'}<code>${f.code}</code></div><div class="m">${esc(f.dim)} · 阈值 ${esc(f.thr)}${esc(f.unit)}</div><div class="e">${esc(f.evidence)}</div></div>`).join('') : '<div class="t3">无</div>'}
+    <div class="sec">所在实例 ${db.inst}(实例级,含该实例所有库)</div>
+    ${ir.fs.length ? ir.fs.map((f) => `<div class="fnd"><div class="h">${glyph(f.sev)}<b>${esc(f.metric)} ${esc(f.value)}${esc(f.unit)}</b><code>${f.code}</code></div><div class="e">${esc(f.evidence)}</div></div>`).join('') : `<div class="t3">${tag(0)} 实例级没有问题</div>`}
+    <div class="note">Top SQL 是实例级(视图里没有库名):榜首 <b>${ir.m.top[0].id}</b> 占 ${fmt(ir.m.top[0].share, 1)}% —— <span class="t3">${esc(ir.m.top[0].q)}</span>。按库看 SQL 用上面的「慢 SQL」。</div>
+  </div>
+  <div class="df"><button class="btn primary" data-deepdb="${esc(key)}">${I.spark}深挖 →</button><button class="btn" data-drill="${esc(key)}">单库健康大盘 ↗</button><button class="btn" data-drilli="${db.inst}">实例 Top SQL ↗</button><button class="btn" data-drilli="${db.inst}" data-w="wdr">实例 WDR ↗</button></div></aside>`;
+  document.getElementById('mask').onclick = closeLayer; document.getElementById('dx').onclick = closeLayer; bindActions(document.getElementById('layer'));
+}
+function closeLayer() { document.getElementById('layer').innerHTML = ''; }
+function openNew() {
+  let prof = '快检';
+  document.getElementById('layer').innerHTML = `<div class="mask" id="mask"></div><div class="modal"><h2>发起巡检</h2>
+  <label>套餐</label><div class="opts">${[['快检', '约 10 秒 / 实例 · 只看此刻'], ['日检', '约 30 秒 / 实例 + 每库 5 秒'], ['深检', '约 1 分钟 / 实例 · 含 7 天 WDR']].map(([n, s]) => `<div class="opt ${n === prof ? 'on' : ''}" data-prof="${n}"><b>${n}</b><small>${s}</small></div>`).join('')}</div>
+  <label>范围</label><select id="nScope"><option>${S.app === 'all' ? '全部应用' : esc(appName(S.app)) + ' ' + S.app}</option>${APPS.map((a) => `<option>${esc(a.name)} ${a.id}</option>`).join('')}<option>指定实例 / 库…</option></select>
+  <label>原因(记审计)</label><input type="text" id="nWhy" placeholder="例如:CHG-1112 上线后复核">
+  <div class="note">以巡检服务账号执行(只读、白名单),审计记发起人「张工」与原因。同一实例串行,中间件调用限速;日检 / 深检建议在巡检窗口内跑。</div>
+  <div class="foot"><button class="btn" id="nCancel">取消</button><button class="btn primary" id="nGo">发起</button></div></div>`;
+  document.getElementById('mask').onclick = closeLayer; document.getElementById('nCancel').onclick = closeLayer;
+  document.querySelectorAll('.opt').forEach((o) => (o.onclick = () => { prof = o.dataset.prof; document.querySelectorAll('.opt').forEach((x) => x.classList.toggle('on', x === o)); }));
+  document.getElementById('nGo').onclick = () => {
+    const r = { id: 'r-20261111-' + String(Date.now()).slice(-4) + '-new', at: new Date(), trigger: '外部调用', name: '手动发起:' + (document.getElementById('nWhy').value || '未填原因'), profile: prof, scope: document.getElementById('nScope').value, status: '排队', prog: 0, dur: null, issues: null, cov: null };
+    S.extraRuns.unshift(r); closeLayer(); S.page = 'runs'; render(); toast('已发起:' + r.id + '(原型里会模拟进度)');
+    let p = 0; const t = setInterval(() => { p += 20; r.status = p >= 100 ? '完成' : '进行中'; r.prog = Math.min(100, p); if (p >= 100) { r.dur = prof === '快检' ? 12 : 88; r.issues = 3; r.cov = 100; clearInterval(t); } if (S.page === 'runs') render(); }, 900);
+  };
+}
+let toastT;
+function toast(msg) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = msg; clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 4200); }
+function deepMsg(what) { return `新标签页打开对话(以你的身份,复用现有「深挖」):首句 =「${what},巡检 ${RUNS[S.run].id} 的结论与证据编号已附上,请继续诊断」`; }
+
+/* ---------------------------------------------------------------- 事件 */
+function bindActions(root) {
+  root.querySelectorAll('[data-go]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); S.page = el.dataset.go; if (el.dataset.dim) { S.dim = el.dataset.dim; S.board = 'db'; } if (el.dataset.board) { S.board = el.dataset.board; S.dim = 'dbtime'; } render(); window.scrollTo(0, 0); }));
+  root.querySelectorAll('[data-drill]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); const k = el.dataset.drill; const [ip, db] = k.split('/'); toast(`新标签页打开现有单库健康大盘:/dash/health?src=inspect&key=api/${ip.replace(/\./g, '-')}-${db}`); }));
+  root.querySelectorAll('[data-drilli]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); const ip = el.dataset.drilli; toast(`新标签页打开现有单库大盘:/dash/${el.dataset.w || 'topsql'}?src=inspect&key=api/${ip.replace(/\./g, '-')}-postgres(实例级)`); }));
+  root.querySelectorAll('[data-deepdb]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); toast(deepMsg('登录 ' + el.dataset.deepdb.replace('/', ' 的 ') + ' 库')); }));
+  root.querySelectorAll('[data-deepi]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); toast(deepMsg('登录实例 ' + el.dataset.deepi)); }));
+  root.querySelectorAll('[data-deepa]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); toast(el.textContent.includes('↗') ? '打开 insp-bot 自动开的深挖会话(只读查看)' : deepMsg('告警 ' + el.dataset.deepa)); }));
+  root.querySelectorAll('[data-runid]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); S.page = 'runs'; S.trig = '监控告警'; render(); toast('巡检记录 ' + el.dataset.runid); }));
+  root.querySelectorAll('[data-dbk]').forEach((el) => (el.onclick = (e) => { e.stopPropagation(); openDb(el.dataset.dbk); }));
+  root.querySelectorAll('[data-toast]').forEach((el) => (el.onclick = () => toast(el.dataset.toast)));
+  root.querySelectorAll('[data-deep]').forEach((el) => (el.onclick = () => { const w = [...snapshot(S.run).dbs].sort(levelCmp)[0]; toast(deepMsg('登录 ' + w.db.inst + ' 的 ' + w.db.name + ' 库,看长事务与死元组')); }));
+  root.querySelectorAll('[data-cmp]').forEach((el) => (el.onclick = () => { S.run = Math.max(0, S.run - 7); render(); toast('已切到上周同一天的巡检,可在顶部「巡检」再切回'); }));
+  root.querySelectorAll('[data-app]').forEach((el) => (el.onclick = () => { S.app = el.dataset.app; render(); }));
+  root.querySelectorAll('.ring-legend [data-lvf]').forEach((el) => (el.onclick = () => { S.page = 'rank'; S.board = 'db'; S.dim = 'level'; S.lv = new Set([el.dataset.lvf]); render(); }));
+  root.querySelectorAll('.trend .bar').forEach((el) => (el.onclick = () => { S.run = +el.dataset.run; render(); }));
+  root.querySelectorAll('tr[data-db]').forEach((el) => (el.onclick = () => openDb(el.dataset.db)));
+  root.querySelectorAll('tr[data-inst]').forEach((el) => (el.onclick = () => { const ip = el.dataset.inst; const first = T.dbs.find((d) => d.inst === ip); if (first) openDb(first.key); }));
+  root.querySelectorAll('tr[data-ri]').forEach((el) => (el.onclick = () => { if (el.dataset.ri !== '') { S.run = +el.dataset.ri; S.page = 'overview'; render(); window.scrollTo(0, 0); } else toast('外部调用 / 告警的快检记录:只含指定范围,打开后显示该次的库与发现'); }));
+  root.querySelectorAll('tr[data-alert]').forEach((el) => (el.onclick = () => { const a = ALERTS.find((x) => x.id === el.dataset.alert); const k = a.db ? T.dbs.find((d) => d.inst === a.inst && d.name.startsWith(a.db)) : T.dbs.find((d) => d.inst === a.inst); if (k) openDb(k.key); }));
+}
+function bindPage() {
+  const m = document.getElementById('main');
+  bindActions(m);
+  m.querySelectorAll('#segBoard button').forEach((b) => (b.onclick = () => { S.board = b.dataset.b; S.dim = S.board === 'inst' ? 'dbtime' : 'level'; render(); }));
+  m.querySelectorAll('#segDim button').forEach((b) => (b.onclick = () => { S.dim = b.dataset.k; S.sortDesc = true; render(); }));
+  m.querySelectorAll('#segTrig button').forEach((b) => (b.onclick = () => { S.trig = b.dataset.t; render(); }));
+  m.querySelectorAll('.lvchip').forEach((c) => (c.onclick = () => { const k = c.dataset.lvf; S.lv.has(k) ? S.lv.delete(k) : S.lv.add(k); render(); }));
+  const q = document.getElementById('q'); if (q) { q.oninput = () => { S.q = q.value; const pos = q.selectionStart; render(); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); }; }
+  const th = document.getElementById('thVal'); if (th) th.onclick = () => { S.sortDesc = !S.sortDesc; render(); };
+  const b2 = document.getElementById('btnNew2'); if (b2) b2.onclick = openNew;
+}
+function render() {
+  renderPickers(); renderSide();
+  const page = { overview, rank, runs, alerts, inventory }[S.page] || overview;
+  document.getElementById('main').innerHTML = page(); bindPage();
+  location.hash = S.page;
+}
+document.getElementById('btnNew').onclick = openNew;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLayer(); });
+const h = (location.hash || '').slice(1); if (['overview', 'rank', 'runs', 'alerts', 'inventory'].includes(h)) S.page = h;
+render();
+</script>
+</body>
+</html>

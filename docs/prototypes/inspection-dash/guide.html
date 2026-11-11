@@ -1,0 +1,118 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="robots" content="noindex">
+<title>巡检大盘 UI 方案说明</title><style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.75;color:#1b2430;background:#f6f8fb;margin:0}
+.wrap{max-width:1120px;margin:0 auto;padding:24px 28px 96px}
+h1{font-size:26px;margin:8px 0 4px;color:#123a73}h2{font-size:20px;margin:36px 0 10px;color:#123a73;border-bottom:2px solid #d9dfe8;padding-bottom:4px}
+h3{font-size:16px;margin:22px 0 6px}.sub{color:#5a6475;font-size:14px}
+table{border-collapse:collapse;width:100%;margin:8px 0 14px;background:#fff;font-size:13.5px}
+th,td{border:1px solid #d9dfe8;padding:6px 9px;vertical-align:top;text-align:left}th{background:#eef2f8}
+code{background:#eef2f8;padding:1px 5px;border-radius:3px;font-size:12.5px}
+.box{background:#fff;border:1px solid #d9dfe8;border-left:5px solid #2f6fdb;padding:12px 16px;margin:12px 0;border-radius:4px}
+.warn{border-left-color:#d9822b}.ok{border-left-color:#1f9d55}
+.small{font-size:12.5px;color:#5a6475}
+.layout{display:grid;grid-template-columns:150px 1fr;grid-template-rows:44px auto;gap:6px;background:#fff;border:1px solid #d9dfe8;border-radius:8px;padding:8px;font-size:12.5px;margin:10px 0}
+.layout div{border:1px dashed #9fb3d1;border-radius:6px;padding:6px 8px;color:#123a73;background:#f3f7ff}
+.layout .top{grid-column:1/3}.layout .main{display:grid;gap:6px}.layout .main div{background:#fff}
+.layout .hero{background:#0f1b3d!important;color:#dbe6ff;border-color:#0f1b3d}
+.row{display:grid;grid-template-columns:5fr 7fr;gap:6px}.row3{display:grid;grid-template-columns:7fr 5fr;gap:6px}
+.lv{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+</style></head><body><div class="wrap">
+<h1>巡检大盘 UI 方案说明</h1>
+<div class="sub">2026-11-11 · 配合 <a href="index.html">可交互原型</a>（假数据，不连后端）与 <a href="../../specs/2026-11-11-inspection-design.html">智能体巡检方案</a> · 视觉沿用现有大盘（<code>frontend/styles/base.css</code>，R6「智能运维舱」）</div>
+
+<div class="box ok"><b>一句话</b>：现有大盘回答「这个库怎么样」，巡检大盘回答「这个应用 / 这个 IDC 下哪些库最该先管」。它不重做单库页面——
+总览和排名负责「找到」，点一下就下钻到现有的健康 / Top SQL / WDR 大盘去「看清」，再点「深挖 →」交给智能体对话去「查透」。</div>
+
+<h2>1. 页面结构</h2>
+<div class="layout">
+<div class="top">顶栏：IDC ▾ · 应用 ▾ · 巡检批次 ▾（哪一次巡检）· 发起巡检 · 用户</div>
+<div>侧栏<br>巡检总览<br>跨库排名<br>巡检任务<br>告警触发<br>巡检清单<br>—<br>单库大盘(现有) ↗<br>对话 ↗</div>
+<div class="main">
+<div class="hero">主视觉带：库的级别分布圆环 ｜ 巡检摘要（模型，带证据编号）｜ 库/实例 · 问题（新增/持续/已消除）· 覆盖率 · 耗时</div>
+<div class="row"><div>问题按维度（库级 + 实例级，按级别堆叠）</div><div>近 14 次巡检（问题数按级别堆叠，点柱切批次）</div></div>
+<div class="row3"><div>最需关注的库（级别带排序，下钻 / 深挖）</div><div>各应用对比（范围是 IDC / 全部应用时出现）</div></div>
+</div></div>
+<table><tr><th style="width:16%">页面</th><th>回答的问题</th><th style="width:34%">主要组件</th></tr>
+<tr><td>巡检总览</td><td>这次巡检整体怎么样、最急的是谁、比上次好了还是坏了</td><td>圆环、摘要卡、四个小统计、维度条、趋势柱、最需关注表、应用对比</td></tr>
+<tr><td>跨库排名</td><td>某个维度上哪些库最突出（同一范围内统一排）</td><td>库榜 / 实例榜切换、维度分段、级别筛选、搜索、可排序值列、分位、与上次差值、所在实例标签</td></tr>
+<tr><td>巡检任务</td><td>什么时候跑、谁发起的、跑完没有、覆盖全不全</td><td>任务定义表、运行记录表（触发源筛选、进度、耗时、问题数、覆盖率）、发起巡检弹窗</td></tr>
+<tr><td>告警触发</td><td>监控报的问题复核了没有、是真是假、通知到谁了</td><td>处理链路条、告警记录表（合并条数、快检结果、快检维度、通知、深挖）</td></tr>
+<tr><td>巡检清单</td><td>巡检了哪些实例和库、清单是否过期</td><td>实例表、自动发现的库（新发现 / 清单过期）、巡检窗口、标注</td></tr>
+<tr><td>库详情（抽屉）</td><td>这个库这次有哪些问题、所在实例有什么问题</td><td>六个关键数、库级发现（新增 / 持续）、实例级发现、Top SQL 实例级说明、深挖 / 下钻按钮</td></tr>
+</table>
+
+<h2>2. 级别、状态与标记</h2>
+<table><tr><th style="width:20%">标记</th><th>规则</th></tr>
+<tr><td><span class="lv" style="background:#d5342b"></span>严重 <span class="lv" style="background:#e2621f"></span>告警 <span class="lv" style="background:#b98200"></span>关注 <span class="lv" style="background:#1f9d63"></span>正常</td><td>与单库大盘同一套：脚本按阈值判定（<code>common/finding.py</code> 的 0～3），模型不改。库的级别 = 这个库最坏的一条发现。形状也不同（八角 / 三角 / 圆点 / 对勾），色弱也能分。</td></tr>
+<tr><td>未采到（虚线圈）</td><td>维度 <code>available=false</code> 或任务失败：<b>不算正常</b>，单独计数，进覆盖率。原因（没切到业务库、采集超时、权限不足）写在库详情里。</td></tr>
+<tr><td>样本不足</td><td>比率类指标（回滚率等）在窗口内事务数不足 1000 时不参与排名，值显示「样本不足」，排在最后。</td></tr>
+<tr><td>新增 / 持续 / 已消除</td><td>按「同一库 + 同一发现编号」与上一次巡检比较。</td></tr>
+<tr><td>分位 P<i>n</i></td><td>该值在当前范围（应用或 IDC）内的位置；P90 及以上标红（事务量这类「量」指标不标红）。</td></tr>
+<tr><td>所在实例标签</td><td>库行上带出实例的级别图标：库本身没问题、但实例连接打满 / 复制延迟时，一眼能看到。</td></tr>
+<tr><td>实例级横幅</td><td>切到实例榜时出现：说明这些数据含该实例所有库、不拆到库。</td></tr>
+</table>
+
+<h2>3. 指标定义</h2>
+<h3>3.1 库榜（同一范围内所有库统一排名）</h3>
+<table><tr><th style="width:13%">维度</th><th style="width:20%">定义</th><th>来源（执行库）</th><th style="width:9%">窗口</th><th style="width:12%">排序 / 阈值</th></tr>
+<tr><td>健康级别（默认）</td><td>严重数 → 告警数 → 关注数 → 新增数</td><td>库级发现 + 可归属到库的实例级发现</td><td>本次</td><td>降序；不编综合分</td></tr>
+<tr><td>慢 SQL</td><td>慢语句条数（副标：总耗时）</td><td>SQL 执行历史按 <code>db_name</code> 聚合，新脚本 <code>inspect.db_slow_sql</code>（postgres）</td><td>24 小时</td><td>降序；≥ 200 标橙</td></tr>
+<tr><td>事务量</td><td>每秒提交</td><td>WDR 快照按库求增量，新脚本 <code>inspect.wdr_db_stat</code>（postgres）</td><td>24 小时</td><td>降序；只是「量」，不标红</td></tr>
+<tr><td>回滚率</td><td>回滚 / (提交 + 回滚)</td><td>同上；样本 ≥ 1000 事务</td><td>24 小时</td><td>降序；≥ 5% 标橙</td></tr>
+<tr><td>死锁、临时文件</td><td>次数、MB</td><td>同上</td><td>24 小时</td><td>降序</td></tr>
+<tr><td>缓存命中率</td><td>命中 / (命中 + 读盘)</td><td>同上</td><td>24 小时</td><td><b>升序</b>（越低越靠前）；&lt; 98% 标橙</td></tr>
+<tr><td>存储增长</td><td>GB / 日（副标：当前大小）</td><td><code>health.storage</code>（已有，postgres，按库列出）与上次比</td><td>两次巡检间</td><td>降序</td></tr>
+<tr><td>死元组</td><td>库内死元组比最高的表</td><td><code>vacuum.dead_tuples</code>（已有，业务库，带 dbName）</td><td>此刻</td><td>降序；≥ 20% 标橙</td></tr>
+<tr><td>统计信息陈旧</td><td>陈旧表数</td><td><code>health.stale_stats</code>（已有，业务库）</td><td>此刻</td><td>降序；≥ 5 标橙</td></tr>
+<tr><td>空闲事务</td><td>空闲事务最长时长（副标：会话数）</td><td><code>pg_stat_activity</code> 按库，新脚本 <code>inspect.db_sessions</code>（postgres）</td><td>此刻</td><td>降序；≥ 600 秒标橙</td></tr>
+</table>
+<h3>3.2 实例榜（实例级数据）</h3>
+<table><tr><th style="width:16%">维度</th><th>来源</th><th style="width:36%">说明</th></tr>
+<tr><td>DB time</td><td>WDR / 时段体检</td><td>内核按实例统计</td></tr>
+<tr><td>连接使用率</td><td>health 连接维度</td><td>上限是实例参数；≥ 80% 标橙</td></tr>
+<tr><td>WAL 生成</td><td>health WAL / 写入来源</td><td>MB / 秒</td></tr>
+<tr><td>复制延迟</td><td>health 复制 / 备机</td><td>≥ 10 秒标橙</td></tr>
+<tr><td>Top SQL 榜首占比</td><td><code>dbe_perf.statement</code></td><td>视图没有库名列，只能按实例；按库看 SQL 用库榜「慢 SQL」</td></tr>
+</table>
+
+<h2>4. 交互</h2>
+<table><tr><th style="width:24%">操作</th><th>效果</th></tr>
+<tr><td>顶栏 IDC / 应用 / 巡检批次</td><td>全站范围切换；URL 带参数，可分享（实现时 <code>?idc=&amp;app=&amp;run=</code>）。选「全部应用」时总览多出「各应用对比」。</td></tr>
+<tr><td>圆环图例点一档</td><td>跳到排名页、按该级别筛选。</td></tr>
+<tr><td>趋势柱点一根</td><td>切到那一次巡检（整页按那一次重画，「与上次」也随之变化）。</td></tr>
+<tr><td>维度条点一行</td><td>跳到排名页的对应维度。</td></tr>
+<tr><td>摘要里的证据编号</td><td>打开对应库的详情抽屉。摘要里每句都必须带编号，没有编号的句子不显示。</td></tr>
+<tr><td>排名：维度分段 / 表头「值」/ 级别筛选 / 搜索</td><td>切维度、切升降序、多选级别、按库名 / 实例 / 应用过滤。</td></tr>
+<tr><td>点表格一行</td><td>右侧抽屉打开库详情；Esc 或点遮罩关闭。</td></tr>
+<tr><td>下钻 ↗</td><td>新标签页打开<b>现有</b>单库大盘：库级 → <code>/dash/health?src=inspect&amp;key=api/10-0-0-21-acct</code>；实例级 → <code>/dash/topsql</code>、<code>/dash/wdr</code> 带 <code>…-postgres</code> 键。</td></tr>
+<tr><td>深挖 →</td><td>复用现有大盘的深挖：以<b>点击的人</b>的身份经网关建会话、发首句、新标签页打开对话；首句带巡检编号与该库结论，模型不必重新采一遍才知道发生了什么。</td></tr>
+<tr><td>发起巡检</td><td>弹窗选套餐（快检 / 日检 / 深检）、范围、原因（记审计），提交后在任务页看到排队 → 进行中 → 完成。需要 <code>inspect-operator</code> 角色。</td></tr>
+<tr><td>告警记录点一行</td><td>打开告警涉及的库 / 实例的详情；「巡检记录」跳到那次快检；已自动深挖的显示「深挖会话 ↗」。</td></tr>
+</table>
+
+<h2>5. 与现有大盘的复用</h2>
+<table><tr><th style="width:24%">现有</th><th>巡检大盘怎么用</th></tr>
+<tr><td>前端镜像（纯静态、零构建）</td><td>同一个镜像加 4 个页面：<code>frontend/pages/inspect-overview.js · inspect-rank.js · inspect-runs.js · inspect-alerts.js</code>（+ 清单页），路由 <code>/dash/inspect/*</code>，<code>shell.js</code> 按 pathname 切页（现有机制）。</td></tr>
+<tr><td><code>lib/ui.js</code>、<code>lib/viz.js</code>、<code>lib/fmt.js</code></td><td>级别图标、标签、圆环、条形、走势直接用；新增一个「堆叠趋势柱」与「值条 + 分位」两个小部件。</td></tr>
+<tr><td><code>lib/data.js</code></td><td>加一个数据源开关：<code>src=inspect</code> 时从 <code>/inspect/reports/…</code> 取（巡检目录，报告契约相同），否则照旧 <code>/reports/…</code>（本人目录）。单库大盘因此不用改页面就能显示巡检结果。</td></tr>
+<tr><td>网关三路分发</td><td>加第四路 <code>/inspect/*</code> → 巡检服务的只读接口；身份照旧取 SSO 头，按角色放行（<code>inspect-viewer</code> 看，<code>inspect-operator</code> 发起；可按应用授权）。</td></tr>
+<tr><td>普通 / 文艺两种风格</td><td>巡检页沿用同一套变量，两种风格都能切。原型只画了普通风格。</td></tr>
+<tr><td>深挖（建会话 + 首句 + 新标签页）</td><td>原样复用，首句模板多一种「来自巡检」的写法。</td></tr>
+</table>
+
+<h2>6. 数据口（大盘只读）</h2>
+<table><tr><th style="width:36%">请求</th><th>用在</th></tr>
+<tr><td><code>GET /inspect/rank/&lt;应用&gt;/index.json</code></td><td>批次下拉、近 14 次趋势（每次一行：时间、问题数分级、覆盖率）</td></tr>
+<tr><td><code>GET /inspect/rank/&lt;应用&gt;/&lt;run_id&gt;.json</code></td><td>总览全部模块、排名页（库榜与实例榜都在这一份里，前端只做筛选与排序）</td></tr>
+<tr><td><code>GET /inspect/reports/&lt;skill&gt;/&lt;实例键&gt;/…</code></td><td>库详情抽屉、下钻后的单库大盘</td></tr>
+<tr><td><code>GET /inspect/api/v1/runs?…</code>、<code>/alerts?…</code></td><td>任务页、告警页</td></tr>
+</table>
+<p class="small">IDC 或「全部应用」范围：前端并行取各应用的 rank 文件后合并（应用数一般几十个以内）；P2 若应用多到上百，由巡检服务预先生成 IDC 级汇总文件。</p>
+
+<h2>7. 原型的局限</h2>
+<ul>
+<li>数字全部是假数据（按随机种子生成，刷新不变）；地址一律是 10.0.0.x 占位，库名、应用名都是虚构的。</li>
+<li>「下钻」「深挖」「上传清单」只弹出提示，说明实际会打开什么；「发起巡检」会在任务页模拟一次进度。</li>
+<li>只做了桌面宽度（与现有大盘一致，不做移动端）；只画了普通风格。</li>
+</ul>
+</div></body></html>

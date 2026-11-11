@@ -1,0 +1,307 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="robots" content="noindex">
+<title>方案：GaussDB 智能体巡检（任务 / 调用 / 监控触发 + 应用级巡检大盘）</title><style>
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.75;color:#1b2430;background:#f6f8fb;margin:0}
+.wrap{max-width:1120px;margin:0 auto;padding:24px 28px 96px}
+h1{font-size:26px;margin:8px 0 4px;color:#123a73}h2{font-size:20px;margin:38px 0 10px;color:#123a73;border-bottom:2px solid #d9dfe8;padding-bottom:4px}
+h3{font-size:16px;margin:22px 0 6px;color:#1b2430}.sub{color:#5a6475;font-size:14px}
+table{border-collapse:collapse;width:100%;margin:8px 0 14px;background:#fff;font-size:13.5px}
+th,td{border:1px solid #d9dfe8;padding:6px 9px;vertical-align:top;text-align:left}th{background:#eef2f8}
+code{background:#eef2f8;padding:1px 5px;border-radius:3px;font-size:12.5px}
+pre{background:#0f1b2d;color:#e6edf6;padding:12px 14px;border-radius:6px;overflow:auto;font-size:12.5px;line-height:1.55}
+.box{background:#fff;border:1px solid #d9dfe8;border-left:5px solid #2f6fdb;padding:12px 16px;margin:12px 0;border-radius:4px}
+.warn{border-left-color:#d9822b}.bad{border-left-color:#c0392b}.ok{border-left-color:#1f9d55}
+.tag{display:inline-block;padding:0 7px;border-radius:9px;font-size:12px;color:#fff;line-height:20px}
+.t-red{background:#c0392b}.t-org{background:#d9822b}.t-blue{background:#2f6fdb}.t-grn{background:#1f9d55}.t-gry{background:#7b8794}.t-pur{background:#7c5cff}
+ol li,ul li{margin:3px 0}details{margin:6px 0}summary{cursor:pointer;color:#2f6fdb}
+.kpi{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}.kpi div{background:#fff;border:1px solid #d9dfe8;border-radius:6px;padding:10px 14px;min-width:160px}
+.kpi b{display:block;font-size:22px;color:#123a73}.kpi span{font-size:12.5px;color:#5a6475}
+.toc{background:#fff;border:1px solid #d9dfe8;border-radius:6px;padding:10px 18px;columns:2;font-size:14px}
+.toc a{color:#2f6fdb;text-decoration:none}.toc div{break-inside:avoid}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:12px 0}
+.flow .n{background:#fff;border:1px solid #c9d3e2;border-radius:8px;padding:8px 12px;font-size:13px;min-width:120px}
+.flow .n b{display:block;color:#123a73;font-size:13.5px}.flow .a{align-self:center;color:#7b8794;font-size:18px}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}
+.arch .c{background:#fff;border:1px solid #c9d3e2;border-radius:8px;padding:10px 12px;font-size:13px}
+.arch .c b{display:block;color:#123a73}.arch .new{border:2px solid #2f6fdb;background:#f3f7ff}.arch .reuse{border-style:dashed}
+.legend{font-size:12.5px;color:#5a6475}.num{font-variant-numeric:tabular-nums}
+.small{font-size:12.5px;color:#5a6475}
+</style></head><body><div class="wrap">
+<h1>方案：GaussDB 智能体巡检</h1>
+<div class="sub">2026-11-11 · 设计稿 v1（待评审）· 范围：把会话触发从「人对话」扩展到「任务 / 调度系统、外部调用、监控告警」，并新增按应用 / IDC 汇总、跨库统一排名的巡检大盘 ·
+大盘 UI 见 <a href="../prototypes/inspection-dash/index.html">巡检大盘原型</a> 与 <a href="../prototypes/inspection-dash/guide.html">UI 说明</a></div>
+
+<div class="toc">
+<div><a href="#s0">0. 结论</a></div><div><a href="#s1">1. 现状与目标</a></div><div><a href="#s2">2. 触发源与「谁在问」</a></div>
+<div><a href="#s3">3. 巡检对象模型</a></div><div><a href="#s4">4. 执行架构</a></div><div><a href="#s5">5. 巡检套餐</a></div>
+<div><a href="#s6">6. 结果模型与存档</a></div><div><a href="#s7">7. 跨库统一排名口径</a></div><div><a href="#s8">8. 告警、通知与闭环</a></div>
+<div><a href="#s9">9. 接口草案</a></div><div><a href="#s10">10. 与 dbName 切库、白名单的关系</a></div><div><a href="#s11">11. 巡检大盘（概要）</a></div>
+<div><a href="#s12">12. 分期与工作量</a></div><div><a href="#s13">13. 风险</a></div><div><a href="#s14">14. 待确认问题</a></div>
+</div>
+
+<h2 id="s0">0. 结论</h2>
+<div class="box ok"><b>推荐做法：采集走确定性脚本、模型只做汇总与深挖。</b>新增一个「巡检服务」（编排 + 执行，跑在集群里，复用运行时镜像里的技能脚本），
+按清单逐实例、逐库调用现有技能脚本的 <code>--format json</code> 输出，结果按现有报告契约（<code>common/reports.archive</code>：latest / index / targets）落到 NAS 的共享巡检目录；
+汇总器在同一应用内做跨库排名；模型每个应用只调用一次，用来写巡检摘要；发现问题后「深挖 →」再开智能体会话，这一步复用现有的网关和池化槽位。</div>
+<div class="box warn"><b>不推荐「每个库开一次智能体会话让模型去巡检」。</b>按 11-09 实测（agent-v1.4.10，每题平均送入模型 25.4 万 token、49 秒、21.5 次中间件调用），
+一个 30 个库的应用每天巡检一次，就要约 760 万 token、占用池化槽位半小时以上，而且每次输出不一样，没法排名、比较。
+确定性采集一次只要 1～2 分钟，模型摘要约 3 万 token，级别由脚本按阈值判定（模型不改级别，这是现有大盘的规矩），结果可以比较、可以排名、可以复跑。</div>
+<div class="kpi">
+<div><b>4 种</b><span>触发源：人对话（现有）、定时任务、外部调用、监控告警</span></div>
+<div><b>3 档</b><span>巡检套餐：快检（告警）、日检、深检（周）</span></div>
+<div><b>~1.5 分钟</b><span>一个应用（10 实例 / 30 库）的日检耗时，4 路并行</span></div>
+<div><b>~3 万 token</b><span>每个应用每次巡检的模型开销（仅摘要）</span></div>
+<div><b>5 条</b><span>为了按库归属需新增的只读白名单脚本</span></div>
+<div><b>约 7～8 周</b><span>P0 + P1 + P2 合计（P0 约 3 周可上线日检与大盘）</span></div>
+</div>
+
+<h2 id="s1">1. 现状与目标</h2>
+<h3>1.1 现状（agent-v1.4.11）</h3>
+<table><tr><th style="width:18%">方面</th><th>现在怎么做</th><th style="width:30%">对巡检意味着什么</th></tr>
+<tr><td>谁触发</td><td>只有人：SSO 认人 → 网关按工号把对话转到本人的池化槽位（opencode）→ 模型按技能说明调用脚本。</td><td>巡检要一个<b>非人的身份</b>和一条不经过浏览器的触发路径。</td></tr>
+<tr><td>采集</td><td>技能脚本只读、只跑白名单，经 GRMP 中间件调用；<code>health</code> / <code>topsql</code> / <code>wdr</code> / <code>vacuum</code> / <code>lockwait</code> / <code>waitevent</code> / <code>config</code>
+都有 <code>--format json</code>，Finding 统一在 <code>common/finding.py</code>（severity 0～3 由脚本按阈值定，<b>模型不得更改</b>）。</td><td>采集与判定已经是确定性的，<b>可以直接批量跑</b>，不需要模型参与。</td></tr>
+<tr><td>结果</td><td><code>common/reports.archive</code> 把 JSON 存到本人 NAS 目录：<code>&lt;skill&gt;/&lt;实例键&gt;/latest.json · index.json</code>、<code>&lt;skill&gt;/targets.json</code>，每个实例保留 50 份；说明类字段去掉地址。</td><td>巡检结果沿用<b>同一契约</b>，现有单库大盘不用改格式就能读。</td></tr>
+<tr><td>大盘</td><td>纯静态前端（<code>/dash/*</code>），浏览器经网关取 <code>/reports/*</code>（转到本人 Pod 的 4097 只读端口）；健康 / Top SQL / WDR / 知识库四个大盘，<b>一次只看一个实例（库）</b>。</td><td>巡检大盘是<b>共享数据</b>（应用级、不属于某个人），要新的数据口和权限。</td></tr>
+<tr><td>库</td><td>v1.4.11 起，登录时给了业务库就带 <code>dbName</code>，对象类脚本（表、索引、统计信息、死元组、存储过程）在业务库上执行；SQL 历史、WDR、会话、锁仍是实例级。</td><td>一个实例上有多个业务库时，<b>对象类要逐库跑，实例级只跑一次</b>。</td></tr>
+</table>
+<h3>1.2 目标</h3>
+<ul>
+<li><b>触发多样化</b>：定时任务（每日 / 每周）、外部系统调用（任务系统、运维平台按需发起）、监控系统告警回调（发现生产问题后自动复核），与人对话并存。</li>
+<li><b>应用 / IDC 视角</b>：一个应用（或一个 IDC）下所有实例与库一屏看全；各类排名在同一应用的所有库之间统一排；能下钻到现有单库大盘、能一键深挖。</li>
+<li><b>可比、可追溯</b>：同一口径、同一阈值，每次巡检可与上次比；每条结论能追到脚本、SQL、时间窗口和触发源。</li>
+</ul>
+<h3>1.3 不做的事（本方案范围外）</h3>
+<ul>
+<li>不做持续采集器、分钟级曲线（与现有大盘的约定一致：没有采集器就没有曲线；趋势按「巡检次数」画）。</li>
+<li>不做自动处置：巡检只读，只给结论和建议，红线不变（不改参数、不建 WDR 快照、不执行业务 SQL）。</li>
+<li>不替代监控系统：监控负责「发现」，巡检负责「复核 + 归因 + 建议」。</li>
+</ul>
+
+<h2 id="s2">2. 触发源与「谁在问」</h2>
+<table><tr><th style="width:14%">触发源</th><th style="width:18%">谁发起 / 身份</th><th>入口</th><th style="width:16%">巡检套餐</th><th style="width:22%">结果给谁</th></tr>
+<tr><td>人对话<br><span class="tag t-gry">现有</span></td><td>用户工号（SSO）</td><td>浏览器 → 网关 → 本人槽位</td><td>—（模型按需调技能）</td><td>对话回答 + 本人报告目录</td></tr>
+<tr><td>定时任务<br><span class="tag t-blue">P0</span></td><td>巡检服务账号（如 <code>insp-bot</code>）</td><td>巡检服务内置调度（cron 表达式，按应用配置）</td><td>日检 / 深检</td><td>巡检大盘 + 订阅通知</td></tr>
+<tr><td>外部调用<br><span class="tag t-blue">P0</span></td><td>调用方系统（API 令牌）+ 发起人（可选，记审计）</td><td><code>POST /inspect/api/v1/runs</code></td><td>调用方指定</td><td>同步返回 run_id；完成后回调 / 查询</td></tr>
+<tr><td>监控告警<br><span class="tag t-pur">P1</span></td><td>监控系统（Webhook 令牌）</td><td><code>POST /inspect/api/v1/alerts</code></td><td>快检（只查告警涉及的实例 / 库和相关维度）</td><td>回写监控 / 消息平台；大盘「告警触发」列表</td></tr>
+</table>
+<div class="box"><b>关系</b>：四种触发共用<b>同一套脚本、阈值、白名单和红线</b>，区别只在「谁发起、跑哪些维度、结果给谁」。人对话照旧；
+巡检产出的结果反过来成为对话的上下文——P2 增加技能 <code>gaussdb-inspect</code>，用户在对话里问「这个应用昨晚巡检怎么样」「这个库上次巡检的问题还在吗」，模型直接读巡检结果，不必重新采集。
+大盘上的「深挖 →」以<b>点击的那个人</b>的身份开会话（复用现有大盘的深挖机制：经网关建会话、发首句、新标签页打开），模型拿到的首句里带着巡检结论和证据编号。</div>
+
+<h2 id="s3">3. 巡检对象模型</h2>
+<div class="flow"><div class="n"><b>IDC</b>机房 / 可用区（如 IDC-A 主中心）</div><div class="a">→</div>
+<div class="n"><b>应用</b>系统编号 + 名称 + 负责人 + 重要度</div><div class="a">→</div>
+<div class="n"><b>实例</b>dataIp、部署形态、内核版本、主备、规格</div><div class="a">→</div>
+<div class="n"><b>库</b>库名、兼容模式（A / PG / M）、是否巡检</div></div>
+<table><tr><th style="width:18%">字段</th><th>来源</th><th style="width:34%">说明</th></tr>
+<tr><td>IDC、应用、应用↔实例</td><td><b>推荐：对接行方 CMDB</b>（接口或每日导出）；P0 先支持上传 CSV / YAML 清单</td><td>巡检服务不自己维护「哪个应用用哪些实例」——那是 CMDB 的事，我们只做同步与校验</td></tr>
+<tr><td>库清单</td><td><b>自动发现</b>：每次巡检在 postgres 上读 <code>pg_database</code>（可连接的库）</td><td>清单里写了而实例上没有 → 标「清单过期」；实例上有而清单没写 → 默认纳入，标「新发现」</td></tr>
+<tr><td>部署形态 / 内核版本 / 主备</td><td>GRMP 接口一（命令清单按实例属性返回）+ 登录时的主备探测</td><td>备机只跑适用的维度（SQL 历史在备机读不到，见登录说明）</td></tr>
+<tr><td>排除、重要度、巡检窗口</td><td>人工标注（大盘「清单」页或清单文件）</td><td>例如测试库不进排名、核心库窗口避开批量时段</td></tr>
+</table>
+<p class="small">清单存成一份带版本的文件（<code>inspect/inventory.yaml</code>，每次同步留历史），排名、大盘都按「本次巡检时的清单」计算，避免清单改了以后历史排名对不上。</p>
+
+<h2 id="s4">4. 执行架构</h2>
+<div class="arch">
+<div class="c new"><b>巡检编排器</b>（新，inspector，1 副本）<br>清单、任务定义、调度、外部接口、告警回调、去重限流、运行记录、通知</div>
+<div class="c new"><b>巡检执行器</b>（新，同一进程内的工作队列，N 路）<br>用运行时镜像里的技能脚本；每库一个临时 GSDB_HOME；只跑 <code>--format json</code></div>
+<div class="c new"><b>汇总器</b>（新）<br>按应用汇总、跨库排名、与上次对比（新增 / 持续 / 已消除）</div>
+<div class="c new"><b>巡检摘要</b>（新）<br>每应用一次模型调用；只读汇总后的确定性结果；不调工具</div>
+<div class="c reuse"><b>技能脚本</b>（复用）<br>health / topsql / wdr / vacuum / lockwait / waitevent / config；Finding 与阈值</div>
+<div class="c reuse"><b>GRMP 中间件 + 白名单</b>（复用）<br>接口一 / 接口二；dbName 切库；只读</div>
+<div class="c reuse"><b>报告契约</b>（复用）<br><code>reports.archive</code>：latest / index / targets，保留 50 份，说明字段去地址</div>
+<div class="c reuse"><b>网关 + 池化槽位 + 前端</b>（复用 + 小改）<br>新路由 <code>/inspect/*</code>；大盘新增 4 页；「深挖 →」照旧</div>
+</div>
+<p class="legend">蓝框 = 新增；虚线 = 复用（大盘与网关有小改动）。巡检服务不跑 opencode，采集过程中<b>没有模型</b>。</p>
+
+<h3>4.1 一次巡检怎么跑</h3>
+<div class="flow">
+<div class="n"><b>① 触发</b>定时 / API / 告警，生成 run（带触发源、套餐、范围）</div><div class="a">→</div>
+<div class="n"><b>② 展开</b>按清单展开成任务：每实例 1 个「实例级」任务 + 每库 1 个「库级」任务</div><div class="a">→</div>
+<div class="n"><b>③ 执行</b>同一实例串行、不同实例并行（默认 4 路）；登录（--ip / --database）→ 跑脚本 → 存档</div><div class="a">→</div>
+<div class="n"><b>④ 汇总</b>按应用排名、与上次比较、写 summary</div><div class="a">→</div>
+<div class="n"><b>⑤ 摘要</b>模型写一段应用级结论（可关）</div><div class="a">→</div>
+<div class="n"><b>⑥ 通知</b>订阅人 / 回调；告警触发的回写监控</div></div>
+
+<h3>4.2 身份、权限与审计</h3>
+<ul>
+<li><b>巡检服务账号</b>（默认 <code>insp-bot</code>，可配置）：沿用「按人下发 GRMP 令牌」的机制，令牌放在 <code>grmp-token-insp-bot</code>（Secret，只挂给巡检服务）。需要行方为服务账号单独授权（见第 14 节）。</li>
+<li><b>审计</b>：每次中间件调用记录执行人 = 服务账号，外加触发源（task / api / alert）与触发编号（run_id、调用方、告警编号），沿用 <code>common/audit.py</code> 的执行人字段（<code>GSDB_USER_ID</code>）。</li>
+<li><b>外部调用鉴权</b>：调用方系统各发一个 API 令牌 + 来源网段白名单（与网关的信任凭据同一思路：至少一道、常数时间比较、没配就拒绝启动）。</li>
+<li><b>看大盘的权限</b>：沿用 SSO 角色头。默认角色 <code>inspect-viewer</code> 能看全部；可按应用授权（<code>inspect:&lt;应用编号&gt;</code>）。发起巡检要 <code>inspect-operator</code>。</li>
+</ul>
+
+<h3>4.3 并发、限流、超时与重试</h3>
+<table><tr><th style="width:22%">项</th><th style="width:20%">默认值</th><th>理由</th></tr>
+<tr><td>全局并行</td><td>4 路</td><td>中间件并发能力未知（第 14 节问题 4），先保守；可配置</td></tr>
+<tr><td>同一实例</td><td>串行（1 路）</td><td>实例级与该实例下各库的对象类任务排队执行，避免同时给一个实例压多条查询</td></tr>
+<tr><td>中间件调用速率</td><td>≤ 5 次 / 秒（全局）</td><td>令牌桶；告警快检有单独的小额度，不被日检挤掉</td></tr>
+<tr><td>单条脚本超时</td><td>沿用脚本 <code>--timeout</code>（默认值不变）</td><td>与对话里一致</td></tr>
+<tr><td>单库任务上限</td><td>5 分钟</td><td>超时记「采集超时」，不阻塞别的库</td></tr>
+<tr><td>重试</td><td>网络 / 中间件 5xx 重试 2 次（退避 10 s、30 s）；SQL 报错、权限不足<b>不重试</b></td><td>权限类错误重试没有意义，直接记原因（用登录与自检已有的错误说明）</td></tr>
+<tr><td>巡检窗口</td><td>日检默认 02:00–05:00，可按应用改</td><td>避开业务高峰；告警快检不受窗口限制</td></tr>
+<tr><td>压力保护</td><td>实例活跃会话 &gt; 阈值时跳过库级对象检查，只做实例级</td><td>出了问题的实例上不雪上加霜；记「因实例繁忙跳过」</td></tr>
+</table>
+
+<h3>4.4 确定性采集与模型的分工</h3>
+<table><tr><th style="width:20%">环节</th><th style="width:16%">谁做</th><th>说明</th></tr>
+<tr><td>采集、阈值判定、级别</td><td>脚本</td><td>与对话里同一份代码；级别 0～3，模型不得更改</td></tr>
+<tr><td>跨库排名、对比上次</td><td>汇总器</td><td>纯计算，口径见第 7 节</td></tr>
+<tr><td>应用级摘要</td><td>模型（一次调用、不带工具）</td><td>输入是汇总后的 JSON（约 2～3 万 token）；要求只解释已有结论、每句带证据编号；输出经校验（引用的编号必须存在、级别不得高于 / 低于脚本给的）。<b>失败或校验不过就不显示摘要</b>，大盘照常可用</td></tr>
+<tr><td>深挖</td><td>智能体会话</td><td>人点「深挖 →」以本人身份开；P2 可对「严重且复现」的告警自动开一次（服务账号，限 1 路并发）</td></tr>
+</table>
+
+<h3>4.5 成本估算</h3>
+<table><tr><th>做法</th><th>一个应用（10 实例、30 库）日检一次</th><th>可比性</th></tr>
+<tr><td>每库开一次智能体会话</td><td>模型输入约 760 万 token（按实测每题 25.4 万）、输出约 15 万；串行约 30 分钟，或占 30 个槽位</td><td>每次措辞与取数路径不同，难以排名</td></tr>
+<tr><td><b>确定性采集 + 应用摘要（推荐）</b></td><td>中间件约 540 次调用（实例级约 30 次 × 10 + 库级约 8 次 × 30）；4 路并行约 1.5～2 分钟；模型约 3 万 token 输入 + 2 千输出</td><td>同口径、同阈值，可排名可对比</td></tr>
+</table>
+<p class="small">实例级耗时按 11-09 实测健康检查的工具执行时间（约 18 秒）估算；库级对象检查约 4～6 秒 / 库。上线前在测试环境实测后更新本表。</p>
+
+<h2 id="s5">5. 巡检套餐</h2>
+<table><tr><th style="width:12%">套餐</th><th style="width:16%">何时用</th><th>实例级（postgres 上跑一次）</th><th>库级（每个业务库，带 dbName）</th><th style="width:12%">耗时（每实例）</th></tr>
+<tr><td><b>快检</b> quick</td><td>监控告警、调用方要「立刻看一眼」</td><td>health 此刻：Overview、连接、锁阻塞链、长事务、等待事件、正在跑的慢语句；Top SQL 最近 15 分钟</td><td>只查告警指名的库：死元组 / 统计信息（按告警类型选）</td><td>~10 秒</td></tr>
+<tr><td><b>日检</b> daily</td><td>每天一次（定时）</td><td>health 全维度 + 时段体检（最近 24 小时，WDR 快照）；Top SQL 24 小时增量；参数体检（config audit）；占用量与增长；<b>按库归属</b>的事务量 / 慢 SQL / 会话（新脚本）</td><td>失效索引、统计信息陈旧、死元组与膨胀估算、分区、表写入</td><td>~30 秒 + 库数 × 5 秒</td></tr>
+<tr><td><b>深检</b> deep</td><td>每周一次 / 版本变更后</td><td>日检 + WDR 7 天窗口分析 + 检查点 / WAL 来源</td><td>日检 + 未使用索引（需要统计窗口足够长）</td><td>~1 分钟 + 库数 × 8 秒</td></tr>
+</table>
+
+<h2 id="s6">6. 结果模型与存档</h2>
+<pre>NAS: inspect/                                  # 共享目录,只挂给巡检服务(写)与大盘读接口(只读)
+  inventory/2026-11-11T020000Z.yaml            # 清单快照(每次同步一份)
+  runs/&lt;run_id&gt;.json                           # 一次巡检:触发源、套餐、范围、任务表、状态、耗时、错误
+  reports/&lt;skill&gt;/&lt;实例键&gt;/latest.json · index.json   # 复用 reports.archive(GSDB_REPORTS_DIR=inspect/reports)
+  reports/&lt;skill&gt;/targets.json                 #   实例键:实例级 api/10-0-0-21-postgres,库级 api/10-0-0-21-acctdb
+  rank/&lt;应用编号&gt;/&lt;run_id&gt;.json                  # 汇总与排名(第 7 节),大盘只读这一份就能画总览和排名
+  rank/&lt;应用编号&gt;/index.json                     # 每次巡检一行:时间、问题数分级、覆盖率 —— 画趋势用
+  alerts/&lt;yyyymmdd&gt;.jsonl                      # 告警回调原文(脱敏)与处理结果</pre>
+<table><tr><th style="width:22%">对象</th><th>关键字段</th></tr>
+<tr><td>库级结果（每库一份）</td><td><code>app, idc, data_ip, db, role(主/备), run_id, profile, at, overall(0~3/null), dims[{name, available, note}], findings[Finding…], metrics{commit_per_s, rollback_ratio, deadlocks, temp_bytes, hit_ratio, size_bytes, size_delta, dead_tuple_ratio, stale_tables, invalid_indexes, sessions, idle_in_xact_max_s, slow_sql_count, slow_sql_total_s}, instance_ref</code></td></tr>
+<tr><td>实例级结果（每实例一份）</td><td><code>data_ip, run_id, overall, findings, metrics{db_time_s, wal_bytes_per_s, ckpt_req_ratio, repl_lag_s, conn_used_ratio, top_sql[≤10]}, dbs[库名…]</code></td></tr>
+<tr><td>应用汇总</td><td><code>app, run_id, coverage{dbs, ok, failed, skipped}, levels{3,2,1,0,na}, issues{new, ongoing, resolved}, rank{&lt;指标&gt;: [{db, data_ip, value, pct, delta, level}]}, instance_rank{…}, summary(模型摘要,可空), summary_check(校验结果)</code></td></tr>
+</table>
+<p class="small">保留：库级 / 实例级报告沿用每个实例键 50 份；runs 与 rank 保留 180 天（可配）；告警原文 90 天。没采到和正常要分开：维度 <code>available=false</code> 时级别记 <code>na</code>，不算健康（与现有大盘同一规矩）。</p>
+
+<h2 id="s7">7. 跨库统一排名口径</h2>
+<div class="box"><b>原则</b>：① 只把<b>能归属到库</b>的指标放进「库榜」，实例级指标单独成「实例榜」，库榜上用「所在实例」标签带出实例的状态，<b>不把实例级数据拆到库上</b>；
+② 不编综合分（现有健康大盘的规矩：报告抬头用确定性状态带，不编造单一分数），默认排序按级别带；③ 比率类指标要有最小样本量，量太小不参与排名、标「样本不足」；④ 每个数字都能点开看来源脚本与时间窗口。</div>
+<h3>7.1 库榜（同一应用下所有库统一排）</h3>
+<table><tr><th style="width:18%">维度</th><th style="width:22%">指标</th><th>数据来源</th><th style="width:14%">执行库</th></tr>
+<tr><td><b>健康级别（默认）</b></td><td>严重数 → 告警数 → 关注数 → 新增问题数</td><td>库级 Finding + 所在实例的 Finding 中可归属到该库的（如长事务、锁等待里的 datname）</td><td>—</td></tr>
+<tr><td>慢 SQL</td><td>窗口内慢语句条数、总耗时</td><td>SQL 执行历史 <code>statement_history</code> 按 <code>db_name</code> 聚合 <span class="tag t-org">新脚本</span></td><td>postgres</td></tr>
+<tr><td>事务量 / 回滚率</td><td>每秒提交、回滚占比（样本 ≥ 1000 事务才排）</td><td>WDR 快照 <code>snap_summary_stat_database</code> 按 <code>snap_datname</code> 求增量 <span class="tag t-org">新脚本</span></td><td>postgres</td></tr>
+<tr><td>死锁 / 临时文件 / 缓存命中</td><td>窗口增量、命中率</td><td>同上</td><td>postgres</td></tr>
+<tr><td>存储</td><td>库大小、比上次增长</td><td><code>health.storage</code>（已有，按库列出）</td><td>postgres</td></tr>
+<tr><td>会话</td><td>连接数、活跃数、空闲事务最长时长</td><td><code>pg_stat_activity</code> 按 <code>datname</code> 聚合 <span class="tag t-org">新脚本</span></td><td>postgres</td></tr>
+<tr><td>死元组 / 膨胀</td><td>最高死元组比、估算膨胀空间</td><td><code>vacuum.dead_tuples</code>、<code>vacuum.bloat_estimate</code>（已有）</td><td>业务库（dbName）</td></tr>
+<tr><td>统计信息 / 索引</td><td>陈旧表数、失效索引数、未使用索引数（深检）</td><td><code>health.stale_stats</code>、<code>health.invalid_index</code>、<code>health.unused_index</code>（已有）</td><td>业务库（dbName）</td></tr>
+</table>
+<h3>7.2 实例榜（实例级数据，含该实例所有库）</h3>
+<table><tr><th style="width:22%">指标</th><th>来源</th><th style="width:36%">为什么不拆到库</th></tr>
+<tr><td>DB time、等待事件构成</td><td>WDR / 时段体检</td><td>内核按实例统计，没有库维度</td></tr>
+<tr><td>Top SQL（总耗时、CPU、IO、写入行数）</td><td><code>dbe_perf.statement</code>（<code>topsql.top_sql</code>）</td><td>这张视图没有库名列；按库看 SQL 用「慢 SQL」维度（执行历史有 db_name，但只含被记录下来的语句，覆盖率在页面上标明）</td></tr>
+<tr><td>WAL 生成速率、检查点、归档、复制延迟</td><td>health 的 WAL / 复制维度</td><td>实例级</td></tr>
+<tr><td>连接使用率、线程池</td><td>health 连接维度</td><td>上限是实例级参数</td></tr>
+</table>
+<h3>7.3 归一化与对比</h3>
+<ul>
+<li><b>按窗口折算</b>：增量类指标统一折成「每秒」或「每小时」，不同实例的快照间隔不同也能比。</li>
+<li><b>同应用分位</b>：每个值旁标出在本应用内的分位（P50 / P90），一眼看出是不是离群。</li>
+<li><b>自身基线</b>（P2）：与该库最近 7 次巡检的中位数比，给「偏离倍数」，可按偏离倍数排名——解决「大库天然排在前面」的问题。</li>
+<li><b>规格差异</b>：清单带了实例规格时，在实例榜显示规格列；比率类指标不受规格影响，优先展示。</li>
+<li><b>与上次比</b>：问题按 <code>code + 对象</code> 匹配，标「新增 / 持续 / 已消除」。</li>
+</ul>
+
+<h2 id="s8">8. 告警、通知与闭环</h2>
+<div class="flow">
+<div class="n"><b>监控告警</b>Webhook：实例、库（可选）、指标、值、时间</div><div class="a">→</div>
+<div class="n"><b>去重 / 抑制</b>同实例同指标 15 分钟内合并；维护窗口内抑制</div><div class="a">→</div>
+<div class="n"><b>快检</b>只跑与告警相关的维度（映射表见下）</div><div class="a">→</div>
+<div class="n"><b>判定</b>复现（相关维度 ≥ 告警）/ 未复现 / 采集失败</div><div class="a">→</div>
+<div class="n"><b>通知</b>回写监控、推送订阅人，附巡检记录链接</div><div class="a">→</div>
+<div class="n"><b>深挖</b>人点「深挖 →」；P2：严重且复现时自动开一次</div></div>
+<table><tr><th style="width:26%">告警类型（示例）</th><th>快检维度</th></tr>
+<tr><td>连接数高 / 连接打满</td><td>Connections、Long &amp; Idle Transactions、会话按库与应用聚合</td></tr>
+<tr><td>锁等待 / 死锁</td><td>Transaction Locks &amp; Blocking Chains、lockwait 阻塞对、长事务</td></tr>
+<tr><td>CPU 高 / 响应变慢</td><td>Wait Events、Slow SQL、Top SQL 最近 15 分钟</td></tr>
+<tr><td>复制延迟 / 备机异常</td><td>Replication / Standby、WAL / Write Sources</td></tr>
+<tr><td>空间增长 / 表膨胀</td><td>Storage Usage、Dead Tuples &amp; Bloat（指名库）</td></tr>
+</table>
+<p class="small">告警风暴保护：同一应用同时超过 5 条告警时合并成一次「应用快检」；快检额度用满后排队并在大盘标明。通知渠道（消息平台 / 邮件 / 回调）按应用订阅，P1 先做通用 Webhook 回调。</p>
+
+<h2 id="s9">9. 接口草案</h2>
+<pre>POST /inspect/api/v1/runs                    # 发起巡检(调用方系统,Bearer 令牌)
+  {"scope": {"app": "APP-0101"} | {"idc": "IDC-A"} | {"targets": [{"data_ip": "10.0.0.21", "db": "acctdb"}]},
+   "profile": "quick|daily|deep", "reason": "变更后复核", "requester": "发起人工号(记审计)",
+   "callback_url": "https://…(可选)", "idempotency_key": "…"}
+  → 202 {"run_id": "r-20261111-0213-7f3a", "status": "queued"}
+
+GET  /inspect/api/v1/runs/{run_id}            # 状态、进度、覆盖率、问题数分级、摘要
+GET  /inspect/api/v1/runs/{run_id}/results?db=…&amp;level=2
+GET  /inspect/api/v1/rank?app=APP-0101&amp;dim=slow_sql&amp;run=latest
+POST /inspect/api/v1/alerts                   # 监控回调(Webhook 令牌)
+  {"alert_id": "…", "source": "监控系统名", "severity": "critical", "data_ip": "10.0.0.21",
+   "db": "acctdb(可选)", "metric": "connections_used_ratio", "value": "0.93", "fired_at": "2026-11-11T09:12:00+08:00"}
+  → 202 {"run_id": "…", "dedup_of": null}
+PUT  /inspect/api/v1/inventory                # 上传清单(CSV / YAML),返回差异预览,确认后生效
+
+回调(巡检完成):POST callback_url,头里带 HMAC 签名;正文 = run 摘要(不含 SQL 文本与地址)
+大盘只读(经网关 /inspect/*,SSO 身份 + 角色):GET /inspect/rank/… /inspect/runs/… /inspect/reports/…</pre>
+
+<h2 id="s10">10. 与 dbName 切库、白名单的关系</h2>
+<ul>
+<li><b>已有的 138 条够用的部分</b>：实例级采集（health 28 条、topsql 2 条、wdr 16 条、lockwait / waitevent、config）全部已在白名单；库级对象检查（失效索引、统计信息、死元组、膨胀、分区、表写入、未使用索引）都是 v1.4.11 的 appbusiness 脚本，<b>依赖行方导入 20261111 增量、中间件支持 dbName</b>——没生效时库级维度记「未采到（没切到业务库）」，不影响实例级。</li>
+<li><b>需要新增的只读脚本（全部在 postgres 上执行、一次覆盖实例上所有库）</b>：</li>
+</ul>
+<table><tr><th style="width:24%">脚本（暂定名）</th><th>内容</th><th style="width:22%">用途</th></tr>
+<tr><td><code>inspect.db_list</code></td><td><code>pg_database</code>：库名、是否可连接、兼容模式、大小</td><td>自动发现库、清单校验</td></tr>
+<tr><td><code>inspect.db_stat</code></td><td><code>pg_stat_database</code> 按库：提交、回滚、死锁、临时文件、命中、统计重置时间</td><td>库榜：事务量 / 回滚率 / 命中率（此刻累计）</td></tr>
+<tr><td><code>inspect.wdr_db_stat</code></td><td><code>snapshot.snap_summary_stat_database</code> 两个快照之间按 <code>snap_datname</code> 求增量</td><td>库榜：窗口内增量（现有 <code>wdr.db_stat</code> 是全实例求和，不分库）</td></tr>
+<tr><td><code>inspect.db_sessions</code></td><td><code>pg_stat_activity</code> 按库 × 状态计数、空闲事务最长时长</td><td>库榜：会话</td></tr>
+<tr><td><code>inspect.db_slow_sql</code></td><td><code>statement_history</code> 窗口内按 <code>db_name</code> 聚合：条数、总耗时、前 5 个 SQL_ID</td><td>库榜：慢 SQL（按库归属）</td></tr>
+</table>
+<p class="small">这 5 条随巡检功能的版本一起交付白名单增量（只读、只访问系统视图），守卫测试照现有规则检查执行库划分（全部 postgres）。巡检不需要任何写权限，也不调用 <code>create_wdr_snapshot</code>。</p>
+
+<h2 id="s11">11. 巡检大盘（概要）</h2>
+<p>详见 <a href="../prototypes/inspection-dash/index.html">巡检大盘原型</a>（可交互、假数据）与 <a href="../prototypes/inspection-dash/guide.html">UI 说明</a>。四页：</p>
+<table><tr><th style="width:18%">页面</th><th>内容</th></tr>
+<tr><td>巡检总览</td><td>选 IDC / 应用 / 某次巡检；主视觉带：库的级别分布、巡检摘要（模型）、覆盖率与问题数（新增 / 持续 / 已消除）；问题按维度分布、近 14 次趋势、最需关注的库</td></tr>
+<tr><td>跨库排名</td><td>库榜按维度切换（健康级别、慢 SQL、事务量、回滚率、存储增长、死元组、统计信息、会话…），实例榜单列；每行可下钻到现有单库大盘、可「深挖 →」</td></tr>
+<tr><td>巡检任务</td><td>任务定义（定时 / 套餐 / 范围）与运行记录（排队、进行中、完成、部分失败），每次的触发源、耗时、覆盖率</td></tr>
+<tr><td>告警触发</td><td>监控告警 → 快检 → 复现 / 未复现，通知与深挖状态</td></tr>
+</table>
+<p class="small">复用：前端镜像里的骨架（<code>shell.js</code>）、图形（<code>viz.js</code>：圆环、条形、排名、迷你走势）、级别配色与「深挖」；单库下钻打开现有 <code>/dash/health</code>、<code>/dash/topsql</code>、<code>/dash/wdr</code>，数据源参数切到巡检目录（<code>lib/data.js</code> 增加一个来源开关），页面不用重写。</p>
+
+<h2 id="s12">12. 分期与工作量</h2>
+<table><tr><th style="width:10%">期</th><th>内容</th><th style="width:12%">工作量</th><th style="width:22%">上线后能做什么</th></tr>
+<tr><td><b>P0</b></td><td>巡检服务（编排 + 执行 + 汇总）；清单上传 + 自动发现库；日检 / 深检套餐；定时任务；外部调用接口（发起、查询、回调）；结果按报告契约存档；5 条新脚本 + 白名单增量；网关 <code>/inspect/*</code> 路由与角色；大盘总览 + 跨库排名 + 任务页；单库下钻；部署清单与发版台支持</td><td>约 3 周</td><td>每天自动巡检、应用级大盘、跨库排名、任务系统可调用</td></tr>
+<tr><td><b>P1</b></td><td>监控告警回调、快检套餐、去重 / 抑制 / 风暴保护、告警页；通知订阅（Webhook）；应用摘要（模型 + 校验）；「深挖 →」首句带巡检结论</td><td>约 2 周</td><td>监控发现问题 → 自动复核 → 通知到人</td></tr>
+<tr><td><b>P2</b></td><td>CMDB 自动同步；自身基线与偏离排名；严重告警自动深挖；技能 <code>gaussdb-inspect</code>（对话里查巡检结果）；IDC 视图；周报 / 月报导出</td><td>约 2～3 周</td><td>少人工维护、能看长期趋势、对话与巡检打通</td></tr>
+</table>
+<p class="small">测试：沿用模拟中间件（加 5 条脚本与多库数据）、故障演练造多库差异场景、发版台冒烟加一次「API 发起快检」；验收标准：排名与单库大盘同一库的级别一致、同一数据重跑结果一致、告警到通知 ≤ 2 分钟。</p>
+
+<h2 id="s13">13. 风险</h2>
+<table><tr><th style="width:26%">风险</th><th>应对</th></tr>
+<tr><td>巡检本身给生产加负载</td><td>只读、白名单、同实例串行、令牌桶、巡检窗口、繁忙跳过库级；上线前在测试环境量出每实例调用次数与耗时</td></tr>
+<tr><td>中间件并发 / 限流未知</td><td>默认 4 路、5 次 / 秒，可配；接口返回限流时退避并在大盘标明</td></tr>
+<tr><td>dbName 切库在行方未生效</td><td>库级维度记「未采到」并写原因，实例级照常；大盘覆盖率如实显示</td></tr>
+<tr><td>排名口径有争议（大库天然靠前、实例级数据被误读成库的）</td><td>库榜 / 实例榜分开；比率与分位优先；P2 加自身基线；每个数可追到脚本与窗口</td></tr>
+<tr><td>服务账号权限过大</td><td>只授白名单只读执行；令牌只挂巡检服务；审计带触发源</td></tr>
+<tr><td>告警风暴</td><td>去重、合并、额度与排队</td></tr>
+<tr><td>模型摘要说错</td><td>只读汇总结果、不调工具；引用编号与级别校验，不过就不显示</td></tr>
+<tr><td>A / M 兼容模式库</td><td>库级对象脚本先在行方环境验证；未验证前该类库库级维度标「未验证」</td></tr>
+</table>
+
+<h2 id="s14">14. 待确认问题</h2>
+<table><tr><th style="width:4%">#</th><th>问题</th><th style="width:30%">我们的建议</th></tr>
+<tr><td>1</td><td>巡检采集用独立的确定性执行器，模型只写摘要与深挖（而不是每库开一次智能体会话）</td><td>采纳（成本低两个数量级、结果可排名）</td></tr>
+<tr><td>2</td><td>应用 / IDC / 实例清单从哪来：行方 CMDB 接口、定期导出，还是人工维护表格</td><td>P0 先表格上传，P2 对接 CMDB</td></tr>
+<tr><td>3</td><td>行方能否给巡检服务账号单独开 GRMP 授权（只读白名单）</td><td>需要；不建议借用个人工号</td></tr>
+<tr><td>4</td><td>中间件能承受的并发与调用速率</td><td>先按 4 路 / 5 次每秒</td></tr>
+<tr><td>5</td><td>日检时间窗与频率；深检频率</td><td>日检每天 02:00，深检每周日</td></tr>
+<tr><td>6</td><td>对接哪个监控系统、告警回调格式与令牌方式</td><td>先做通用 Webhook，字段见第 9 节</td></tr>
+<tr><td>7</td><td>通知渠道（行内消息平台 / 邮件）与订阅方式</td><td>P1 先回调 Webhook，由行方消息平台转发</td></tr>
+<tr><td>8</td><td>大盘可见范围：所有 DBA 看全部，还是按应用授权</td><td>默认全部可看，支持按应用授权</td></tr>
+<tr><td>9</td><td>5 条新增只读脚本的白名单导入（随巡检版本交付）</td><td>随 P0 一起交付</td></tr>
+<tr><td>10</td><td>严重告警是否允许自动开深挖会话（会消耗模型额度）</td><td>P2 再开，默认关</td></tr>
+</table>
+</div></body></html>

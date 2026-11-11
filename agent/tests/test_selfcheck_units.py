@@ -167,3 +167,36 @@ def test_marks_that_differ_from_this_version_are_listed(monkeypatch, tmp_path, c
     rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names(), dbname=dbname), capsys)
     assert "1 条该切库的没带 dbName(sqltune.indexes)" in out
     assert "1 条读 SQL 历史 / WDR 快照 / 实例级视图的带了 dbName(topsql.snap_statement)" in out
+
+
+class _Names:
+    def __init__(self, names):
+        self._names = list(names)
+
+    def names(self):
+        return list(self._names)
+
+
+def test_used_names_skips_common_once_it_sits_in_the_skills_dir(tmp_path):
+    """部署后 common/ 在技能目录里;common/grmp/routing.py 的切库名单是数据,不是调用(11-11 测试环境查出误报)。"""
+    (tmp_path / "common" / "grmp").mkdir(parents=True)
+    (tmp_path / "common" / "grmp" / "routing.py").write_text("NAMES = {\"perf.locks\", \"sqltune.indexes\"}\n", encoding="utf-8")
+    (tmp_path / "gaussdb-x" / "scripts").mkdir(parents=True)
+    (tmp_path / "gaussdb-x" / "scripts" / "x.py").write_text("runner.run(\"sqltune.indexes\")\n", encoding="utf-8")
+    used = sc.used_names(_Names(["perf.locks", "sqltune.indexes"]), tmp_path)
+    assert used == {"sqltune.indexes"}
+
+
+def test_used_names_is_the_same_in_the_deployed_layout_and_equals_the_delivery(tmp_path):
+    """按部署布局(技能目录下放 common/)算出的「用到的」与仓库布局一致,也正好是交付白名单的那些条。"""
+    import re
+    import shutil
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    for d in (_ROOT / "skills").iterdir():
+        if d.is_dir():
+            shutil.copytree(d, tmp_path / d.name, ignore=ignore)
+    shutil.copytree(_ROOT / "common", tmp_path / "common", ignore=ignore)
+    reg = Registry()
+    sql = (_ROOT.parent / "docs" / "delivery" / "scripts.sql").read_text(encoding="utf-8")
+    delivered = {n for n in reg.names() if re.search(r"%s" % re.escape(n), sql)}
+    assert sc.used_names(reg, tmp_path) == sc.used_names(reg) == delivered

@@ -34,7 +34,7 @@ OK, WARN, FAIL = "✓", "！", "✕"
 DEPLOY, MIDDLEWARE, OPS = "部署方", "中间件团队", "运维 DBA"
 BANK_OPAQUE = "agent诊断脚本执行失败"      # 行方 GRMP 执行失败时只回这一句,数据库的原始报错留在中间件日志里
 
-# 关键脚本试跑:(脚本, 参数, 新版本才有的列, 用途)。只挑每类能力的入口与现场出过问题的几条,不逐条跑全部 137 条
+# 关键脚本试跑:(脚本, 参数, 新版本才有的列, 用途)。只挑每类能力的入口与现场出过问题的几条,不逐条跑全部 138 条
 PROBES = (
     ("health.overview", {}, (), "健康检查总览"),
     ("health.storage", {}, (), "健康检查 Storage(库与表空间占用)"),
@@ -85,14 +85,18 @@ def check_install() -> List[Item]:
     return items
 
 
-def used_names(registry: Registry) -> set:
+def used_names(registry: Registry, skills: Optional[pathlib.Path] = None) -> set:
     """有技能调用的脚本:逻辑名全串出现在技能代码里(与 grmp_register 交付时剔掉「没有任何 skill 调用」的规则一致)。
 
-    容器镜像里带着全部定义(含 13 条不交付的),技能包里只带交付的 137 条 —— 按「有人调用」比,两种部署结论一致,
-    不会把没交付的那几条报成「缺」。"""
-    skills = pathlib.Path(__file__).resolve().parents[2]
+    容器镜像里带着全部定义(含 13 条不交付的),技能包里只带交付的 138 条 —— 按「有人调用」比,两种部署结论一致,
+    不会把没交付的那几条报成「缺」。交付规则只搜各技能目录,所以这里也跳过部署后放进技能目录的 ``common/``:
+    里面的 ``common/grmp/routing.py`` 是切库脚本的名单(数据,不是调用),含 2 条不交付的,
+    不跳过的话容器里会把那 2 条报成「白名单缺」(11-11 测试环境实测查出)。
+    注意:技能代码(含注释)里别写不交付脚本的全名 —— 交付按全名出现与否决定带哪些定义。"""
+    skills = skills or pathlib.Path(__file__).resolve().parents[2]
+    me = pathlib.Path(__file__).name
     text = "\n".join(f.read_text(encoding="utf-8", errors="replace") for f in skills.rglob("*.py")
-                     if f.name != pathlib.Path(__file__).name)
+                     if f.name != me and f.relative_to(skills).parts[0] != "common")
     return {n for n in registry.names() if n in text}
 
 

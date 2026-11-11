@@ -330,6 +330,14 @@ DIRECT_NOTE = (
     "引用时看清是不是「%(target)s」的。\n"
 )
 
+# 没切到业务库、也不是「要诊断的库与取数的库不同」(登录时没给业务库)时补的说明。11-11 测试环境实测:
+# 只看到「数据库 postgres」,模型会以为 Top SQL 只含 postgres 库的语句、建议「按业务库重新登录再看 Top SQL」
+INSTANCE_NOTE = (
+    "\n> **取数在实例的「%(db)s」库上**：会话、锁等待、等待事件、慢 SQL / Top SQL、WDR 是整个实例的数据，"
+    "实例上所有库的会话与 SQL 都在里面，看这些不用指定业务库。表、索引、执行计划、统计信息、存储过程属于各自的库："
+    "要看某个业务库的，登录时带 `--database <业务库>`。\n"
+)
+
 
 # --- 输出 ---------------------------------------------------------------------
 
@@ -407,6 +415,8 @@ def _describe(conn: Connection, note: str, path, role: str = "", handle: str = "
         out += ROUTED_NOTE % {"target": conn.database, "exec": conn.exec_database}
     elif conn.route_db:
         out += DIRECT_NOTE % {"target": conn.route_db}
+    elif conn.driver == "grmp":
+        out += INSTANCE_NOTE % {"db": conn.database or routing.POSTGRES}
     if role.startswith("备机"):
         out += STANDBY_NOTE
     out += "\n会话已写入 `%s`。\n\n" % path

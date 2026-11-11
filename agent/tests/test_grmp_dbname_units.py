@@ -6,6 +6,7 @@
 """
 import importlib.util
 import json
+from dataclasses import replace
 import pathlib
 import sys
 
@@ -174,6 +175,45 @@ def test_session_keeps_the_routing_database(tmp_path, monkeypatch):
     assert session._read(session.path_for(handle)).route_db == "appdb"
 
 
+# v1.4.10 的会话读取只认这些键,见到别的就报错 —— 而且每次取数都先读一遍目录里全部 *.yaml(顺手清理过期)。
+# 照抄自 agent-v1.4.10 的 common/session.py,不要跟着本版改。
+V1410_KEYS = {"name", "type", "host", "port", "database", "user", "sslmode", "driver", "data_ip", "app", "exec_database"}
+
+
+def test_a_routed_session_stays_readable_by_v1_4_10(tmp_path, monkeypatch):
+    """11-11 测试环境回滚实测:route_db 写进 yaml 后,回滚到 1.4.10 这个用户的所有取数技能都报「无法识别的键」。"""
+    import yaml
+    monkeypatch.setenv("GSDB_HOME", str(tmp_path))
+    conn = Connection(name="ip-appdb", type="gaussdb", host="h", port=1, database="appdb", user="grmp",
+                      driver="grmp", data_ip=DATA_IP, route_db="appdb")
+    path = session.path_for(session.save(conn))
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert set(raw) <= V1410_KEYS, "会话 yaml 里出现旧版不认识的键:%s" % sorted(set(raw) - V1410_KEYS)
+    assert raw["database"] == "appdb" and "exec_database" not in raw, "旧版读到的是「库名 = 业务库、不切库」"
+    route = path.with_suffix(session.ROUTE_SUFFIX)
+    assert route.read_text(encoding="utf-8").strip() == "appdb" and oct(route.stat().st_mode & 0o777) == "0o600"
+
+
+def test_route_file_follows_its_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("GSDB_HOME", str(tmp_path))
+    base = Connection(name="ip-appdb", type="gaussdb", host="h", port=1, database="appdb", user="grmp",
+                      driver="grmp", data_ip=DATA_IP)
+    h = session.save(replace(base, route_db="appdb"))
+    path = session.path_for(h)
+    session.save(base, h)                                   # 同一句柄改成不切库:旧的库名文件要清掉
+    assert not path.with_suffix(session.ROUTE_SUFFIX).exists() and session._read(path).route_db == ""
+    h2 = session.save(replace(base, route_db="appdb"))
+    assert session.clear(h2) and not session.path_for(h2).with_suffix(session.ROUTE_SUFFIX).exists()
+    h3 = session.save(replace(base, route_db="appdb"))
+    session.path_for(h3).unlink()                           # 旧版清过期会话只删 yaml
+    session.list_sessions()
+    assert not session.path_for(h3).with_suffix(session.ROUTE_SUFFIX).exists(), "留下的孤儿库名文件顺手删"
+    bad = session.save(replace(base, route_db="appdb"))
+    session.path_for(bad).with_suffix(session.ROUTE_SUFFIX).write_text("app db\n", encoding="utf-8")
+    with pytest.raises(session.ConfigError, match="业务库名不合法"):
+        session._read(session.path_for(bad))
+
+
 # ============================================================ 登录核实
 
 _LOGIN = _ROOT / "skills" / "gaussdb-login" / "scripts" / "login.py"
@@ -275,3 +315,16 @@ def test_alias_with_a_database_targets_another_database_on_the_same_instance(api
     assert login.main(["--alias", "og5", "--database", "appdb"]) == 0
     assert _session().route_db == "appdb"
     assert login.main(["--alias", "og5", "--ip", DATA_IP]) == 2
+
+
+def test_login_without_a_business_database_says_instance_wide_data_needs_none(api_home, monkeypatch, capsys):
+    """11-11 测试环境:只给实例登录后,模型说「业务在别的库的话负载不在 Top SQL 里」—— 错的,Top SQL 是整个实例的。"""
+    (pathlib.Path(session._dir()).parent / "config.yaml").write_text(
+        "connection_mode: api\napi_connection:\n  - host: 127.0.0.1\n    port: 8769\n    token_env: GRMP_AUTH_TOKEN\n"
+        "instance_aliases:\n  - {name: og5, ip: 10.0.0.9, database: postgres}\n", encoding="utf-8")
+    monkeypatch.setattr(login.access, "runner_for", lambda c: _Runner(c, FULL, "appdb"))
+    assert login.main(["--alias", "og5"]) == 0
+    out = capsys.readouterr().out
+    assert "取数在实例的「postgres」库上" in out and "实例上所有库的会话与 SQL 都在里面" in out and "--database <业务库>" in out
+    assert _login(monkeypatch, FULL) == 0
+    assert "实例上所有库的会话与 SQL 都在里面" not in capsys.readouterr().out, "已直连时用 DIRECT_NOTE,不重复"

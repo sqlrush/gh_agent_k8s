@@ -35,7 +35,7 @@ metadata:
 ## 工作流
 
 1. **选择连接 —— 先登录，不要自己猜连接名。** 本对话里已经登录过就直接用登录输出里的句柄；没登录就调 **gaussdb-login** 一步登录（不要先 `--status`、`--list`）：
-   用户点名了实例别名（如「og5」）就 `python3 {baseDir}/../gaussdb-login/scripts/login.py --alias <别名>`（要诊断业务库再加 `--database <库名>`），给了实例 IP 就 `--ip <实例IP> --database <库名>`；没说是哪个实例才 `--list` 让用户选（`gsql` 模式下 `--list` 列出可选连接让用户挑）。
+   用户点名了实例别名（如「og5」）就 `python3 {baseDir}/../gaussdb-login/scripts/login.py --alias <别名>`（要看某个业务库的表、执行计划、存储过程再加 `--database <库名>`；Top SQL、慢 SQL、会话、锁、WDR 是整个实例的数据，不用加），给了实例 IP 就 `--ip <实例IP> --database <库名>`；没说是哪个实例才 `--list` 让用户选（`gsql` 模式下 `--list` 列出可选连接让用户挑）。
    登录之后本 skill **不需要传 `-c`** —— 省略时自动用登录选定的那条连接；只有要临时换一个库时才显式传 `-c <连接名>`。
    **api 模式下每条命令都要带 `--session <句柄>`**：句柄是 gaussdb-login 在**本对话里**登录成功时输出的那一串（平台也可能按用户注入环境变量 `GSDB_SESSION`）。不带句柄的命令会被拒绝并提示「本对话未登录」——这时让用户先 gaussdb-login 登录，**不要自己挑一个**、不要猜、不要去看会话目录；别人的会话对本对话不可见，换一个对话要重新登录。
    **不要自己去读 config.yaml 挑名字**：不同应用下可能有同名连接，猜错会在另一个库上做诊断，而输出看起来完全正常。口令在 `{baseDir}/../common/credentials/*.enc`，由脚本解密，**你不要去读/解密它**。

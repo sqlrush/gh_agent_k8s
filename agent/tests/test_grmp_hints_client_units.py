@@ -117,7 +117,8 @@ def test_post_plain_urlerror_unchanged(monkeypatch):
 
 def test_invoke_failure_message_gets_hint(monkeypatch):
     c = _client()
-    monkeypatch.setattr(c, "resolve_id", lambda name: "id-1")
+    # 换掉命令清单(接口一):invoke 要靠它取 id、看行方有没有声明 dbName
+    monkeypatch.setattr(c, "_id_map", lambda: {"sqlfetch.from_history": "id-1"})
     monkeypatch.setattr(c, "_post", lambda path, payload: {"status": "failed", "task_id": "t", "msg": STANDBY})
     with pytest.raises(GrmpError) as ei:
         c.invoke("sqlfetch.from_history", {"sid": 300316117})
@@ -151,3 +152,25 @@ def test_ensure_hint_appends_once_and_never_twice():
     assert once.count("\n提示:") == 1 and "search_path" in once
     assert hints.ensure_hint(once) == once
     assert hints.ensure_hint("nothing to hint") == "nothing to hint"
+
+
+# ---- 切库(dbName)报错与 schema 提示(2026-11-11 现场) ----------------------------------------
+
+def test_empty_database_name_points_at_the_whitelist_delta_not_at_the_dba():
+    h = hints.explain('请求 /x/invoke 失败：HTTP 400 ；中间件返回：数据库[]在目标高斯实例中不存在, instanceId: abc')
+    assert "scripts-delta-20261111.sql" in h and "执行库标注与本版不一致" in h and "不要让 DBA 改库" in h
+
+
+def test_a_named_database_that_does_not_exist_asks_to_check_the_login_name():
+    h = hints.explain("中间件返回：数据库[appdb]在目标高斯实例中不存在, instanceId: abc")
+    assert "实例上没有库「appdb」" in h and "--database" in h
+
+
+@pytest.mark.parametrize("text", ['column "foo" does not exist', 'type "bar" does not exist', "invalid input for schema x"])
+def test_schema_hint_needs_both_words(text):
+    """1.4.11 的缺陷:只要出现「schema 」或「 does not exist」之一就给了 schema 不存在的提示。"""
+    assert not hints.explain(text).startswith("schema 不存在")
+
+
+def test_schema_that_does_not_exist_still_gets_the_schema_hint():
+    assert hints.explain('schema "fl" does not exist').startswith("schema 不存在")

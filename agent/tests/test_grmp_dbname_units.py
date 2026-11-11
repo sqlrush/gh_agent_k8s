@@ -18,7 +18,7 @@ sys.path.insert(0, str(_ROOT))
 from common import session  # noqa: E402
 from common.config import Connection  # noqa: E402
 from common.grmp import routing, script as sc  # noqa: E402
-from common.grmp.client import GrmpClient  # noqa: E402
+from common.grmp.client import GrmpClient, GrmpError  # noqa: E402
 from common.grmp.placeholder import ParamDef  # noqa: E402
 from common.grmp.settings import Settings  # noqa: E402
 from grmp_middleware.grmp_mock import instances as inst, store as st  # noqa: E402
@@ -56,6 +56,8 @@ def mock(tmp_path):
     opened = []
 
     def open_db(name, read_only=True, database=""):
+        if database == "nodb":
+            raise RuntimeError('FATAL:  database "nodb" does not exist')
         opened.append(database or "postgres")
         return FakeDB(database or "postgres")
 
@@ -92,14 +94,26 @@ def test_db_name_switches_a_business_script_to_that_database(mock):
     assert resp["result"]["data"][0]["db"] == "opendb_test"
 
 
-def test_without_db_name_a_business_script_stays_on_postgres_unless_told_to_reject(mock):
+def test_without_db_name_a_business_script_is_rejected_the_way_the_bank_does(mock):
+    """11-11 现场:行方中间件对声明了 dbName 的脚本不带就按空库名去连,HTTP 400,不退回 postgres。"""
     make, _, opened = mock
     app = make()
     sid = _ids(app)["sqltune.plan_text"]["id"]
     body = {"dataIp": DATA_IP, "id": sid, "param": [{"param_name": "sql", "param_value": "select 1"}]}
-    assert _call(app, INVOKE_PATH, body)[1]["status"] == "finished" and opened == ["postgres"]
-    strict = make(dbname_missing="reject")
-    assert "没有传 dbName" in _call(strict, INVOKE_PATH, body)[1]["msg"]
+    code, resp = _call(app, INVOKE_PATH, body)
+    assert code == 400 and resp == {"error_msg": "数据库[]在目标高斯实例中不存在, instanceId: mock-og", "error_code": 400}
+    assert opened == []
+    lenient = make(dbname_missing="postgres")                     # 11-11 之前的假设,留作对照
+    assert _call(lenient, INVOKE_PATH, body)[1]["status"] == "finished" and opened == ["postgres"]
+
+
+def test_a_db_name_that_does_not_exist_is_reported_with_its_name(mock):
+    make, _, _ = mock
+    app = make()
+    sid = _ids(app)["sqltune.plan_text"]["id"]
+    code, resp = _call(app, INVOKE_PATH, {"dataIp": DATA_IP, "id": sid, "param": [
+        {"param_name": "dbName", "param_value": "nodb"}, {"param_name": "sql", "param_value": "select 1"}]})
+    assert code == 400 and resp["error_msg"].startswith("数据库[nodb]在目标高斯实例中不存在")
 
 
 def test_db_name_on_a_postgres_script_is_ignored_unless_told_to_reject(mock):
@@ -147,10 +161,11 @@ def test_db_name_goes_first_only_when_all_three_conditions_hold():
                                    {"param_name": "sql", "param_value": "select 1"}]
 
 
-def test_no_db_name_for_scripts_that_read_postgres_only_data_even_if_the_bank_declares_it():
+def test_scripts_reading_postgres_only_data_get_postgres_when_the_bank_declares_db_name():
+    """行方白名单把读快照的脚本登记成了业务库类(增量没导入):不能切到业务库(查不到),也不能不带(中间件报空库名)。"""
     c = _Wire(BANK, target_db="appdb")
     c.invoke("topsql.snap_statement")
-    assert "param" not in c.sent[-1], "读 WDR 快照的脚本切到业务库会查不到"
+    assert c.sent[-1]["param"] == [{"param_name": "dbName", "param_value": "postgres"}]
 
 
 def test_no_db_name_when_the_bank_has_not_declared_it_yet():
@@ -159,10 +174,42 @@ def test_no_db_name_when_the_bank_has_not_declared_it_yet():
     assert [p["param_name"] for p in c.sent[-1]["param"]] == ["schema"], "没配好的脚本多传参数会被行方拒"
 
 
-def test_no_db_name_without_a_verified_target():
+def test_without_a_verified_target_declared_scripts_get_postgres():
     c = _Wire(BANK)
     c.invoke("sqltune.plan_text", {"sql": "select 1"})
-    assert [p["param_name"] for p in c.sent[-1]["param"]] == ["sql"]
+    assert c.sent[-1]["param"][0] == {"param_name": "dbName", "param_value": "postgres"}
+
+
+class _Strict(_Wire):
+    """接口一没列出 dbName,执行时却按行方的形态报空库名(白名单库里登记了、清单没带出来)。"""
+
+    def _post(self, path, payload):
+        if path.endswith("/invoke") and not any(p["param_name"] == "dbName" for p in payload.get("param") or []):
+            self.sent.append(payload)
+            raise GrmpError('请求 /p/invoke 失败：HTTP 400 ；中间件返回：数据库[]在目标高斯实例中不存在, instanceId: x')
+        return super()._post(path, payload)
+
+
+def test_an_empty_database_error_is_retried_once_on_postgres_and_remembered():
+    c = _Strict({"explain.from_history": ["sql_id"]}, target_db="appdb")
+    c.invoke("explain.from_history", {"sql_id": 1})
+    assert [[p["param_name"] for p in s.get("param", [])] for s in c.sent] == [["sql_id"], ["dbName", "sql_id"]]
+    assert c.sent[-1]["param"][0]["param_value"] == "postgres", "读 SQL 历史的脚本只能在 postgres"
+    c.invoke("explain.from_history", {"sql_id": 2})
+    assert len(c.sent) == 3 and c.sent[-1]["param"][0]["param_value"] == "postgres", "记住了,不再先撞一次"
+
+
+def test_a_named_database_that_does_not_exist_is_not_retried():
+    class _NoDb(_Wire):
+        def _post(self, path, payload):
+            if path.endswith("/invoke"):
+                self.sent.append(payload)
+                raise GrmpError("请求失败：HTTP 400；中间件返回：数据库[appdb]在目标高斯实例中不存在, instanceId: x")
+            return super()._post(path, payload)
+    c = _NoDb(BANK, target_db="appdb")
+    with pytest.raises(GrmpError, match="appdb"):
+        c.invoke("sqltune.plan_text", {"sql": "select 1"})
+    assert len(c.sent) == 1
 
 
 # ============================================================ 会话

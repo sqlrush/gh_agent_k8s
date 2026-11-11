@@ -17,6 +17,7 @@ from . import envelope, executor, pagination
 from .executor import (
     DEFAULT_MAX_RESULT_ROWS,
     DEFAULT_STATEMENT_TIMEOUT_SECONDS,
+    DbMissingError,
     ExecError,
 )
 from .instances import InstanceMap
@@ -76,7 +77,7 @@ class App:
         path_prefix: Optional[str] = None,
         single_statement: bool = False,
         opaque_errors: bool = False,
-        dbname_missing: str = "postgres",
+        dbname_missing: str = "reject",
         dbname_on_postgres: str = "ignore",
     ):
         prefix = grmp_paths.normalize(path_prefix) if path_prefix is not None else grmp_paths.from_env()
@@ -282,6 +283,10 @@ class App:
                 dbname_missing=self._dbname_missing,
                 dbname_on_postgres=self._dbname_on_postgres,
             )
+        except DbMissingError as exc:
+            # 行方的形态:不是接口二的 status/msg 信封,而是 {"error_msg", "error_code"}
+            print("[GRMP] FAIL %s :: %s" % (record.script_name, exc), file=sys.stderr, flush=True)
+            return 400, {"error_msg": "%s, instanceId: mock-%s" % (exc, conn_name), "error_code": 400}
         except (ParamError, ExecError) as exc:
             return fail(str(exc))
         except Exception as exc:  # 数据库错误等

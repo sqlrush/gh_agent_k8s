@@ -94,8 +94,9 @@ def main(argv: Sequence[str] = None) -> int:
         "--bank-like", action="store_true",
         help="行方模式:一条脚本里有多条语句时回 HTTP 400、执行失败只回「agent诊断脚本执行失败」(与行方真实 GRMP 一致)",
     )
-    parser.add_argument("--dbname-missing", choices=("postgres", "reject"), default="postgres",
-                        help="appbusiness 的脚本没带 dbName 时:连实例默认库(postgres)或报错。行方未答复前默认 postgres")
+    parser.add_argument("--dbname-missing", choices=("reject", "postgres"), default="reject",
+                        help="appbusiness 的脚本没带 dbName 时:按行方实测报「数据库[]在目标高斯实例中不存在」(默认,11-11 现场)"
+                             "或连实例默认库(postgres,旧假设)")
     parser.add_argument("--dbname-on-postgres", choices=("ignore", "reject"), default="ignore",
                         help="postgres 的脚本带了 dbName 时:忽略或报错。行方未答复前默认忽略")
     # 2026-09-18 中间件加固:给了 --appkey 就在 auth 之外校验 Appkey / Timestamp / Signature

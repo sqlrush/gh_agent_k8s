@@ -94,6 +94,10 @@ def main(argv: Sequence[str] = None) -> int:
         "--bank-like", action="store_true",
         help="行方模式:一条脚本里有多条语句时回 HTTP 400、执行失败只回「agent诊断脚本执行失败」(与行方真实 GRMP 一致)",
     )
+    parser.add_argument("--dbname-missing", choices=("postgres", "reject"), default="postgres",
+                        help="appbusiness 的脚本没带 dbName 时:连实例默认库(postgres)或报错。行方未答复前默认 postgres")
+    parser.add_argument("--dbname-on-postgres", choices=("ignore", "reject"), default="ignore",
+                        help="postgres 的脚本带了 dbName 时:忽略或报错。行方未答复前默认忽略")
     # 2026-09-18 中间件加固:给了 --appkey 就在 auth 之外校验 Appkey / Timestamp / Signature
     parser.add_argument("--appkey", default="", help="登记的调用方应用名;给了即开启签名校验")
     parser.add_argument("--sm2-public-key", default="", help="该 Appkey 的 SM2 公钥:hex(X‖Y)或 @文件(PEM)")
@@ -146,6 +150,8 @@ def main(argv: Sequence[str] = None) -> int:
         signature=policy,
         single_statement=args.bank_like,
         opaque_errors=args.bank_like,
+        dbname_missing=args.dbname_missing,
+        dbname_on_postgres=args.dbname_on_postgres,
     )
     if policy is not None:
         print("签名校验:开启(Appkey=%s, userId=%r, %s/%s/%s, 窗口 ±%ds)" % (

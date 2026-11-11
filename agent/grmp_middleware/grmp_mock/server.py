@@ -52,11 +52,11 @@ _INVOKE_KEYS = frozenset({"dataIp", "id", "param"})
 _OPERATION_VALUE_KEYS = frozenset({"param_name", "param_value"})
 
 
-def _default_open_db(name: str, read_only: bool = True):
-    """默认连接方式：复用仓库既有的凭据与驱动兜底，不新增凭据存储。"""
+def _default_open_db(name: str, read_only: bool = True, database: str = ""):
+    """默认连接方式：复用仓库既有的凭据与驱动兜底，不新增凭据存储。database:切到同一实例上的这个库(dbName)。"""
     from common.db import Database
 
-    return Database.connect(name, read_only=read_only)
+    return Database.connect(name, read_only=read_only, database=database)
 
 
 class App:
@@ -76,6 +76,8 @@ class App:
         path_prefix: Optional[str] = None,
         single_statement: bool = False,
         opaque_errors: bool = False,
+        dbname_missing: str = "postgres",
+        dbname_on_postgres: str = "ignore",
     ):
         prefix = grmp_paths.normalize(path_prefix) if path_prefix is not None else grmp_paths.from_env()
         self.path_prefix = prefix or DEFAULT_PATH_PREFIX
@@ -102,6 +104,9 @@ class App:
         #   opaque_errors:   执行失败一律只回「agent诊断脚本执行失败」(原始报错只记在本进程 stderr)
         self._single_statement = single_statement
         self._opaque_errors = opaque_errors
+        # 切库(dbName)行方没说清的两种情况,见 executor.route
+        self._dbname_missing = dbname_missing
+        self._dbname_on_postgres = dbname_on_postgres
 
     # -- 入口 -------------------------------------------------------------
 
@@ -274,6 +279,8 @@ class App:
                 self._open_db,
                 max_rows=self._max_result_rows,
                 timeout=self._statement_timeout,
+                dbname_missing=self._dbname_missing,
+                dbname_on_postgres=self._dbname_on_postgres,
             )
         except (ParamError, ExecError) as exc:
             return fail(str(exc))

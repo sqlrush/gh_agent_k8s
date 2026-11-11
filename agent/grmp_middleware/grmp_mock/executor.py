@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Mapping, Sequence
 
-from common.grmp import serialize
+from common.grmp import routing, serialize
 from common.grmp.columns import check_columns
 from common.grmp.placeholder import ParamDef, render
 from common.grmp.script import ScriptRecord
@@ -25,6 +25,30 @@ class ExecError(Exception):
     """执行阶段的可预期失败，由上层转成接口二的失败响应。"""
 
 
+# 切库(2026-11-11 行方《切库问题说明》):appbusiness 的脚本带 dbName 时连到该库执行。行方没说清的两种情况做成开关,
+# 按行方答复定默认值(给中间件团队的问题 1、2):
+#   dbname_missing:     appbusiness 的脚本没带 dbName —— "postgres" 照常连实例默认库 / "reject" 报错
+#   dbname_on_postgres: postgres 的脚本带了 dbName —— "ignore" 忽略照常执行 / "reject" 报错
+DBNAME_MISSING = ("postgres", "reject")
+DBNAME_ON_POSTGRES = ("ignore", "reject")
+
+
+def route(record: ScriptRecord, values: Mapping[str, str], dbname_missing: str = "postgres",
+          dbname_on_postgres: str = "ignore"):
+    """(要连的库或 None, 去掉路由参数后的取值)。None = 连实例默认库(postgres)。"""
+    rest = {k: v for k, v in values.items() if k != routing.PARAM}
+    db_name = values.get(routing.PARAM)
+    if record.database_type == routing.APPBUSINESS:
+        if db_name:
+            return db_name, rest
+        if dbname_missing == "reject":
+            raise ExecError("脚本 %s 要在业务库执行,但没有传 %s" % (record.script_name, routing.PARAM))
+        return None, rest
+    if db_name is not None and dbname_on_postgres == "reject":
+        raise ExecError("脚本 %s 在 postgres 执行,不接受 %s" % (record.script_name, routing.PARAM))
+    return None, rest
+
+
 def execute(
     record: ScriptRecord,
     values: Mapping[str, str],
@@ -33,17 +57,20 @@ def execute(
     open_db: Callable[[str], Any],
     max_rows: int = DEFAULT_MAX_RESULT_ROWS,
     timeout: int = DEFAULT_STATEMENT_TIMEOUT_SECONDS,
+    dbname_missing: str = "postgres",
+    dbname_on_postgres: str = "ignore",
 ) -> Dict[str, Any]:
     """渲染并执行，返回 result 对象。
 
     渲染（含类型校验）在连库**之前**完成：参数不合法时根本不该建立连接，
     更不该把可疑取值送到数据库面前。
     """
+    database, values = route(record, values, dbname_missing, dbname_on_postgres)
     sql = render(record.script_content, record.params, dict(values), settings)
 
     # 会话模式只由**已注册脚本**的声明决定，请求里无从指定 ——
     # 否则任何调用方都能给自己开写权限，白名单与只读会话同时失效。
-    db = open_db(conn_name, record.readonly)
+    db = open_db(conn_name, record.readonly, database=database) if database else open_db(conn_name, record.readonly)
     try:
         db.set_statement_timeout(timeout)
         cols, rows = db.query(sql)

@@ -20,6 +20,10 @@ sql_text = (ROOT / "docs/delivery/scripts.sql").read_text(encoding="utf-8")
 
 # 增量文件:(文件名, 说明),最新的在前
 DELTAS = [
+    ("scripts-delta-20261111.sql", "已导入 137 条（v1.4.7 ~ v1.4.10）的升级：1 条新增（登录核实是否已切到业务库）+ 71 条更新执行库"
+                                   "（database_type 与 parameter_config 里的 dbName，中间件按 dbName 切到业务库）；导入后 138 条。"
+                                   "还在 133 条的先导 20261105、再导 20261108"),
+    ("scripts-delta-20261108.sql", "已导入 137 条（v1.4.7 ~ v1.4.9）的升级：4 条更新（健康检查 / 慢 SQL 的 Slow SQL、Storage、Top SQL）"),
     ("scripts-delta-20261105.sql", "已导入 128 条（v1.4.3 ~ v1.4.6）的升级：9 条新增 + 2 条更新（xlog 写入来源、卡住回收的事务、"
                                    "按写入行数排 Top SQL），带用途说明与导入后自检"),
     ("scripts-delta-20261030.sql", "已导入 126 条（v1.4.0 ~ v1.4.2）的升级：2 条新增（存储过程源码的 ADM_SOURCE 兜底）；之后再导 20261105 那份"),
@@ -62,7 +66,7 @@ def parse_inserts(text):
                 break
         # 列序:script_type, script_name, database_type, refered_appbusiness, kernel_version, region,
         #      deployment_form, execute_node_type, cluster_deployment_mode, script_content, parameter_config, scene ...
-        out.append((vals[1], vals[9], vals[10], vals[11]))
+        out.append((vals[1], vals[9], vals[10], vals[11], vals[2]))
         i = k
     return out
 
@@ -73,13 +77,15 @@ for f in (ROOT / "agent/scripts/registry").glob("*/*.yaml"):
     reg[d["name"]] = d
 N = len(rows)
 assert N >= 126, N
-mism = [n for n, c, _, _ in rows if n not in reg or reg[n]["sql"].strip() != c.strip()]
+mism = [n for n, c, _, _, _ in rows if n not in reg or reg[n]["sql"].strip() != c.strip()]
+dbt = [n for n, _, _, _, t in rows if n in reg and (reg[n].get("database_type") or "postgres") != t]
+assert not dbt, ("执行库(database_type)与 registry 不一致:", dbt[:10])
 assert not mism, ("正文不一致或 registry 缺:", mism[:10])
-assert all(s == "AGENT" for *_, s in rows)
+assert all(s == "AGENT" for _, _, _, s, _ in rows)
 
 groups = collections.OrderedDict()
-for n, c, p, _ in sorted(rows, key=lambda r: r[0]):
-    groups.setdefault(n.split(".")[0], []).append((n, c, json.loads(p or "[]")))
+for n, c, p, _, t in sorted(rows, key=lambda r: r[0]):
+    groups.setdefault(n.split(".")[0], []).append((n, c, json.loads(p or "[]"), t))
 
 SKILL = {"config": "参数体检", "explain": "执行计划", "health": "健康检查", "lockwait": "锁等待", "memanalyze": "内存分析",
          "perf": "性能概览", "procinfo": "存储过程信息", "proctune": "存储过程调优", "session": "会话", "slowsql": "慢 SQL",
@@ -89,23 +95,27 @@ SKILL = {"config": "参数体检", "explain": "执行计划", "health": "健康�
 L = ["# 诊断脚本白名单清单（%d 条）" % N, "",
      "本清单与 `docs/delivery/scripts.sql` 一一对应：**导什么就列什么**——每条的 SQL 正文直接取自 `scripts.sql`，"
      "用途与参数说明取自 `agent/scripts/registry/`，生成时逐条核对两边正文一致。",
-     "全部是只读查询，只访问系统视图与系统表，不读业务数据、不含 DML / DDL。", "",
+     "全部是只读查询，只访问系统视图与系统表，不读业务数据、不含 DML / DDL。",
+     "**执行库**：标「业务库」的脚本 `database_type = appbusiness`，参数最前面是 `dbName`，中间件按调用时传入的业务库名切库执行；"
+     "标「postgres」的在 postgres 库执行（SQL 执行历史、WDR 快照、实例级视图都在这里）。", "",
      "| 文件 | 用途 |", "|---|---|",
      "| [`scripts.sql`](scripts.sql) | 全量 %d 条，**第一次部署**导这一份 |" % N,
      ] + ["| [`%s`](%s) | %s |" % (f, f, d) for f, d in DELTAS] + ["",
      "## 按技能分组的目录", "", "| 技能 | 条数 | 脚本 |", "|---|---|---|"]
 for g, items in groups.items():
-    L.append("| %s（`%s`） | %d | %s |" % (SKILL.get(g, g), g, len(items), "、".join("`%s`" % n for n, _, _ in items)))
+    L.append("| %s（`%s`） | %d | %s |" % (SKILL.get(g, g), g, len(items), "、".join("`%s`" % n for n, _, _, _ in items)))
 L.append("")
 idx = 0
 for g, items in groups.items():
     L += ["## %s（`%s`，%d 条）" % (SKILL.get(g, g), g, len(items)), ""]
-    for n, c, params in items:
+    for n, c, params, dbtype in items:
         idx += 1
         d = reg[n]
-        L += ["### %d. `%s`" % (idx, n), "", "**用途**：%s" % " ".join(str(d.get("description", "")).split()), ""]
+        L += ["### %d. `%s`" % (idx, n), "", "**用途**：%s" % " ".join(str(d.get("description", "")).split()), "",
+              "**执行库**：%s" % ("业务库（appbusiness，调用时带 dbName）" if dbtype == "appbusiness" else "postgres"), ""]
         if params:
             descs = {p["key"]: " ".join(str(p.get("description", "")).split()) for p in (d.get("params") or [])}
+            descs["dbName"] = "业务库名（路由参数：中间件据此切到该库执行，不进 SQL）"
             L += ["| 参数 | 类型 | 说明 |", "|---|---|---|"]
             for p in params:
                 L.append("| `%s` | %s | %s |" % (p["key"], p["type"], descs.get(p["key"], "").replace("|", "\\|")))

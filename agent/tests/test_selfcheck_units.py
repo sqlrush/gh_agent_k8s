@@ -13,6 +13,7 @@ sys.path.insert(0, str(_ROOT))
 
 from common.access import QueryError  # noqa: E402
 from common.config import Connection  # noqa: E402
+from common.grmp import routing  # noqa: E402
 from common.grmp.registry import Registry  # noqa: E402
 
 _SCRIPTS = _ROOT / "skills" / "gaussdb-login" / "scripts"
@@ -25,22 +26,36 @@ _spec.loader.exec_module(sc)
 sys.path.remove(str(_SCRIPTS))
 
 CONN = Connection(name="10-0-0-9-appdb", type="gaussdb", host="127.0.0.1", port=8769, database="appdb",
-                  user="grmp", driver="grmp", data_ip="10.0.0.9", app="api")
+                  user="grmp", driver="grmp", data_ip="10.0.0.9", app="api", route_db="appdb")
 GOOD_TOP = {"unique_sql_id": "1", "query": "select 1", "calls": "1", "total_sec": "1", "avg_ms": "1", "rows": "1",
             "cpu_sec": "0", "io_sec": "0", "rows_written": "0", "user_name": "app"}
 
 
 class _Client:
-    def __init__(self, names):
-        self.names = names
+    """行方接口一的假清单。dbname:哪些脚本声明了 dbName(默认 = 按本版划分,行方已按增量导入)。"""
+
+    def __init__(self, names, dbname=None):
+        self._names = list(names)
+        self._dbname = set(routing.BUSINESS_DB_SCRIPTS if dbname is None else dbname)
 
     def list_operations(self):
-        return [{"cmd_name": n} for n in self.names]
+        return [{"cmd_name": n} for n in self._names]
+
+    def names(self):
+        return set(self._names)
+
+    def registered(self, n):
+        return n in self._names
+
+    def declares(self, n, p):
+        return p == routing.PARAM and n in self._dbname and n in self._names
 
 
 class _Runner:
-    def __init__(self, names, broken=(), old_top=False, storage_null=False, multi=True, switches=None):
-        self.client = _Client(names)
+    def __init__(self, names, broken=(), old_top=False, storage_null=False, multi=True, switches=None,
+                 dbname=None, probe_db="appdb"):
+        self.client = _Client(names, dbname)
+        self.probe_db = probe_db
         self.broken, self.old_top, self.storage_null, self.multi = set(broken), old_top, storage_null, multi
         self.switches = switches or {"enable_stmt_track": "on", "track_functions": "all",
                                      "enable_resource_track": "on", "enable_wdr_snapshot": "on"}
@@ -65,6 +80,8 @@ class _Runner:
             return [{"unique_sql_id": "1", "user_name": "app"}]
         if script == "config.settings":
             return [{"name": k, "setting": v} for k, v in self.switches.items()]
+        if script == routing.PROBE:
+            return [{"db": self.probe_db, "usr": "grmp"}]
         return [{"x": "1"}]
 
 
@@ -125,3 +142,28 @@ def test_an_empty_list_is_explained_as_an_instance_attribute_mismatch(monkeypatc
     """2026-11-08 行方批量登录 92 个库,2 个拿到空清单:白名单不配在目标库上,是中间件按实例属性匹配脚本时没匹配上。"""
     rc, out = _run(monkeypatch, tmp_path, _Runner([]), capsys)
     assert rc == 1 and "脚本清单为空" in out and "集中式" in out and "灌" not in out
+
+
+# ---- 切到业务库(dbName,2026-11-11)
+
+def test_routing_is_reported_when_the_session_switched(monkeypatch, tmp_path, capsys):
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names()), capsys)
+    assert "已切到「appdb」" in out and "与本版一致" in out
+
+
+def test_a_switch_that_did_not_happen_is_a_failure(monkeypatch, tmp_path, capsys):
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names(), probe_db="postgres"), capsys)
+    assert rc == 1 and "中间件没按 dbName 切库" in out
+
+
+def test_an_old_whitelist_explains_how_to_get_the_switch(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(sys.modules[__name__], "CONN", replace(CONN, route_db=""))     # 旧白名单:登录时切不过去
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names(), dbname=()), capsys)
+    assert "行方白名单还没有带 dbName 的脚本" in out and "--database <业务库>" in out
+
+
+def test_marks_that_differ_from_this_version_are_listed(monkeypatch, tmp_path, capsys):
+    dbname = (set(routing.BUSINESS_DB_SCRIPTS) - {"sqltune.indexes"}) | {"topsql.snap_statement"}
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names(), dbname=dbname), capsys)
+    assert "1 条该切库的没带 dbName(sqltune.indexes)" in out
+    assert "1 条读 SQL 历史 / WDR 快照 / 实例级视图的带了 dbName(topsql.snap_statement)" in out

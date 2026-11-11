@@ -201,12 +201,13 @@ def check_content(root: pathlib.Path) -> Report:
 
 
 def _dml_rows(sql: str) -> Dict[str, Dict[str, str]]:
-    """whitelist/scripts.sql 的 INSERT → {脚本名: {sql, params}}(单引号转义还原)。"""
+    """whitelist/scripts.sql 的 INSERT → {脚本名: {sql, params, dbtype}}(单引号转义还原)。"""
     rows = {}
     pat = re.compile(r"VALUES \(grmp\.script_config_seq\.nextval, 'SQL', '([a-z_]+\.[a-z_0-9]+)', "
-                     r"'[^']*', \d+, '[^']*', NULL, NULL, NULL, 'centralization', '((?:[^']|'')*)', '((?:[^']|'')*)'")
+                     r"'([^']*)', \d+, '[^']*', NULL, NULL, NULL, 'centralization', '((?:[^']|'')*)', '((?:[^']|'')*)'")
     for m in pat.finditer(sql):
-        rows[m.group(1)] = {"sql": m.group(2).replace("''", "'"), "params": m.group(3).replace("''", "'")}
+        rows[m.group(1)] = {"dbtype": m.group(2), "sql": m.group(3).replace("''", "'"),
+                            "params": m.group(4).replace("''", "'")}
     return rows
 
 
@@ -225,7 +226,12 @@ def check_whitelist(root: pathlib.Path) -> Report:
     for name in sorted(set(defs) & set(rows)):
         if defs[name]["sql"].strip() != rows[name]["sql"].strip():
             r.errors.append("白名单 %s 的 SQL 与 scripts.sql 不一致" % name)
-        keys = [(p["key"], str(p["type"]).upper()) for p in defs[name].get("params") or []]
+        dbtype = defs[name].get("database_type") or "postgres"
+        if dbtype != rows[name]["dbtype"]:
+            r.errors.append("白名单 %s 的执行库(database_type)定义是 %s,scripts.sql 是 %s" % (name, dbtype, rows[name]["dbtype"]))
+        # appbusiness 的脚本 parameter_config 最前面是路由参数 dbName(写法与行方一致,type 是 String)
+        keys = ([("dbName", "String")] if dbtype == "appbusiness" else []) \
+            + [(p["key"], str(p["type"]).upper()) for p in defs[name].get("params") or []]
         got = [(p["key"], p["type"]) for p in json.loads(rows[name]["params"] or "[]")]
         if keys != got:
             r.errors.append("白名单 %s 的参数定义与 scripts.sql 不一致" % name)

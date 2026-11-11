@@ -48,6 +48,7 @@ COLS = ('id, script_type, script_name, database_type, refered_appbusiness, kerne
 _NAME = re.compile(r"VALUES \([^,]+, '[A-Z]+', '([a-z_]+\.[a-z_0-9]+)'")
 _BODY = re.compile(r"'centralization', '(.*?)', '\[", re.S)
 _PARAMS = re.compile(r"'centralization', '.*?', '(\[.*?\])', 'AGENT'", re.S)
+_DBTYPE = re.compile(r"VALUES \([^,]+, '[A-Z]+', '[a-z_]+\.[a-z_0-9]+', '([a-z]+)'")
 
 
 def bodies(dml: str) -> dict:
@@ -68,6 +69,23 @@ def params(dml: str) -> dict:
         if n and m:
             out[n.group(1)] = m.group(1).replace("''", "'")
     return out
+
+
+def dbtypes(dml: str) -> dict:
+    """DML 文本 → {脚本名: database_type}。"""
+    out = {}
+    for b in re.split(r"(?=INSERT INTO )", dml):
+        n, m = _NAME.search(b), _DBTYPE.search(b)
+        if n and m:
+            out[n.group(1)] = m.group(1)
+    return out
+
+
+def routing_changed(base: str, names, reg: dict) -> set:
+    """执行库(database_type)变了的脚本(2026-11-11 起按 registry,见 common/grmp/routing.py)。连同 parameter_config 一起更新:
+    行方测试环境已手工给原先 appbusiness 的记录都加了 dbName,改回 postgres 的那些也要把 dbName 去掉。"""
+    tb = dbtypes(base)
+    return {k for k in names if k in tb and tb[k] != reg[k].database_type}
 
 
 def _param_keys(text: str) -> list:
@@ -96,8 +114,9 @@ def diff(base_ref: str):
     added = sorted(set(n) - set(b))
     gone = sorted(set(b) - set(n))
     pchanged = params_changed(base_ref, sorted(set(n) & set(b)), base=base, reg=reg)
+    tchanged = routing_changed(base, sorted(set(n) & set(b)), reg)
     changed = sorted(k for k in set(n) & set(b)
-                     if b[k].strip() != reg[k].script_content.strip() or k in pchanged)
+                     if b[k].strip() != reg[k].script_content.strip() or k in pchanged or k in tchanged)
     return added, changed, gone, len(b), len(n)
 
 
@@ -114,9 +133,11 @@ def _esc(sql: str) -> str:
     return s if s.endswith("\n") else s + "\n"
 
 
-def _params(rec) -> str:
-    return ",".join('{"key":"%s","value":"","type":"%s","autoAcquire":false}'
-                    % (p.key, p.type) for p in (rec.params or []))
+def routing_note(name: str, reg: dict) -> str:
+    """只改了执行库(database_type 与 dbName)的脚本:说明文字自动生成,不必逐条写进 delta-notes.yaml。"""
+    if reg[name].database_type == "appbusiness":
+        return "执行库:业务库(database_type = appbusiness,parameter_config 最前面加 dbName,中间件按调用时给的库名切库)"
+    return "执行库:postgres(去掉 dbName。读 SQL 执行历史 / WDR 快照 / 实例级视图,切到业务库会查不到或结果相同)"
 
 
 def _stored(sql: str) -> str:
@@ -124,7 +145,7 @@ def _stored(sql: str) -> str:
     return sql if sql.endswith("\n") else sql + "\n"
 
 
-def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset()) -> str:
+def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tchanged=frozenset()) -> str:
     reg = registry()
     out = ["""-- =====================================================================
 -- GRMP 诊断脚本白名单 · 增量导入（%(date)s）
@@ -138,6 +159,11 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset()) -> 
 --
 -- 全部脚本均为**只读查询**，只访问系统视图与系统表，不读业务数据、
 -- 不含 DML/DDL、不修改任何对象。
+--
+-- 执行库（database_type）：appbusiness 的脚本 parameter_config 最前面带
+--   {"key":"dbName","value":"","type":"String","autoAcquire":false}，
+-- 中间件按调用时传入的 dbName 切到该业务库执行；postgres 的脚本不带 dbName，在 postgres 库执行。
+-- 本文件里的 UPDATE 会同时写 database_type 与 parameter_config，以本文件为准覆盖手工改过的记录。
 --
 -- 导入前请确认两处与贵方规范的对齐：
 --   1. `create_user` / `last_modify_user` 当前填 '999999999'，与上一版保持一致；
@@ -153,19 +179,20 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset()) -> 
         title, src, why = notes["added"][name]
         out.append("\n-- [%s] %s\n--   读取：%s\n--   用途：%s\n" % (name, title, src, why))
         out.append("INSERT INTO grmp.script_config (%s) VALUES "
-                   "(grmp.script_config_seq.nextval, 'SQL', '%s', 'appbusiness', 1, 'ALL', "
-                   "NULL, NULL, NULL, 'centralization', '%s', '[%s]', 'AGENT', 1, "
+                   "(grmp.script_config_seq.nextval, 'SQL', '%s', '%s', 1, 'ALL', "
+                   "NULL, NULL, NULL, 'centralization', '%s', '%s', 'AGENT', 1, "
                    "'999999999', now(), '999999999', NULL, 0, NULL, 'ALL', uuid());\n"
-                   % (COLS, name, _esc(rec.script_content), _params(rec)))
+                   % (COLS, name, rec.database_type, _esc(rec.script_content), rec.parameter_config.replace("'", "''")))
     out.append("""
 -- =====================================================================
--- 二、更新 %d 条已有脚本的 SQL 正文
+-- 二、更新 %d 条已有脚本（SQL 正文 / 参数定义 / 执行库）
 -- =====================================================================
 """ % len(changed))
     for name in changed:
-        out.append("\n-- [%s]\n--   %s\n" % (name, notes["changed"][name]))
-        pset = ("       parameter_config = '%s',\n" % reg[name].parameter_config.replace("'", "''")
-                if name in pchanged else "")
+        out.append("\n-- [%s]\n--   %s\n" % (name, (notes.get("changed") or {}).get(name) or routing_note(name, reg)))
+        pset = ("       database_type    = '%s',\n       parameter_config = '%s',\n"
+                % (reg[name].database_type, reg[name].parameter_config.replace("'", "''"))
+                if name in pchanged or name in tchanged else "")
         out.append("UPDATE grmp.script_config\n"
                    "   SET script_content   = '%s',\n"
                    "%s"
@@ -176,7 +203,9 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset()) -> 
     # 自检按这次的包现算:每条更新后的正文的 md5(以前写死的是 10-18 那一包的特征串,换一包就失效)
     md5s = ",\n--     ".join("('%s', '%s')" % (n, hashlib.md5(_stored(reg[n].script_content).encode("utf-8")).hexdigest())
                             for n in changed) or "('-', '-')"
-    pnames = ",".join("'%s'" % n for n in sorted(pchanged)) or "'-'"
+    pnames = ",".join("'%s'" % n for n in sorted(pchanged | set(tchanged))) or "'-'"
+    shipped = set(bodies((_ROOT / SHIPPED).read_text(encoding="utf-8")))
+    n_business = sum(1 for n in shipped if n in reg and reg[n].database_type == "appbusiness")
     out.append("""
 -- =====================================================================
 -- 三、导入后自检
@@ -190,8 +219,12 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset()) -> 
 --    WHERE md5(c.script_content) <> v.sum;
 -- 参数定义也一起更新了的（应列出这些脚本、且 parameter_config 与 scripts.sql 里一致）：
 --   SELECT script_name, parameter_config FROM grmp.script_config WHERE script_name IN (%s);
+-- 执行库应与本版一致（appbusiness 应为 %d 条，且都以 dbName 开头）：
+--   SELECT count(*) FROM grmp.script_config WHERE scene = 'AGENT' AND database_type = 'appbusiness';
+--   SELECT script_name FROM grmp.script_config WHERE scene = 'AGENT' AND database_type = 'appbusiness'
+--      AND parameter_config NOT LIKE '[{"key":"dbName",%%';     -- 应返回 0 行
 """ % (n_now, ("-- 新增的 %d 条应全部在列：\n--   SELECT script_name FROM grmp.script_config WHERE script_name IN (%s);\n"
-                 % (len(added), names)) if added else "-- 本次没有新增脚本。\n", md5s, pnames))
+                 % (len(added), names)) if added else "-- 本次没有新增脚本。\n", md5s, pnames, n_business))
     return "".join(out)
 
 
@@ -205,8 +238,15 @@ def main(argv=None) -> int:
 
     added, changed, gone, nb, nn = diff(a.base)
     notes = yaml.safe_load(NOTES.read_text(encoding="utf-8")) or {}
+    base, reg = _base_dml(a.base), registry()
+    tchanged = routing_changed(base, changed, reg)
+    b = bodies(base)
+    # 只改了执行库(正文没变、参数除 dbName 外没变)的,说明自动生成;其余仍必须在 delta-notes.yaml 里写
+    routing_only = {n for n in changed if b.get(n, "").strip() == reg[n].script_content.strip()
+                    and [k for k in _param_keys(params(base).get(n, "[]")) if k[0] != "dbName"]
+                    == [k for k in _param_keys(reg[n].parameter_config) if k[0] != "dbName"]}
     miss = ([n for n in added if n not in (notes.get("added") or {})]
-            + [n for n in changed if n not in (notes.get("changed") or {})])
+            + [n for n in changed if n not in (notes.get("changed") or {}) and n not in routing_only])
     if miss:
         print("error: 这些脚本有新增/变更,但 %s 里没有说明 —— 补上再生成,"
               "不许出一个缺条目的包:\n  %s" % (NOTES.name, "\n  ".join(miss)), file=sys.stderr)
@@ -216,9 +256,9 @@ def main(argv=None) -> int:
         print("warning: 这些脚本在行方那版里有、现在没了,增量包**不**生成 DELETE,"
               "请人工确认是否要行方删除:\n  %s" % "\n  ".join(gone), file=sys.stderr)
     pchanged = params_changed(a.base, changed) if changed else set()
-    pathlib.Path(a.out).write_text(render(added, changed, notes, nb, nn, a.date, pchanged), encoding="utf-8")
-    print("写出 %s:新增 %d、更新 %d(其中参数定义也变了 %d:%s)(基线 %s,%d → %d 条)"
-          % (a.out, len(added), len(changed), len(pchanged), "、".join(sorted(pchanged)) or "无", a.base, nb, nn))
+    pathlib.Path(a.out).write_text(render(added, changed, notes, nb, nn, a.date, pchanged, tchanged), encoding="utf-8")
+    print("写出 %s:新增 %d、更新 %d(其中参数定义变了 %d、执行库变了 %d、只改执行库 %d)(基线 %s,%d → %d 条)"
+          % (a.out, len(added), len(changed), len(pchanged), len(tchanged), len(routing_only), a.base, nb, nn))
     return 0
 
 

@@ -24,11 +24,12 @@ def _insert(name, body, params='[]', scene="AGENT"):
             "NULL, 'ALL', uuid());\n" % (COLS, name, body.replace("'", "''"), params, scene))
 
 
-def test_the_shipped_full_dml_parses_to_137_scripts():
+def test_the_shipped_full_dml_parses_to_138_scripts():
     scripts = wl.parse_dml((DELIVERY / "scripts.sql").read_text(encoding="utf-8"))
-    assert len(scripts) == 137
+    assert len(scripts) == 138
     assert all(re.match(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$", n) for n in scripts)
-    assert scripts["procinfo.source_adm"].params == (("name", "STRING"),)
+    # 业务库类的脚本参数最前面是路由参数 dbName(行方写法 String,2026-11-11):核对时一并比,能看出行方导没导本版增量
+    assert scripts["procinfo.source_adm"].params == (("dbName", "String"), ("name", "STRING"))
 
 
 def test_md5_matches_the_self_checks_shipped_in_the_delta_files():

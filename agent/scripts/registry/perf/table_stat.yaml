@@ -1,4 +1,5 @@
 name: perf.table_stat
+database_type: appbusiness
 description: 表级统计与膨胀比例，按死元组倒序（pg_stat_user_tables）
 sql: |
   select schemaname||'.'||relname as tbl, seq_scan, idx_scan,

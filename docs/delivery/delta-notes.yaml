@@ -9,6 +9,10 @@
 # changed: 已有脚本的正文变更 → 一段说明(给中间件团队的变更评审看)
 
 added:
+  login.current_db:
+    - 登录核实：中间件实际连的库与账号（业务库类，带 dbName）
+    - current_database() / current_user
+    - 登录时带 dbName 调一次，回来的库名等于用户给的业务库，即确认中间件已按 dbName 切库；否则如实提示没切过去的原因。只读
   vacuum.xmin_holder:
     - 卡住死元组回收的事务（持有最老 xmin 的会话）
     - pg_running_xacts / pg_stat_activity / gs_txid_oldestxmin()

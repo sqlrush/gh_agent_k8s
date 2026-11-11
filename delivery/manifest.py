@@ -93,7 +93,7 @@ COMMON = {
         "syssql.py", "timewin.py", "windata.py",
         "sql.py",           # 已清空,但 13 个诊断技能按「common/sql.py 存在」定位 common 目录,不能删
         "grmp/__init__.py", "grmp/client.py", "grmp/columns.py", "grmp/errors.py", "grmp/hints.py",
-        "grmp/params.py", "grmp/paths.py", "grmp/placeholder.py", "grmp/proxy.py", "grmp/registry.py",
+        "grmp/params.py", "grmp/paths.py", "grmp/placeholder.py", "grmp/proxy.py", "grmp/registry.py", "grmp/routing.py",
         "grmp/runner.py", "grmp/script.py", "grmp/serialize.py", "grmp/settings.py", "grmp/signing.py",
         "grmp/sm2.py", "grmp/sm3.py", "grmp/statement.py", "grmp/userid.py", "grmp/values.py",
     ),

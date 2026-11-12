@@ -169,6 +169,16 @@ def test_marks_that_differ_from_this_version_are_listed(monkeypatch, tmp_path, c
     assert "1 条读 SQL 历史 / WDR 快照 / 实例级视图的带了 dbName(topsql.snap_statement)" in out
 
 
+def test_old_scripts_this_version_no_longer_calls_are_not_listed(monkeypatch, tmp_path, capsys):
+    """2026-11-12 回归:v1.4.13 不再调用的 7 条 *_schema 两语句脚本,行方可以保留(增量不生成删除),
+    它们在 20261111 里登记成带 dbName —— 自检不能因此一直报「切库标注不一致、找中间件团队」,导完增量也消不掉。"""
+    old = "explain.plan_text_schema"
+    assert old not in Registry().names()
+    dbname = set(routing.BUSINESS_DB_SCRIPTS) | {old}
+    rc, out = _run(monkeypatch, tmp_path, _Runner(list(Registry().names()) + [old], dbname=dbname), capsys)
+    assert old not in out and "与本版一致" in out and "| 白名单切库标注 | ！" not in out
+
+
 class _Names:
     def __init__(self, names):
         self._names = list(names)

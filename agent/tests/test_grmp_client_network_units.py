@@ -53,3 +53,33 @@ def test_http_error_carries_status_not_address(monkeypatch):
         _client().list_operations()
     msg = str(info.value)
     assert "HTTP 503" in msg and "grmp-new.internal" not in msg
+
+
+def _refused(*_a, **_k):
+    raise ConnectionRefusedError(61, "Connection refused")
+
+
+def test_the_field_layout_without_gsdb_home_still_logs_the_raw_error(monkeypatch, tmp_path):
+    """2026-11-12 回归:行方技能包不设 GSDB_HOME,状态就在技能目录的 common/ 里(默认状态目录);
+    原先此时不写日志,报错既没有详情编号、原文也没处可查。"""
+    from common import config
+    monkeypatch.delenv("GSDB_HOME", raising=False)
+    monkeypatch.delenv("GDAA_HOME", raising=False)
+    monkeypatch.setattr(config, "_DEFAULT_STATE_DIR", tmp_path)
+    monkeypatch.setattr(urllib.request, "urlopen", _refused)
+    with pytest.raises(GrmpError) as info:
+        _client().list_operations()
+    msg = str(info.value)
+    assert "详情编号 E-" in msg and str(tmp_path / "logs" / "grmp-errors.log") in msg
+    assert msg.split("详情编号 ")[1][:8] in (tmp_path / "logs" / "grmp-errors.log").read_text(encoding="utf-8")
+
+
+def test_a_dev_machine_without_any_state_dir_writes_nothing(monkeypatch, tmp_path):
+    from common import config
+    monkeypatch.delenv("GSDB_HOME", raising=False)
+    monkeypatch.delenv("GDAA_HOME", raising=False)
+    monkeypatch.setattr(config, "_DEFAULT_STATE_DIR", tmp_path / "absent")
+    monkeypatch.setattr(urllib.request, "urlopen", _refused)
+    with pytest.raises(GrmpError) as info:
+        _client().list_operations()
+    assert "详情编号" not in str(info.value) and not (tmp_path / "absent").exists()

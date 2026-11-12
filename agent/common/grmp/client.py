@@ -42,8 +42,10 @@ _INSTANCE_ID = re.compile(r"[,，]?\s*instanceId\s*[:：=]\s*[\w-]+", re.I)
 
 def _log_raw(raw: str) -> str:
     """原文进本机诊断日志,返回详情编号;写不了(只读盘、权限)就返回空串,不影响取数主流程。
-    只在设了状态目录(GSDB_HOME / GDAA_HOME,容器与技能包环境都有)时写:没设时是开发机或单测,不往用户家目录里落文件。"""
-    if not (os.environ.get("GSDB_HOME") or os.environ.get("GDAA_HOME")):
+    设了状态目录(GSDB_HOME / GDAA_HOME,容器里都设)时写;没设时看默认状态目录(技能目录下的 common/)在不在 ——
+    行方技能包不设 GSDB_HOME,状态就在那里(2026-11-12 回归:原先这时不写,详情编号与原文都没了);
+    开发机与单测上默认目录不存在,不往别处落文件。"""
+    if not (os.environ.get("GSDB_HOME") or os.environ.get("GDAA_HOME") or state_dir().is_dir()):
         return ""
     eid = "E-" + secrets.token_hex(3).upper()
     try:
@@ -67,7 +69,7 @@ def user_error(shown: str, raw: Optional[str] = None) -> str:
     hinted = with_hint(shown)
     text = _INSTANCE_ID.sub("", redact(hinted))
     eid = _log_raw(raw)
-    return text + ("(详情编号 %s,完整原文见本机日志 %s)" % (eid, ERROR_LOG) if eid else "")
+    return text + ("(详情编号 %s,完整原文见本机日志 %s)" % (eid, state_dir() / ERROR_LOG) if eid else "")
 
 DEFAULT_TIMEOUT = 120
 LIST_PAGE_SIZE = 1000  # 协议上限；脚本数不多，一次拉完

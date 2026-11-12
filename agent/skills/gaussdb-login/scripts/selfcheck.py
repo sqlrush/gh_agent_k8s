@@ -139,8 +139,11 @@ def check_scripts(runner) -> List[Item]:
     return items
 
 
-def check_routing(conn, runner) -> List[Item]:
-    """切到业务库(dbName,2026-11-11 行方切库方案):本会话切过去没有;行方白名单里的标注与本版是否一致。"""
+def check_routing(conn, runner, used: Optional[set] = None) -> List[Item]:
+    """切到业务库(dbName,2026-11-11 行方切库方案):本会话切过去没有;行方白名单里的标注与本版是否一致。
+
+    used:本版用到的脚本。标注只比这些 —— 本版不再调用的旧脚本(如 v1.4.13 起不交付的两语句脚本)行方可以留着,
+    增量不生成删除,按它们报「不一致」导完增量也消不掉(2026-11-12 回归)。"""
     client = getattr(runner, "client", None)
     if client is None:
         return []
@@ -148,7 +151,7 @@ def check_routing(conn, runner) -> List[Item]:
         reg = {n for n in routing.BUSINESS_DB_SCRIPTS if client.registered(n)}
         missing = sorted(n for n in reg if not client.declares(n, routing.PARAM))
         others = sorted(n for n in client.names() if n not in routing.BUSINESS_DB_SCRIPTS
-                        and client.declares(n, routing.PARAM))
+                        and (used is None or n in used) and client.declares(n, routing.PARAM))
     except Exception as exc:  # noqa: BLE001
         return [Item("业务库切换", WARN, "命令清单取不到:%s" % _err(exc), MIDDLEWARE)]
     items = []
@@ -220,7 +223,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(render_report(items), end="")
         return 1
     if conn.driver == "grmp":
-        items += check_whitelist(conn, Registry()) + check_routing(conn, runner)
+        registry = Registry()
+        items += check_whitelist(conn, registry) + check_routing(conn, runner, used_names(registry))
     items += check_scripts(runner) + check_switches(runner)
     print(render_report(items), end="")
     return 0 if all(i.mark != FAIL for i in items) else 1

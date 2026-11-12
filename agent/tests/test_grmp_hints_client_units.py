@@ -175,3 +175,12 @@ def test_schema_hint_needs_both_words(text):
 
 def test_schema_that_does_not_exist_still_gets_the_schema_hint():
     assert hints.explain('schema "fl" does not exist').startswith("schema 不存在")
+
+
+def test_the_bank_middlewares_opaque_failure_gets_an_honest_hint():
+    """2026-11-12 回归:行方中间件执行失败只回「agent诊断脚本执行失败」,数据库原因只在中间件日志里;原先认不出、
+    不加提示,界面上只有一句 HTTP 400,没有「这一项无法查询,不影响其余部分」的兜底说法(行方 11-12 报告第 3 类)。"""
+    h = hints.explain("调用中间件失败：HTTP 400 Bad Request；中间件返回：agent诊断脚本执行失败")
+    assert "这一项无法查询" in h and "不影响其余部分" in h
+    assert "中间件日志" in h and "未直连" in h and "权限" in h
+    assert "改库" not in h and "授权" not in h, "生产权限与参数固定,不能把动作指向改库 / 授权"

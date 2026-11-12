@@ -9,6 +9,14 @@
 # changed: 已有脚本的正文变更 → 一段说明(给中间件团队的变更评审看)
 
 added:
+  memanalyze.sql_mem_history:
+    - SQL 级内存排行（SQL 执行历史，WLM 资源跟踪不可用时的退路）
+    - dbe_perf.statement_history（unique_query_id、user_name、start_time、finish_time、used_memory、query 前 300 字）
+    - 内存分析在 WLM 资源跟踪没开、视图没数据时，改从执行历史按单条语句内存用量取近一天的排行；在 postgres 库执行。只读
+  wdr.redo_io_live:
+    - redo 文件写入的实时累计值（WDR 快照里没有这段时间的数据时的退路）
+    - dbe_perf.file_redo_iostat（phywrts、phyblkwrt 求和）
+    - WDR 写入来源在快照表没有数据时改读实时累计值，报告里写明「不是所选时间段」；实例级视图，在 postgres 库执行。只读
   login.current_db:
     - 登录核实：中间件实际连的库与账号（业务库类，带 dbName）
     - current_database() / current_user

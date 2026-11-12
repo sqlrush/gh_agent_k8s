@@ -24,9 +24,9 @@ def _insert(name, body, params='[]', scene="AGENT"):
             "NULL, 'ALL', uuid());\n" % (COLS, name, body.replace("'", "''"), params, scene))
 
 
-def test_the_shipped_full_dml_parses_to_138_scripts():
+def test_the_shipped_full_dml_parses_to_132_scripts():
     scripts = wl.parse_dml((DELIVERY / "scripts.sql").read_text(encoding="utf-8"))
-    assert len(scripts) == 138
+    assert len(scripts) == 132         # v1.4.13:新增 2、8 条两段 SQL 的脚本不再交付
     assert all(re.match(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$", n) for n in scripts)
     # 业务库类的脚本参数最前面是路由参数 dbName(行方写法 String,2026-11-11):核对时一并比,能看出行方导没导本版增量
     assert scripts["procinfo.source_adm"].params == (("dbName", "String"), ("name", "STRING"))
@@ -42,6 +42,8 @@ def test_md5_matches_the_self_checks_shipped_in_the_delta_files():
             latest.setdefault(name, md5)
     assert len(latest) >= 12
     for name, md5 in latest.items():
+        if name not in scripts:          # 早期增量里有、本版不再交付的(v1.4.13 起 8 条两段 SQL 的脚本)
+            continue
         assert scripts[name].md5 == md5, name
 
 

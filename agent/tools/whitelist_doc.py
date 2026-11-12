@@ -20,6 +20,7 @@ sql_text = (ROOT / "docs/delivery/scripts.sql").read_text(encoding="utf-8")
 
 # 增量文件:(文件名, 说明),最新的在前
 DELTAS = [
+    ("scripts-delta-20261112.sql", "已导入 138 条（v1.4.11 / v1.4.12）的升级：2 条新增（SQL 级内存改从执行历史取、WDR 写入来源改读实时累计，都是视图没数据时的退路）。另有 8 条两段 SQL 的脚本不再使用（行方中间件拦截），可保留不删"),
     ("scripts-delta-20261111.sql", "已导入 137 条（v1.4.7 ~ v1.4.10）的升级：1 条新增（登录核实是否已切到业务库）+ 71 条更新执行库"
                                    "（database_type 与 parameter_config 里的 dbName，中间件按 dbName 切到业务库）；导入后 138 条。"
                                    "还在 133 条的先导 20261105、再导 20261108"),

@@ -109,7 +109,7 @@ def test_the_bank_environment_is_explained_item_by_item(monkeypatch, tmp_path, c
     rc, out = _run(monkeypatch, tmp_path, runner, capsys, kb=False)
     assert rc == 1
     assert "缺 " in out and "health.xlog_position" in out and "中间件团队" in out
-    assert "不支持:执行计划与调优改为补全表名后单条执行" in out
+    assert "多条语句" not in out, "v1.4.13 起不再交付两语句脚本,自检不再探测"
     assert "health.slow_sql 执行失败" in out and "中间件日志" in out
     assert "topsql.top_sql 是旧版本" in out and "user_name" in out
     assert "1 个库 / 表空间没有权限查看" in out and "运维 DBA" in out

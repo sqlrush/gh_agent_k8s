@@ -80,7 +80,7 @@ def test_the_rule_itself_can_fail():
 
 def test_db_name_entry_matches_the_bank_verbatim():
     """行方测试环境已改好的记录:parameter_config 最前面一项,type 写 String(不是 STRING)。"""
-    rec = _REG.find("sqltune.plan_text_schema")
+    rec = _REG.find("sqltune.plan_text")
     items = json.loads(rec.parameter_config)
     assert rec.parameter_config.startswith('[{"key":"dbName","value":"","type":"String","autoAcquire":false},')
     assert items[0] == routing.CONFIG_ENTRY and [i["key"] for i in items[1:]] == [p.key for p in rec.params]

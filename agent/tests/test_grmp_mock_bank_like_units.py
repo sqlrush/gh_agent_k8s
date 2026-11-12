@@ -95,9 +95,8 @@ class _MockRunner:
 
 
 def test_explain_plan_under_bank_like_mock_qualifies_tables_but_not_function_arguments(mock):
-    """探测失败 → 补全表名后单条执行。EXTRACT(HOUR FROM 列) 里的列不能被补成 schema.列(行方报告 Bug 1)。"""
+    """补全表名后单条执行(行方中间件拦截两段 SQL)。EXTRACT(HOUR FROM 列) 里的列不能被补成 schema.列(行方报告 Bug 1)。"""
     app, executed = mock
-    sp.reset_probe_cache()
     plan, applied, note = sp.explain_plan(_MockRunner(app), "explain.plan_text",
                                           "SELECT EXTRACT(HOUR FROM sample_time) FROM t1", "app")
     assert plan == "Seq Scan on t1" and applied == ""

@@ -120,13 +120,7 @@ def check_whitelist(conn, registry: Registry) -> List[Item]:
 
 def check_scripts(runner) -> List[Item]:
     items = []
-    try:
-        rows = runner.run("explain.multi_stmt_probe", {})
-        ok = bool(rows) and str(next(iter(rows[0].values()), "")).strip() == "1"
-    except Exception:  # noqa: BLE001
-        ok = False
-    items.append(Item("中间件:一条脚本多条语句", OK if ok else WARN,
-                      "支持" if ok else "不支持:执行计划与调优改为补全表名后单条执行(已兼容),不影响使用"))
+    # v1.4.13 起不再交付两语句脚本(行方中间件拦截一条脚本里的两段 SQL),「中间件能否跑多条语句」这一项不再检查
     for name, values, new_cols, what in PROBES:
         try:
             rows = runner.run(name, values)

@@ -30,21 +30,26 @@ def _client() -> GrmpClient:
     socket.timeout("timed out"),
     urllib.error.URLError("[Errno 8] nodename nor servname provided"),
 ])
-def test_network_failures_become_grmp_error_naming_the_address(monkeypatch, exc):
+def test_network_failures_hide_the_address_but_log_it(monkeypatch, tmp_path, exc):
+    """给用户看的报错不带中间件地址(红线第 5 条,11-12 行方要求界面不出报错原文);地址进本机诊断日志,
+    09-14 现场「中间件换地址后老会话打旧地址」照样能按详情编号查到。"""
+    monkeypatch.setenv("GSDB_HOME", str(tmp_path))
     def boom(*_a, **_k):
         raise exc
     monkeypatch.setattr(urllib.request, "urlopen", boom)
     with pytest.raises(GrmpError) as info:
         _client().list_operations()
     msg = str(info.value)
-    assert "grmp-new.internal:8080" in msg and "失败" in msg
+    assert "grmp-new.internal" not in msg and "调用中间件失败" in msg and "详情编号 E-" in msg
+    log = (tmp_path / "logs" / "grmp-errors.log").read_text(encoding="utf-8")
+    assert "grmp-new.internal:8080" in log and msg.split("详情编号 ")[1][:8] in log
 
 
-def test_http_error_still_carries_status_and_address(monkeypatch):
+def test_http_error_carries_status_not_address(monkeypatch):
     def boom(*_a, **_k):
         raise urllib.error.HTTPError(BASE + "/x", 503, "Service Unavailable", {}, None)
     monkeypatch.setattr(urllib.request, "urlopen", boom)
     with pytest.raises(GrmpError) as info:
         _client().list_operations()
     msg = str(info.value)
-    assert "HTTP 503" in msg and "grmp-new.internal:8080" in msg
+    assert "HTTP 503" in msg and "grmp-new.internal" not in msg

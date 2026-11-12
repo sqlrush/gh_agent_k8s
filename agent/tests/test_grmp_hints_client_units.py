@@ -52,7 +52,8 @@ def test_recovery_in_progress_is_explained_as_standby():
 
 def test_permission_denied_names_the_object_and_the_action():
     hint = hints.explain(PERM)
-    assert "权限" in hint and "pg_user_status" in hint and "授" in hint
+    assert "权限" in hint and "pg_user_status" in hint and "这一项无法查询" in hint and "不影响其余部分" in hint
+    assert "请 DBA" not in hint, "生产环境权限固定(11-12 行方):先说这一项查不了、不影响其余,不把授权当前提"
     # 大小写不同的 GaussDB 写法(Permission)与 PG 写法(permission)都要认
     assert "权限" in hints.explain("ERROR: permission denied for relation statement_history")
 
@@ -68,7 +69,7 @@ def test_function_missing_hint_separates_the_three_causes():
     assert "升级" in hint                                         # ③ catalog 未升级
     # 通用的对象不存在仍走老提示,不被函数提示抢走
     generic = hints.explain("ERROR: relation \"dbe_perf.foo\" does not exist")
-    assert "版本差异" in generic and "pg_proc" not in generic
+    assert "内核版本或兼容模式不同" in generic and "pg_proc" not in generic
 
 
 def test_with_hint_appends_without_altering_original():
@@ -112,7 +113,7 @@ def test_post_plain_urlerror_unchanged(monkeypatch):
     monkeypatch.setattr(client_mod.urllib.request, "urlopen", boom)
     with pytest.raises(GrmpError) as ei:
         _client()._post("/x", {})
-    assert "请求 /x 失败" in str(ei.value) and "connection refused" in str(ei.value)
+    assert "调用中间件失败" in str(ei.value) and "connection refused" in str(ei.value)
 
 
 def test_invoke_failure_message_gets_hint(monkeypatch):

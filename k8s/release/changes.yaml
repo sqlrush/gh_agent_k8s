@@ -12,6 +12,14 @@
 # 版本从新到旧;第一条必须是本仓库清单里的版本(守卫测试)。min_upgrade_from 之前的版本按《部署上线方案》§14 手工升级。
 min_upgrade_from: agent-v1.4.0
 versions:
+  - version: agent-v1.4.13
+    mixed_with: [agent-v1.4.12, agent-v1.4.11]  # 网关没改;会话文件格式不变,槽位换到哪版用哪版
+    required: []
+    steps: [rebuild_kb_import]    # 导入镜像里的公共代码换了
+    whitelist: [scripts-delta-20261112.sql]
+    notes:
+      - "(按需)换过根规范的,用本版本的离线包重做 rootspec-overlay.sh 再推内网仓库(版本说明 v1.4.5「根规范模板替换」)"
+      - "导入白名单前可用 agent/tools/compare_whitelist.py 核对行方现有白名单,按它给出的顺序导增量;8 条两段 SQL 的旧脚本可保留"
   - version: agent-v1.4.12
     mixed_with: [agent-v1.4.11, agent-v1.4.10]  # 网关没改;会话文件格式不变,槽位换到哪版用哪版
     required: []

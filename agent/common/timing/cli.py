@@ -7,7 +7,7 @@
     python3 $GSDB_SKILLS_DIR/common/timing/cli.py --last 3 --html /tmp/耗时报告.html
     python3 $GSDB_SKILLS_DIR/common/timing/cli.py --since "2026-11-16 14:00" --until "2026-11-16 15:00" --html r.html
     python3 $GSDB_SKILLS_DIR/common/timing/cli.py --list                # 列出最近的提问,挑时间段用
-    加 --detail 出详细版:带思考原文、命令参数与工具输出(令牌、会话句柄、IP 自动遮掉),只在行内查看。
+    加 --detail 出详细版:带思考原文、命令参数与工具输出(令牌、会话句柄、IP 自动遮掉),只在内部查看,不要外传。
 
 会话数据:默认找 $XDG_DATA_HOME/opencode 或 ~/.local/share/opencode(新版 opencode.db、旧版 storage/ 都认),或 --db 指定。
 GRMP 计时:默认读技能状态目录下的 logs/grmp-timing.log(v1.4.14 起技能自动写),或 --grmp-log 指定;没有时工具时间不拆分。
@@ -60,7 +60,7 @@ def main(argv=None) -> int:
     ap.add_argument("--session", help="只看这个会话(会话 id 或前缀)")
     ap.add_argument("--html", help="HTML 报告写到这个文件")
     ap.add_argument("--text", help="文本报告写到这个文件(不给 --html 也不给 --text 时打到终端)")
-    ap.add_argument("--detail", action="store_true", help="详细版:带思考原文、命令参数与工具输出(只在行内查看)")
+    ap.add_argument("--detail", action="store_true", help="详细版:带思考原文、命令参数与工具输出(只在内部查看)")
     ap.add_argument("--list", action="store_true", help="列出最近 30 次提问")
     ap.add_argument("--utc-offset", type=float, default=8, help="显示用的时区(相对 UTC 的小时数,默认 8 = 北京时间)")
     a = ap.parse_args(argv)

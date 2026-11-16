@@ -213,9 +213,9 @@ pre.code.tall2 { max-height: 520px; }
     el('div', { class: 'sub' }, `${Q.length} 次提问 · 生成于 ${M.generated}（${tzTxt}）· 纯脚本统计，不调模型`),
     el('div', { class: 'sub' }, `会话数据：${M.source} · GRMP 计时：${M.grmp_source}`),
     M.detail
-      ? el('div', { class: 'banner lock' }, el('b', {}, '详细版含思考原文、命令参数与工具输出，只在行内查看，不带出行外。'),
+      ? el('div', { class: 'banner lock' }, el('b', {}, '详细版含思考原文、命令参数与工具输出，只在内部查看，不要外传。'),
           `已自动遮掉：${maskTxt}。SQL 与表名保留，否则看不出在做什么。不加 --detail 出的是摘要版，不含这些内容。`)
-      : el('div', { class: 'banner' }, el('b', {}, '摘要版：'), '只有时间、技能与脚本名、token 数、GRMP 调用统计，不含思考原文、命令参数与工具输出。需要看每一步具体在做什么时，加 --detail 生成详细版（只在行内查看）。'),
+      : el('div', { class: 'banner' }, el('b', {}, '摘要版：'), '只有时间、技能与脚本名、token 数、GRMP 调用统计，不含思考原文、命令参数与工具输出。需要看每一步具体在做什么时，加 --detail 生成详细版（只在内部查看）。'),
     ...(SPLIT ? [el('div', { class: 'banner' }, el('b', {}, '没有 GRMP 计时记录：'), '工具时间没有拆成「GRMP 与数据库 / 脚本本地」（标「未拆分」）。v1.4.14 起技能每次调用 GRMP 都会自动记录，之后的提问就有拆分。')] : []),
   );
 

@@ -20,9 +20,9 @@
 # 在 ORDER BY waiter_wait_s DESC LIMIT 之下排到最后、掉出返回页，而这恰恰
 # 是这个 skill 最该报出来的那一行。别把 COALESCE(...,0) 加回这两列。
 #
-# 时间差一律 date_part('epoch', clock_timestamp() - 列)(v1.4.14):本脚本切到业务库执行,行方业务库有 M 兼容模式
+# 时间差一律 date_part('epoch', clock_timestamp() - 列)(v1.4.14):本脚本切到业务库执行,业务库可能是 M 兼容模式
 # (dbcompatibility='M')—— 那里 now() 返回 datetime,与 timestamptz 列相减后 EXTRACT(EPOCH …) 的结果
-# 类型 GaussDB JDBC 驱动不认识,整条报 un support type(行方 2026-11-16 现场照片与实测)。clock_timestamp() 两种
+# 类型 GaussDB JDBC 驱动不认识,整条报 un support type(2026-11-16 现场反馈与实测)。clock_timestamp() 两种
 # 兼容模式下都返回 timestamptz,date_part 返回 double precision,A 兼容(postgres 库、og5)下结果与原写法一致。
 # 守卫测试 test_registry_m_compat_units.py:业务库脚本不许再出现 now()。
 name: lockwait.pairs

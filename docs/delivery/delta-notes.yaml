@@ -62,7 +62,7 @@ changed:
   vacuum.dead_tuples: >-
     **时间差改用 date_part('epoch', clock_timestamp() - 列)**(last_autovacuum_age_s、last_vacuum_age_s 两列):本脚本在业务库执行,
     M 兼容模式的业务库里 now() 返回 datetime,与 timestamptz 列相减后 EXTRACT(EPOCH …) 的结果类型 JDBC 驱动不认识,整条报
-    「un support type」(行方 2026-11-16 现场,业务库 dbcompatibility=M)。新写法在 A / M 两种兼容模式下都返回数值,
+    「un support type」(2026-11-16 现场反馈,业务库 dbcompatibility=M)。新写法在 A / M 两种兼容模式下都返回数值,
     A 兼容库上结果与原写法一致(差几毫秒);从没清理过的表照旧返回空。列名、筛选、排序不变。只读。
   lockwait.pairs: >-
     **时间差改用 date_part('epoch', clock_timestamp() - 列)**(waiter_wait_s、holder_xact_age_s 两列),原因同 vacuum.dead_tuples:

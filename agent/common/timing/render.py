@@ -14,7 +14,7 @@ def text(meta: dict, qs: list) -> str:
     L = ["智能体交互耗时报告（%s）" % ("详细版" if meta["detail"] else "摘要版"),
          "生成于 %s · 会话数据 %s · GRMP 计时 %s" % (meta["generated"], meta["source"], meta["grmp_source"]), ""]
     if meta["detail"]:
-        L.insert(2, "注:含思考原文、命令参数与工具输出,只在行内查看;已遮掉 %s。" % (meta["masked_text"] or "无"))
+        L.insert(2, "注:含思考原文、命令参数与工具输出,只在内部查看;已遮掉 %s。" % (meta["masked_text"] or "无"))
     for q in qs:
         T = q["totals"]
         L.append("=" * 78)

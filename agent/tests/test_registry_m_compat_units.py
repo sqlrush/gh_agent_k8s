@@ -1,11 +1,11 @@
-"""切到业务库执行的脚本不许用 now() / current_timestamp 算时间差(v1.4.14,行方 2026-11-16 现场)。
+"""切到业务库执行的脚本不许用 now() / current_timestamp 算时间差(v1.4.14,2026-11-16 现场反馈)。
 
-行方业务库有 M 兼容模式(dbcompatibility='M'):那里 now()、current_timestamp 返回 M 兼容的 datetime,
+业务库可能是 M 兼容模式(dbcompatibility='M'):那里 now()、current_timestamp 返回 M 兼容的 datetime,
 与 pg_stat_* 里的 timestamptz 列相减后,EXTRACT(EPOCH …) 的结果类型 GaussDB JDBC 驱动不认识,整条脚本报 un support type
 (vacuum.dead_tuples 的 last_autovacuum_age_s 列)。业务库脚本统一写 date_part('epoch', clock_timestamp() - 列):
-clock_timestamp() 两种兼容模式下都返回 timestamptz(行方在 M 兼容业务库上实测通过)。
+clock_timestamp() 两种兼容模式下都返回 timestamptz(已在 M 兼容业务库上实测通过)。
 
-在 postgres 库执行的脚本不受影响(行方 postgres 库是 A 兼容),不在本守卫范围内 —— 那些脚本照旧用 now()。
+在 postgres 库执行的脚本不受影响(postgres 库为 A 兼容),不在本守卫范围内 —— 那些脚本照旧用 now()。
 """
 import pathlib
 import re

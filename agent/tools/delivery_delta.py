@@ -165,9 +165,9 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tch
 -- 中间件按调用时传入的 dbName 切到该业务库执行；postgres 的脚本不带 dbName，在 postgres 库执行。
 -- 本文件里的 UPDATE 会同时写 database_type 与 parameter_config，以本文件为准覆盖手工改过的记录。
 --
--- 导入前请确认两处与贵方规范的对齐：
+-- 导入前请确认两处与现有规范的对齐：
 --   1. `create_user` / `last_modify_user` 当前填 '999999999'，与上一版保持一致；
---      若贵方要求真实工号，请统一替换。
+--      若要求填真实工号，请统一替换。
 --   2. id 用 `grmp.script_config_seq.nextval`，不硬编码，避免与现有记录冲突。
 --
 -- =====================================================================

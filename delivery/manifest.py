@@ -95,7 +95,7 @@ COMMON = {
         "grmp/__init__.py", "grmp/client.py", "grmp/columns.py", "grmp/errors.py", "grmp/hints.py",
         "grmp/params.py", "grmp/paths.py", "grmp/placeholder.py", "grmp/proxy.py", "grmp/registry.py", "grmp/routing.py",
         "grmp/runner.py", "grmp/script.py", "grmp/serialize.py", "grmp/settings.py", "grmp/signing.py",
-        "grmp/sm2.py", "grmp/sm3.py", "grmp/statement.py", "grmp/userid.py", "grmp/values.py",
+        "grmp/sm2.py", "grmp/sm3.py", "grmp/statement.py", "grmp/timing.py", "grmp/userid.py", "grmp/values.py",
     ),
     "kbimport": (
         "kb/docset_pack.py", "kb/imgconv.py", "kb/ingest.py", "kb/initstd.py", "kb/lock.py", "kb/pdfpages.py",

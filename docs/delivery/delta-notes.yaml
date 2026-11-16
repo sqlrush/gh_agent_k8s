@@ -59,6 +59,14 @@ added:
     - 两个 WDR 快照之差：redo 物理写次数与写入块数，对应官方 WDR 报告的 Redo size。只读
 
 changed:
+  vacuum.dead_tuples: >-
+    **时间差改用 date_part('epoch', clock_timestamp() - 列)**(last_autovacuum_age_s、last_vacuum_age_s 两列):本脚本在业务库执行,
+    M 兼容模式的业务库里 now() 返回 datetime,与 timestamptz 列相减后 EXTRACT(EPOCH …) 的结果类型 JDBC 驱动不认识,整条报
+    「un support type」(行方 2026-11-16 现场,业务库 dbcompatibility=M)。新写法在 A / M 两种兼容模式下都返回数值,
+    A 兼容库上结果与原写法一致(差几毫秒);从没清理过的表照旧返回空。列名、筛选、排序不变。只读。
+  lockwait.pairs: >-
+    **时间差改用 date_part('epoch', clock_timestamp() - 列)**(waiter_wait_s、holder_xact_age_s 两列),原因同 vacuum.dead_tuples:
+    本脚本也在业务库执行,原写法在 M 兼容业务库上同样会报「un support type」。列名、筛选、排序不变。只读。
   health.storage: >-
     **只量执行账号有权限的库与表空间**:库大小加 has_database_privilege(CONNECT)、表空间大小加 has_tablespace_privilege(CREATE)
     或「本库默认表空间」的判断,没权限的那行返回 NULL(报告写「无权限查看」)。原先对每个库、每个表空间都量,受限账号碰到

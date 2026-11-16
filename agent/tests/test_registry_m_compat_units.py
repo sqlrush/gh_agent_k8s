@@ -1,0 +1,58 @@
+"""切到业务库执行的脚本不许用 now() / current_timestamp 算时间差(v1.4.14,行方 2026-11-16 现场)。
+
+行方业务库有 M 兼容模式(dbcompatibility='M'):那里 now()、current_timestamp 返回 M 兼容的 datetime,
+与 pg_stat_* 里的 timestamptz 列相减后,EXTRACT(EPOCH …) 的结果类型 GaussDB JDBC 驱动不认识,整条脚本报 un support type
+(vacuum.dead_tuples 的 last_autovacuum_age_s 列)。业务库脚本统一写 date_part('epoch', clock_timestamp() - 列):
+clock_timestamp() 两种兼容模式下都返回 timestamptz(行方在 M 兼容业务库上实测通过)。
+
+在 postgres 库执行的脚本不受影响(行方 postgres 库是 A 兼容),不在本守卫范围内 —— 那些脚本照旧用 now()。
+"""
+import pathlib
+import re
+import sys
+
+import pytest
+
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT))
+
+from common.grmp import routing  # noqa: E402
+from common.grmp.registry import Registry  # noqa: E402
+
+# M 兼容库里返回 datetime 的「当前时间」写法
+M_DATETIME_NOW = re.compile(r"\bnow\s*\(\s*\)|\bcurrent_timestamp\b|\blocaltimestamp\b|\bsysdate\b", re.I)
+
+_REG = Registry()
+_BUSINESS = [_REG.find(n) for n in sorted(_REG.names()) if _REG.find(n).database_type == routing.APPBUSINESS]
+
+
+def _code(sql: str) -> str:
+    """去掉 -- 注释,只看真正执行的 SQL。"""
+    return "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
+
+
+@pytest.mark.parametrize("rec", _BUSINESS, ids=lambda r: r.script_name)
+def test_business_db_scripts_do_not_use_m_datetime_now(rec):
+    hit = M_DATETIME_NOW.search(_code(rec.script_content))
+    assert not hit, (
+        "%s 在业务库执行,出现了 %r:M 兼容库里它返回 datetime,与 timestamptz 列相减后驱动报 un support type。"
+        "改成 date_part('epoch', clock_timestamp() - 列)" % (rec.script_name, hit.group(0)))
+
+
+def test_the_two_fixed_scripts_use_clock_timestamp():
+    for name, cols in (("vacuum.dead_tuples", ("last_autovacuum_age_s", "last_vacuum_age_s")),
+                       ("lockwait.pairs", ("waiter_wait_s", "holder_xact_age_s"))):
+        sql = _REG.find(name).script_content
+        for col in cols:
+            line = next(ln for ln in sql.splitlines() if re.search(r"\bAS\s+%s\b" % col, ln))
+            assert "date_part('epoch', clock_timestamp() - " in line, (name, col, line)
+            assert "COALESCE" not in line, "%s.%s 故意不 COALESCE 成 0(见 YAML 注释)" % (name, col)
+
+
+def test_the_guard_itself_can_fail():
+    """守卫要能红:原写法必须被认出来,修好的写法不能误报,注释里的 now() 不算。"""
+    assert M_DATETIME_NOW.search("EXTRACT(EPOCH FROM (now()-t.last_autovacuum))")
+    assert M_DATETIME_NOW.search("x - CURRENT_TIMESTAMP")
+    assert not M_DATETIME_NOW.search(_code("date_part('epoch', clock_timestamp() - t.last_vacuum)"))
+    assert not M_DATETIME_NOW.search(_code("SELECT 1 -- 以前写 now()"))
+    assert len(_BUSINESS) >= 40, "业务库脚本一条都没读到,守卫形同虚设"

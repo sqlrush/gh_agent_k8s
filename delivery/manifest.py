@@ -91,6 +91,9 @@ COMMON = {
         "lockmodes.py", "proc_locate.py", "proc_source.py", "procname.py", "schema_infer.py", "search_path.py",
         "spillnote.py", "sqlnotfound.py", "sqlqualify.py", "sqlrefs.py", "sysdict.py", "sysobjects.py",
         "syssql.py", "timewin.py", "windata.py",
+        # 交互耗时报告(v1.4.14):运维在终端里运行,不是技能(模型看不到)
+        "timing/__init__.py", "timing/analysis.py", "timing/cli.py", "timing/grmplog.py", "timing/mask.py",
+        "timing/render.py", "timing/store.py", "timing/report.html",
         "sql.py",           # 已清空,但 13 个诊断技能按「common/sql.py 存在」定位 common 目录,不能删
         "grmp/__init__.py", "grmp/client.py", "grmp/columns.py", "grmp/errors.py", "grmp/hints.py",
         "grmp/params.py", "grmp/paths.py", "grmp/placeholder.py", "grmp/proxy.py", "grmp/registry.py", "grmp/routing.py",

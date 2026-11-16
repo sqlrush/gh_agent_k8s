@@ -223,3 +223,16 @@ def test_timing_code_never_talks_to_the_network_or_a_model():
         code = f.read_text(encoding="utf-8")
         for bad in ("urllib", "http.client", "socket", "requests", "subprocess", "openai", "anthropic"):
             assert not re.search(r"^\s*(import|from)\s+%s\b" % re.escape(bad), code, re.M), (f.name, bad)
+
+
+def test_big_outputs_in_one_round_are_reported_once(tmp_path):
+    """一轮里两个工具都输出很多:下一轮上下文的涨幅只报一次(端到端里加载两个技能时曾各报一遍 +14.5K)。"""
+    msgs = _conv(rounds=2, parallel=True)
+    for _, _, ps in msgs:
+        for p in ps:
+            if p.get("type") == "tool":
+                p["state"]["output"] = "x" * 6000
+    qs, _ = analysis.questions(store.load(_sqlite(tmp_path / "opencode.db", msgs)), False, [], cli._tz(8))
+    why = qs[0]["rounds"][0]["why"]
+    assert sum("工具输出" in w for w in why) == 1
+    assert any("工具输出共 12000 字（2 个工具），下一轮上下文 +" in w for w in why), why

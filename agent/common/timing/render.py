@@ -46,7 +46,7 @@ def text(meta: dict, qs: list) -> str:
             for t in r["tools"]:
                 if meta["detail"]:
                     L.append("     命令:" + t["cmd"][:240].replace("\n", " ⏎ ") + ("…" if t["cmd_chars"] > 240 else ""))
-                L.append("     %s:退出码 %s,输出 %d 字 / %d 行%s" % (t["label"], t["exit"], t["out_chars"], t["out_lines"],
+                L.append("     %s:退出码 %s,输出 %d 字 / %d 行%s" % (t["label"], "—" if t["exit"] is None else t["exit"], t["out_chars"], t["out_lines"],
                                                              ",被截断" if t["truncated"] else ""))
                 L += ["       GRMP %-28s %-8s %8.2f 秒  %s 行%s" % (g["name"], g["db"], g["e"] - g["s"], g["rows"],
                                                                "" if g["ok"] else "  失败 " + g["status"]) for g in t["grmp"]]

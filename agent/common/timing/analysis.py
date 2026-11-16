@@ -104,7 +104,8 @@ class Builder:
             rows.append({"name": r.get("script", ""), "kind": r.get("kind", ""), "s": rel(s), "e": rel(max(s, e)),
                          "ms": int(r.get("ms") or 0), "rows": r.get("rows"), "bytes": r.get("bytes"),
                          "ok": bool(r.get("ok")), "status": r.get("status") or r.get("error") or "",
-                         "db": (db or "postgres") if self.detail else ("postgres" if db in ("", "postgres") else "业务库")})
+                         "db": "—" if r.get("kind") == "list" else
+                               (db or "postgres") if self.detail else ("postgres" if db in ("", "postgres") else "业务库")})
         return rows
 
     def round(self, i: int, m: dict, ps: list, t0: int) -> dict:
@@ -224,9 +225,12 @@ def explain(q: dict) -> None:
             bad = [x["name"] for x in t["grmp"] if not x["ok"]]
             if bad:
                 why.append("GRMP 调用失败 %d 次（%s）" % (len(bad), "、".join(sorted(set(bad)))))
-            if t["out_chars"] >= OUTPUT_BIG:
-                grow = r["ctx_next_delta"]
-                why.append("工具输出 %d 字%s" % (t["out_chars"], "，下一轮上下文 +%.1fK token" % (grow / 1000) if grow and grow > 0 else ""))
+        big = [t["out_chars"] for t in r["tools"] if t["out_chars"] >= OUTPUT_BIG]
+        if big:                                         # 一轮几个工具的输出合起来撑大下一轮上下文:合成一句,不重复算
+            grow = r["ctx_next_delta"]
+            why.append("工具输出%s %d 字%s" % ("共" if len(big) > 1 else "", sum(big),
+                                          "（%d 个工具）" % len(big) if len(big) > 1 else "")
+                       + ("，下一轮上下文 +%.1fK token" % (grow / 1000) if grow and grow > 0 else ""))
         if r["cat"] == "compact":
             why.append("运行时在压缩上下文（上下文太长时自动触发）")
         elif not r["tools"]:

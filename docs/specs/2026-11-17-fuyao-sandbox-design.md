@@ -82,13 +82,19 @@ Fuyao 路由器实现与固定池化路由器相同的接口（`target()` / `not
 
 | 事件 | 动作 |
 |---|---|
-| 交互请求，本人无沙箱 | 建沙箱（metadata：工号、kind）→ `fuyao-start`（下发配置与签名的沙箱令牌）→ 探活 → 返回目标 |
+| 交互请求，本人无沙箱 | 建沙箱（metadata：工号、kind、模板）→ `fuyao-start`（下发配置与签名的沙箱令牌）→ 探活 → 返回目标 |
 | 交互请求，本人沙箱已暂停 | 恢复 → 地址发现（§6.3）→ 返回目标 |
-| 闲置超过 `FUYAO_IDLE_SECONDS` | `fuyao-stop` → 暂停 |
+| 交互请求，本人沙箱已暂停、是旧模板、暂停前已回写（`gsdb-synced=1`） | 删除 → 同一请求内按新模板新建 |
+| 闲置超过 `FUYAO_IDLE_SECONDS` | `fuyao-stop` → 暂停，metadata 记回写是否成功（`gsdb-synced`） |
+| 闲置超过 `FUYAO_IDLE_SECONDS`、是旧模板 | `fuyao-stop --release` → 成功则删除（下次登录按新模板建）；失败则照旧暂停（`gsdb-synced=0`） |
+| 暂停中、是旧模板、暂停前已回写 | 清扫器直接删除 |
 | 暂停超过 `FUYAO_RETAIN_DAYS` 或沙箱接近寿命上限 | `fuyao-stop`（若在运行）→ 删除 → 注销令牌 |
 | 转发连接失败 | 重新查询并重试一次；仍失败则按「沙箱不可用」重建 |
 
 活动时间记在沙箱 metadata，两个网关副本共享，节流写入（同 `ACTIVITY_INTERVAL_SECONDS`）。
+
+**换版**：发版只改 gateway-config 的 `FUYAO_*_TEMPLATE` 并滚动网关；已有沙箱按上表逐步换到新模板，
+在跑且有人在用的不打断，没回写成功的不删。`/admin/fuyao` 的 `outdated` 是剩余的旧版沙箱数，发版台据此显示换版进度。
 
 ### 6.3 地址发现
 
@@ -115,7 +121,8 @@ Fuyao 路由器实现与固定池化路由器相同的接口（`target()` / `not
 ## 8. 模板
 
 - `docker/Dockerfile.e2b`：以 runtime / kb-import 镜像为底，加启动器与占位文件（撑大磁盘，见 §2）；runtime 模板内置官方文档集。
-- `scripts/build-e2b-template.sh`：在构建服务所在主机上——用 buildkit 构建派生镜像并导出成 OCI 目录 → `scripts/oci-serve.py` 只读端出（127.0.0.1）→ `/v3/templates` → `/v2/.../builds`（`fromImage` 指向本机）→ 等待就绪 → 停掉临时仓库。模板名带版本。
+- `scripts/build-e2b-template.py`：在构建服务所在主机上——用 buildkit 构建派生镜像并导出成 OCI 目录 → `scripts/oci-serve.py` 只读端出（127.0.0.1）→ `/v3/templates` → `/v2/.../builds`（`fromImage` 指向本机）→ 等待就绪 → 停掉临时仓库。模板名带版本。
+- `--from-oci`：构建服务所在主机不能上网时，镜像在别处按 `Dockerfile.e2b` 构建、导出成 OCI 包带过去，脚本只做端出与注册。
 - 快照停在「待命」：只有 envd 与 systemd，没有任何用户身份。
 - 平台方开放内部镜像仓库账号，或给构建服务补上根证书后，也可以改从仓库直接拉；脚本保留这条路。
 

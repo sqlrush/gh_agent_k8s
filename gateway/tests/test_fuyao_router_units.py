@@ -7,7 +7,8 @@ test_fuyao_envd_units.py 里对着真 HTTP 测)。要点:
 - 暂停的沙箱恢复后换了地址、平台还回旧地址:探活用本人口令,连不上就等,不会串到别人那里;
 - 两个网关副本并发建出两台:只留最早的;
 - 沙箱组满了回等待页;开通前提缺失当场报出来;
-- 回收器:活动写进 metadata、闲置先收尾再暂停、有会话在跑不动、收尾失败不删、暂停超期删除、到期前续期。
+- 回收器:活动写进 metadata、闲置先收尾再暂停、有会话在跑不动、收尾失败不删、暂停超期删除、到期前续期;
+- 换版:旧模板的沙箱闲置时收尾删除、暂停前已回写的直接重建,没回写成的不删。
 """
 import pathlib
 import sys
@@ -74,7 +75,7 @@ def test_a_new_user_gets_a_sandbox_with_signed_identity_and_the_second_request_u
     assert len(fake.boxes) == 1
     bid, box = next(iter(fake.boxes.items()))
     assert box["metadata"] == {"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime",
-                               "gsdb-active": str(int(clock.t))}
+                               "gsdb-active": str(int(clock.t)), "gsdb-template": "tpl-run"}
     assert box["group"] == "g-run" and box["template"] == "tpl-run"
     create = [b for m, p, b, _h in fake.requests if m == "POST" and p == "/v1/sandboxes"][0]
     assert create["resourceLimits"] == {"cpu": "2", "memory": "4Gi"} and "volumes" not in create, \
@@ -314,6 +315,76 @@ def test_admin_summary_and_actions(env):
     assert code == 200 and body["synced"] is True and t.pod not in fake.boxes
     assert sw.act("delete", foreign)[0] == 404, "不是本智能体的沙箱不动"
     assert sw.act("explode", "x")[0] == 404
+
+
+# -- 换版(发版换了模板) ------------------------------------------------------------------------------
+
+def _new_templates(router, **kinds):
+    router.policy = POLICY.__class__(**dict(POLICY.__dict__, templates=dict(POLICY.templates, **kinds)))
+    return router.policy
+
+
+def _box(fake, user, template, **md):
+    return fake.add(dict({"gsdb-app": "gaussdb-agent", "gsdb-user": user, "gsdb-kind": "runtime",
+                          "gsdb-template": template}, **md), state="Paused")
+
+
+def test_an_idle_old_sandbox_is_synced_released_and_deleted_and_the_next_login_uses_the_new_template(env):
+    fake, envd, router, clock, *_ = env
+    t = router.target("u1001")
+    assert fake.boxes[t.pod]["metadata"]["gsdb-template"] == "tpl-run", "建沙箱时记下模板"
+    sw = _sweeper(router, clock)
+    sw.policy = _new_templates(router, runtime="tpl-run-2")
+    assert sw.summary()["outdated"] == 1
+    clock.t += 300
+    assert sw.sweep()["upgraded"] == 0 and t.pod in fake.boxes, "在跑、没闲置的旧版沙箱不打断"
+    clock.t += 301
+    assert sw.sweep()["upgraded"] == 1 and t.pod not in fake.boxes
+    assert envd.runs[-1][1][-2:] == ["fuyao-stop", "--release"], "收尾并放开独占后才删"
+    t2 = router.target("u1001")
+    assert t2.pod != t.pod and fake.boxes[t2.pod]["template"] == "tpl-run-2"
+    assert fake.boxes[t2.pod]["metadata"]["gsdb-template"] == "tpl-run-2" and sw.summary()["outdated"] == 0
+
+
+def test_an_old_sandbox_whose_final_sync_fails_is_paused_as_unsynced_and_later_resumed_not_rebuilt(env):
+    fake, envd, router, clock, *_ = env
+    t = router.target("u1001")
+    sw = _sweeper(router, clock)
+    sw.policy = _new_templates(router, runtime="tpl-run-2")
+    clock.t += 601
+    envd.fail_stop = True
+    assert sw.sweep()["retired"] == 1
+    box = fake.boxes[t.pod]
+    assert box["state"] == "Paused" and box["metadata"]["gsdb-synced"] == "0", "收尾没成:暂停保住内存,不删"
+    assert sw.sweep()["upgraded"] == 0 and t.pod in fake.boxes, "没回写成的旧版沙箱清扫器也不删"
+    with pytest.raises(poolrouter.PoolWait):                       # 恢复后换了地址,替身里探不通:等待
+        router.target("u1001")
+    assert fake.boxes[t.pod]["state"] == "Running" and "gsdb-synced" not in fake.boxes[t.pod]["metadata"]
+    assert len([b for b in fake.boxes.values() if b["metadata"].get("gsdb-user") == "u1001"]) == 1
+
+
+def test_a_paused_old_sandbox_synced_before_pause_is_rebuilt_at_login_or_removed_by_the_sweeper(env):
+    fake, _envd, router, clock, *_ = env
+    old = _box(fake, "u1001", "tpl-run-0", **{"gsdb-synced": "1", "gsdb-paused": str(int(clock.t))})
+    with pytest.raises(poolrouter.NotActive):
+        router.target("u1001", interactive=False)
+    assert old in fake.boxes, "非交互请求不建、不删"
+    t = router.target("u1001")
+    assert old not in fake.boxes and fake.boxes[t.pod]["template"] == "tpl-run", "同一个请求里直接按新模板重建"
+    gone = _box(fake, "u1002", "tpl-run-0", **{"gsdb-synced": "1", "gsdb-paused": str(int(clock.t))})
+    kept = _box(fake, "u1003", "tpl-run", **{"gsdb-synced": "1", "gsdb-paused": str(int(clock.t))})
+    sw = _sweeper(router, clock)
+    assert sw.summary()["outdated"] == 1
+    out = sw.sweep()
+    assert out["upgraded"] == 1 and gone not in fake.boxes and kept in fake.boxes, "当前版本的暂停沙箱照常保留"
+
+
+def test_pausing_records_whether_the_final_sync_succeeded(env):
+    fake, envd, router, clock, *_ = env
+    t = router.target("u1001")
+    sw = _sweeper(router, clock)
+    assert sw.act("pause", t.pod)[0] == 200 and fake.boxes[t.pod]["metadata"]["gsdb-synced"] == "1"
+    assert sw.act("resume", t.pod)[0] == 200 and "gsdb-synced" not in fake.boxes[t.pod]["metadata"]
 
 
 # -- 配置 --------------------------------------------------------------------------------------------

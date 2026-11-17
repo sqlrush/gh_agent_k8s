@@ -7,6 +7,9 @@
    暂停不丢数据(内存快照完整),所以收尾失败也照样暂停。
 3. 暂停超过 `retain_s` 的删除(数据早已在收尾时写回 NAS)。
 4. 离平台寿命上限不到 `renew_margin_s` 的续期:在跑的续一个完整寿命;暂停的续到保留期满为止。
+5. 换版(发版换了模板):旧版沙箱闲置时收尾并放开独占后删除,下次登录按新模板重建;收尾失败就照旧暂停
+   (记 `gsdb-synced=0`),下次恢复后再来。已暂停且暂停前收尾成功(`gsdb-synced=1`)的旧版沙箱直接删除。
+   在跑、有人在用的旧版沙箱不打断。`summary()` 里 `outdated` 是还剩多少台旧版,发版台据此看换版进度。
 
 平台实测:删除即时生效、虚拟机里收不到退出信号(收尾必须在删除之前由这里触发);暂停约 2 秒、恢复约 3 秒、
 内存快照完整续上(docs/specs/2026-11-17-fuyao-sandbox-design.md §2)。
@@ -18,7 +21,8 @@ import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import opensandbox as osb
-from .fuyaorouter import APP, MD_ACTIVE, MD_APP, MD_PAUSED, FuyaoRouter, busy, owner
+from .fuyaorouter import (APP, MD_ACTIVE, MD_APP, MD_PAUSED, MD_SYNCED, MD_TEMPLATE, FuyaoRouter, busy, outdated,
+                          owner, synced_before_pause)
 
 ACTIONS = ("stop", "pause", "resume", "delete")
 
@@ -48,7 +52,7 @@ class FuyaoSweeper:
 
     def sweep(self, now: Optional[float] = None) -> Dict[str, int]:
         now = self.clock() if now is None else now
-        counts = {"active": 0, "retired": 0, "deleted": 0, "renewed": 0, "busy": 0, "failed": 0}
+        counts = {"active": 0, "retired": 0, "deleted": 0, "renewed": 0, "busy": 0, "failed": 0, "upgraded": 0}
         acts = self.router.drain_activity()
         try:
             boxes = self.os.list({MD_APP: APP})
@@ -70,7 +74,10 @@ class FuyaoSweeper:
                         counts["renewed"] += 1
                 elif s.paused:
                     paused_at = _num(s.metadata.get(MD_PAUSED)) or seen
-                    if now - paused_at >= self.policy.retain_s:
+                    if outdated(s, self.policy) and synced_before_pause(s):
+                        self._delete(s, "模板已更新,暂停前已收尾回写")
+                        counts["upgraded"] += 1
+                    elif now - paused_at >= self.policy.retain_s:
                         self._delete(s, "暂停超过保留期")
                         counts["deleted"] += 1
                     elif self._renew(s, now, paused_at + self.policy.retain_s):
@@ -97,22 +104,29 @@ class FuyaoSweeper:
             self.router.restore_activity(failed)
 
     def retire(self, s: osb.Sandbox, now: float) -> str:
-        """闲置:收尾同步 → 暂停(或删除)。返回 retired / busy / failed。"""
+        """闲置:收尾同步 → 暂停(或删除)。旧版沙箱收尾成功就删除(换版)。返回 retired / upgraded / busy / failed。"""
         user, _kind = owner(s)
         host = self.os.address(s.id)
         if user and self.busy_check(host, self.router.password_for(user)):
             return "busy"
-        synced = self.router.stop(s.id, host, release=not self.policy.pause)
+        old = outdated(s, self.policy)
+        synced = self.router.stop(s.id, host, release=old or not self.policy.pause)
+        if synced and old:
+            self._delete(s, "闲置,模板已更新;收尾后删除,下次登录按新模板重建")
+            return "upgraded"
         if self.policy.pause:
-            self.os.pause(s.id)
-            self.os.patch_metadata(s.id, {MD_PAUSED: str(int(now))})
-            self.router.forget_sandbox(s.id)
+            self.pause(s, now, synced)
             self.log("Fuyao:%s 的沙箱 %s 闲置,%s暂停" % (user, s.id, "已收尾并" if synced else "收尾未成,仍"))
             return "retired"
         if not synced:
             return "failed"                         # 不删:删了会丢最后一个同步周期,下一轮再试
         self._delete(s, "闲置(平台不支持暂停,收尾后删除)")
         return "retired"
+
+    def pause(self, s: osb.Sandbox, now: float, synced: Optional[bool]) -> None:
+        self.os.pause(s.id)
+        self.os.patch_metadata(s.id, {MD_PAUSED: str(int(now)), MD_SYNCED: "1" if synced else "0"})
+        self.router.forget_sandbox(s.id)
 
     def _delete(self, s: osb.Sandbox, why: str) -> None:
         self.os.delete(s.id)
@@ -133,12 +147,14 @@ class FuyaoSweeper:
         for s in boxes:
             user, kind = owner(s)
             items.append({"sandbox": s.id, "user_id": user, "kind": kind, "state": s.state,
+                          "template": s.metadata.get(MD_TEMPLATE, ""), "outdated": outdated(s, self.policy),
                           "last_active": last_active(s), "paused_at": _num(s.metadata.get(MD_PAUSED)) or None,
                           "expires_at": s.expires_at or None})
         states: Dict[str, int] = {}
         for it in items:
             states[it["state"]] = states.get(it["state"], 0) + 1
         return {"mode": "fuyao", "sandboxes": items, "states": states,
+                "templates": dict(self.policy.templates), "outdated": sum(1 for it in items if it["outdated"]),
                 "policy": {"idle_seconds": self.policy.idle_s, "retain_seconds": self.policy.retain_s,
                            "pause": self.policy.pause}}
 
@@ -151,7 +167,7 @@ class FuyaoSweeper:
         now = self.clock()
         if verb == "resume":
             self.os.resume(s.id)
-            self.os.patch_metadata(s.id, {MD_PAUSED: None, MD_ACTIVE: str(int(now))})
+            self.os.patch_metadata(s.id, {MD_PAUSED: None, MD_SYNCED: None, MD_ACTIVE: str(int(now))})
             return 200, {"sandbox": s.id, "resumed": True}
         if verb == "stop":
             if not s.running:
@@ -163,9 +179,7 @@ class FuyaoSweeper:
         if verb == "pause":
             if not s.running:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}
-            self.os.pause(s.id)
-            self.os.patch_metadata(s.id, {MD_PAUSED: str(int(now))})
-            self.router.forget_sandbox(s.id)
+            self.pause(s, now, synced)
             return 200, {"sandbox": s.id, "paused": True, "synced": synced}
         self._delete(s, "运维手动删除")
         return 200, {"sandbox": s.id, "deleted": True, "synced": synced,

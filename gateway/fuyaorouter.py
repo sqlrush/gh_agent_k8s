@@ -9,6 +9,9 @@
   新建   本人没有沙箱:查开通前提 → 建沙箱(metadata 带工号与种类)→ 经 envd 下发配置并启动 → 探活。
          两个网关副本可能同时为同一人建:建完再列一次,只留最早的那台,多出来的删掉。
   满员   沙箱组没有空位:回等待页(PoolFull)。
+  换版   发版换了模板(gateway-config 的 FUYAO_*_TEMPLATE):沙箱 metadata 记着建它的模板(`gsdb-template`)。
+         暂停的旧版沙箱若暂停前已收尾回写(`gsdb-synced=1`)就删掉、按新模板重建;没回写成的照旧恢复,
+         等它下次闲置由清扫器收尾后删除。在跑的旧版沙箱不打断,同样等闲置。
 
 **非交互请求不建、不恢复**(探活、事件流),与固定池化同一条规矩:开着的标签页不能把暂停的沙箱拉起来。
 """
@@ -28,6 +31,7 @@ from .poolrouter import NotActive, PoolFull, PoolWait, Target
 
 APP = "gaussdb-agent"
 MD_APP, MD_USER, MD_KIND, MD_ACTIVE, MD_PAUSED = "gsdb-app", "gsdb-user", "gsdb-kind", "gsdb-active", "gsdb-paused"
+MD_TEMPLATE, MD_SYNCED = "gsdb-template", "gsdb-synced"     # 建它的模板;暂停前收尾回写是否成功("1" / "0")
 OPENCODE_PORT, REPORTS_PORT, CLIP_PORT = 4096, 4097, 4095
 KINDS = (KIND_RUNTIME, KIND_KB_IMPORT)
 RELAUNCH_GAP_S = 30.0
@@ -88,6 +92,16 @@ def busy(host: str, password: str, port: int = OPENCODE_PORT, timeout: float = 5
 
 def owner(s: osb.Sandbox) -> Tuple[str, str]:
     return s.metadata.get(MD_USER, ""), s.metadata.get(MD_KIND, "")
+
+
+def outdated(s: osb.Sandbox, policy: Policy) -> bool:
+    """不是按当前模板建的(发版换了模板;没记模板的老沙箱也算)。"""
+    want = policy.templates.get(owner(s)[1], "")
+    return bool(want) and s.metadata.get(MD_TEMPLATE, "") != want
+
+
+def synced_before_pause(s: osb.Sandbox) -> bool:
+    return s.metadata.get(MD_SYNCED) == "1"
 
 
 class FuyaoRouter:
@@ -183,6 +197,11 @@ class FuyaoRouter:
         except osb.OpenSandboxError as exc:
             self.log("Fuyao:列举 %s 的沙箱失败:%s" % (user, exc))
             return None, "platform_unreachable"
+        if boxes and boxes[0].paused and outdated(boxes[0], self.policy) and synced_before_pause(boxes[0]):
+            if not interactive:
+                raise NotActive(user)
+            self._drop(boxes[0].id, "模板已更新,暂停前已收尾回写;按新模板重建")
+            boxes = boxes[1:]
         if not boxes:
             if not interactive:
                 raise NotActive(user)
@@ -205,7 +224,7 @@ class FuyaoRouter:
                 raise NotActive(user)
             try:
                 self.os.resume(keeper.id)
-                self.os.patch_metadata(keeper.id, {MD_PAUSED: None, MD_ACTIVE: str(int(self.clock()))})
+                self.os.patch_metadata(keeper.id, {MD_PAUSED: None, MD_SYNCED: None, MD_ACTIVE: str(int(self.clock()))})
             except osb.OpenSandboxError as exc:
                 self.log("Fuyao:恢复 %s 的沙箱 %s 失败:%s" % (user, keeper.id, exc))
                 return None, "resume_failed"
@@ -216,8 +235,9 @@ class FuyaoRouter:
         return None, "starting:%s" % (keeper.state or "unknown")
 
     def _create(self, user: str, kind: str) -> osb.Sandbox:
-        md = {MD_APP: APP, MD_USER: user, MD_KIND: kind, MD_ACTIVE: str(int(self.clock()))}
         p = self.policy
+        md = {MD_APP: APP, MD_USER: user, MD_KIND: kind, MD_ACTIVE: str(int(self.clock())),
+              MD_TEMPLATE: p.templates[kind]}
         try:
             s = self.os.create(p.templates[kind], p.groups[kind], md, p.cpu, p.memory, p.sandbox_timeout_s)
         except osb.CapacityError:

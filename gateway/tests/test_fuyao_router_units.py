@@ -217,6 +217,36 @@ def test_an_unresolvable_service_address_is_a_launch_failure_not_a_sandbox_with_
     assert not [r for r in envd.runs if r[1][-1] == "fuyao-start"], "地址不对就不进沙箱启动"
 
 
+def test_a_sandbox_whose_launcher_keeps_failing_is_reported_as_broken_instead_of_an_endless_wait(env):
+    fake, envd, router, clock, logs, _p = env
+    envd.fail_launch = True
+    for _ in range(fr.MAX_LAUNCH_FAILS - 1):
+        with pytest.raises(poolrouter.PoolWait):
+            router.target("u1001")
+        clock.t += fr.RELAUNCH_GAP_S + 1
+    with pytest.raises(fr.SandboxBroken) as ei:
+        router.target("u1001")
+    assert "接连失败 %d 次" % fr.MAX_LAUNCH_FAILS in str(ei.value) and "/admin/fuyao" in str(ei.value)
+    assert len(fake.boxes) == 1, "不自动重建:模板坏了重建只会循环"
+    envd.fail_launch = False
+    clock.t += fr.RELAUNCH_GAP_S + 1
+    assert router.target("u1001").pod in fake.boxes, "修好之后照常起来"
+    assert router._fails == {}
+
+
+def test_an_unreachable_envd_is_not_counted_as_a_broken_sandbox(env):
+    fake, envd, router, clock, *_ = env
+    router.target("u1001")
+    host = next(iter(envd.ready))
+    router.forget("u1001")
+    envd.ready.clear()
+    envd.down.add(host)
+    for _ in range(fr.MAX_LAUNCH_FAILS + 1):
+        with pytest.raises(poolrouter.PoolWait):
+            router.target("u1001")
+        clock.t += fr.RELAUNCH_GAP_S + 1
+
+
 def test_the_import_environment_is_its_own_sandbox_from_its_own_template_and_group(env):
     fake, envd, router, *_ = env
     router.target("u1001")

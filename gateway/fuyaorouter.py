@@ -36,10 +36,16 @@ MD_EXPIRES = "gsdb-expires"                                  # 平台寿命的�
 OPENCODE_PORT, REPORTS_PORT, CLIP_PORT = 4096, 4097, 4095
 KINDS = (KIND_RUNTIME, KIND_KB_IMPORT)
 RELAUNCH_GAP_S = 30.0
+MAX_LAUNCH_FAILS = 3                             # 同一台沙箱里启动器接连失败几次算「起不来」
 
 
 class LaunchError(Exception):
     """启动器在沙箱里失败了(退出码非 0)。"""
+
+
+class SandboxBroken(Exception):
+    """同一台沙箱里启动器接连失败:不再让用户对着「正在准备」干等,回「环境准备失败」并记日志。
+    不自动重建 —— 模板本身坏了重建只会循环;运维看日志后经 /admin/fuyao 删除,下次登录重建。"""
 
 
 @dataclass(frozen=True)
@@ -131,6 +137,7 @@ class FuyaoRouter:
         self._creds: Dict[Tuple[str, str], Target] = {}
         self._locks: Dict[Tuple[str, str], threading.Lock] = {}
         self._launched: Dict[str, float] = {}
+        self._fails: Dict[str, int] = {}             # 沙箱 → 启动器接连失败次数(连不上 envd 不算)
         self._activity: Dict[Tuple[str, str], float] = {}
         self._lock = threading.Lock()
 
@@ -162,6 +169,7 @@ class FuyaoRouter:
             for k in [k for k, t in self._creds.items() if t.pod == sandbox_id]:
                 del self._creds[k]
             self._launched.pop(sandbox_id, None)
+            self._fails.pop(sandbox_id, None)
 
     def cached(self) -> Dict[Tuple[str, str], Target]:
         with self._lock:
@@ -280,9 +288,10 @@ class FuyaoRouter:
                 self.launch(s.id, host, user, kind, password)
             except (LaunchError, sandboxexec.ExecError) as exc:
                 self.log("Fuyao:%s 的%s沙箱 %s 启动失败:%s" % (user, _kind_name(kind), s.id, exc))
+                self._failed(s.id, exc)
                 return None, "launch_failed"
         if self.prober(host, password):
-            return self._target(s.id, host, password), "ready"
+            return self._ok(s.id, host, password), "ready"
         # 没就绪:另一个副本还在启动它 / 上次启动半途而废(网关重启)/ 恢复后地址还没对上。
         # envd 在、隔一阵没起过 → 再起一次(启动器幂等)。
         now = self.clock()
@@ -291,10 +300,25 @@ class FuyaoRouter:
                 self.launch(s.id, host, user, kind, password)
             except (LaunchError, sandboxexec.ExecError) as exc:
                 self.log("Fuyao:%s 的沙箱 %s 补起失败:%s" % (user, s.id, exc))
+                self._failed(s.id, exc)
                 return None, "launch_failed"
             if self.prober(host, password):
-                return self._target(s.id, host, password), "ready"
+                return self._ok(s.id, host, password), "ready"
         return None, "address_stale" if resumed else "starting"
+
+    def _ok(self, sandbox_id: str, host: str, password: str) -> Target:
+        with self._lock:
+            self._fails.pop(sandbox_id, None)
+        return self._target(sandbox_id, host, password)
+
+    def _failed(self, sandbox_id: str, exc: Exception) -> None:
+        if not isinstance(exc, LaunchError):
+            return                                   # envd 连不上:可能是网络抖动,不算沙箱坏
+        with self._lock:
+            n = self._fails[sandbox_id] = self._fails.get(sandbox_id, 0) + 1
+        if n >= MAX_LAUNCH_FAILS:
+            raise SandboxBroken("沙箱 %s 启动器接连失败 %d 次(最近一次:%s);可在 /admin/fuyao 删除后重建"
+                                % (sandbox_id, n, exc))
 
     def launch(self, sandbox_id: str, host: str, user: str, kind: str, password: str) -> None:
         env = sandboxexec.env_from(self.launch_env(user, kind))

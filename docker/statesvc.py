@@ -20,6 +20,8 @@
   GET  /v1/kb/manifest        知识库清单 {version, files: {相对路径: [大小, 修改时间纳秒]}}
   POST /v1/kb/files           {"paths": [...]} → 这些文件(tar.gz)
   POST /v1/kb/publish         导入环境发布(请求头 X-Gsdb-Kb-Base 带手上那份的版本;tar 含 .gsdb-meta/publish.json:keep)
+  POST /v1/hello              报到:只记本沙箱的来源地址,不碰 NAS(沙箱每 5 秒一次)
+  GET  /v1/where              这台沙箱最近一次请求的来源地址与距今秒数(网关恢复沙箱后用它找新地址)
 用法: statesvc.py --nas /nas [--listen 0.0.0.0:8090];控制密钥从环境变量 GSDB_CONTROL_KEY 读。
 """
 from __future__ import annotations

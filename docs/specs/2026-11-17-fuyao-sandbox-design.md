@@ -29,6 +29,8 @@
 | 暂停约 2 秒、恢复约 3 秒，内存快照完整续上 | 粘性保留：闲置时暂停、回来恢复 |
 | 恢复后虚拟机地址会变，而 `/endpoints/{port}` 仍返回旧地址 | 见 §6.3 地址发现 |
 | 删除即时生效，虚拟机内收不到退出信号 | 销毁前由网关触发收尾同步 |
+| 建沙箱带 `timeout` 时平台到点直接删（不发信号），续期接口回 409（不支持），`timeout` 上限 86400 秒；**不带 `timeout` 就没有到期时间**（端到端实测） | 默认不带 `timeout`，生命周期全由网关管；平台强制要求时，网关在到期前 15 分钟收尾后删除（§6.2） |
+| 单台查询 `GET /v1/sandboxes/{id}` 不带业务 metadata、`createdAt` 不准；列举与单台查询都不回 `expiresAt`，只有建沙箱的回包带（端到端实测） | 一律从列举里取沙箱与 metadata；到期时刻建沙箱时自己记进 metadata（`gsdb-expires`） |
 | 模板构建：`POST /v3/templates`（名称、vCPU、内存）+ `POST /v2/templates/{tid}/builds/{bid}`（`fromImage`），带占位层的 runtime 约 70 秒建好 | — |
 | 构建服务的容器里没有根证书，拉不了公网仓库；它拉取时对本机地址走 HTTP、不校验证书，且跑在主机网络上 | 构建时在构建服务所在主机上起只读临时仓库（`scripts/oci-serve.py`，只听 127.0.0.1），不需要任何仓库账号 |
 | 模板磁盘 = 镜像大小 + 平台固定余量（约 0.5GB），模板参数里的 `diskSizeMB` 不生效；vCPU、内存按模板参数生效 | 模板层里放一个全零的占位文件撑大磁盘（6GB 占位 → 磁盘 9.3GB），启动器首次启动时删除，空出约 8GB 给用户状态；全零数据压缩后只有几 MB，宿主机上每份模板约 0.8GB |
@@ -88,7 +90,8 @@ Fuyao 路由器实现与固定池化路由器相同的接口（`target()` / `not
 | 闲置超过 `FUYAO_IDLE_SECONDS` | `fuyao-stop` → 暂停，metadata 记回写是否成功（`gsdb-synced`） |
 | 闲置超过 `FUYAO_IDLE_SECONDS`、是旧模板 | `fuyao-stop --release` → 成功则删除（下次登录按新模板建）；失败则照旧暂停（`gsdb-synced=0`） |
 | 暂停中、是旧模板、暂停前已回写 | 清扫器直接删除 |
-| 暂停超过 `FUYAO_RETAIN_DAYS` 或沙箱接近寿命上限 | `fuyao-stop`（若在运行）→ 删除 → 注销令牌 |
+| 暂停超过 `FUYAO_RETAIN_DAYS` | 删除（暂停前已收尾回写） |
+| 设了 `FUYAO_SANDBOX_TIMEOUT`、离到期不到 15 分钟 | 在跑：`fuyao-stop --release` → 删除（有会话在跑的等到最后 5 分钟）；暂停中：暂停前已回写的删除，没回写成的记日志 |
 | 转发连接失败 | 重新查询并重试一次；仍失败则按「沙箱不可用」重建 |
 
 活动时间记在沙箱 metadata，两个网关副本共享，节流写入（同 `ACTIVITY_INTERVAL_SECONDS`）。

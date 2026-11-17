@@ -93,7 +93,7 @@ class Config:
     fuyao_import_group: str = ""
     fuyao_cpu: str = "2"
     fuyao_memory: str = "4Gi"
-    fuyao_sandbox_timeout: int = 86400      # 平台的沙箱寿命;回收器在到期前续期
+    fuyao_sandbox_timeout: int = 0          # 平台的沙箱寿命;0 = 不设(平台不自动删)。>0 时清扫器在到期前收尾后删除
     fuyao_idle_seconds: int = 1800          # 闲置多久收尾并暂停
     fuyao_retain_days: int = 7              # 暂停多久后删除
     fuyao_pause: bool = True                # 平台不支持暂停时设 0:闲置即收尾后删除
@@ -251,7 +251,10 @@ def _fuyao(env: Mapping[str, str], on: bool, low) -> dict:
     if pause not in ("1", "0", "true", "false", "yes", "no"):
         raise ConfigError("GATEWAY_FUYAO_PAUSE=%r 不认识,只能是 1 / 0" % pause)
     out["fuyao_pause"] = pause in ("1", "true", "yes")
-    out["fuyao_sandbox_timeout"] = _int(env, "GATEWAY_FUYAO_SANDBOX_TIMEOUT", 86400, minimum=600)
+    out["fuyao_sandbox_timeout"] = _int(env, "GATEWAY_FUYAO_SANDBOX_TIMEOUT", 0)
+    if 0 < out["fuyao_sandbox_timeout"] < 1800:
+        raise ConfigError("GATEWAY_FUYAO_SANDBOX_TIMEOUT=%d 太小:0 表示不设,否则至少 1800(到期前 15 分钟要收尾)"
+                          % out["fuyao_sandbox_timeout"])
     out["fuyao_idle_seconds"] = _int(env, "GATEWAY_FUYAO_IDLE_SECONDS", 1800, minimum=low(300))
     out["fuyao_retain_days"] = _int(env, "GATEWAY_FUYAO_RETAIN_DAYS", 7, minimum=1)
     out["fuyao_sweep_seconds"] = _int(env, "GATEWAY_FUYAO_SWEEP_SECONDS", 30, minimum=5)

@@ -6,7 +6,9 @@
    `pause=False`,改为删除)。**收尾同步失败时不删除**(删除会丢最后一个同步周期),下一轮再试;
    暂停不丢数据(内存快照完整),所以收尾失败也照样暂停。
 3. 暂停超过 `retain_s` 的删除(数据早已在收尾时写回 NAS)。
-4. 离平台寿命上限不到 `renew_margin_s` 的续期:在跑的续一个完整寿命;暂停的续到保留期满为止。
+4. 平台寿命(只在 `sandbox_timeout_s > 0` 时有):平台到点直接删、不能续期、虚拟机收不到信号(实测),
+   所以离到期不到 `expire_margin_s` 就收尾、放开独占后删除,下次请求按新沙箱重建。有会话在跑的等到最后三分之一再动;
+   暂停的若暂停前已回写就直接删,没回写成的只能记日志(恢复后地址拿不准,收尾做不了)。
 5. 换版(发版换了模板):旧版沙箱闲置时收尾并放开独占后删除,下次登录按新模板重建;收尾失败就照旧暂停
    (记 `gsdb-synced=0`),下次恢复后再来。已暂停且暂停前收尾成功(`gsdb-synced=1`)的旧版沙箱直接删除。
    在跑、有人在用的旧版沙箱不打断。`summary()` 里 `outdated` 是还剩多少台旧版,发版台据此看换版进度。
@@ -21,8 +23,8 @@ import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import opensandbox as osb
-from .fuyaorouter import (APP, MD_ACTIVE, MD_APP, MD_PAUSED, MD_SYNCED, MD_TEMPLATE, FuyaoRouter, busy, outdated,
-                          owner, synced_before_pause)
+from .fuyaorouter import (APP, MD_ACTIVE, MD_APP, MD_PAUSED, MD_SYNCED, MD_TEMPLATE, FuyaoRouter, busy, expires_at,
+                          outdated, owner, synced_before_pause)
 
 ACTIONS = ("stop", "pause", "resume", "delete")
 
@@ -39,11 +41,11 @@ def last_active(s: osb.Sandbox) -> float:
 
 
 class FuyaoSweeper:
-    def __init__(self, router: FuyaoRouter, sweep_s: int = 30, renew_margin_s: int = 3600,
+    def __init__(self, router: FuyaoRouter, sweep_s: int = 30,
                  busy_check: Callable[[str, str], bool] = busy, log: Callable[[str], None] = print,
                  clock: Callable[[], float] = time.time):
         self.router, self.os, self.policy = router, router.os, router.policy
-        self.sweep_s, self.renew_margin_s, self.busy_check = sweep_s, renew_margin_s, busy_check
+        self.sweep_s, self.busy_check = sweep_s, busy_check
         self.log, self.clock = log, clock
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -52,7 +54,7 @@ class FuyaoSweeper:
 
     def sweep(self, now: Optional[float] = None) -> Dict[str, int]:
         now = self.clock() if now is None else now
-        counts = {"active": 0, "retired": 0, "deleted": 0, "renewed": 0, "busy": 0, "failed": 0, "upgraded": 0}
+        counts = {"active": 0, "retired": 0, "deleted": 0, "expired": 0, "busy": 0, "failed": 0, "upgraded": 0}
         acts = self.router.drain_activity()
         try:
             boxes = self.os.list({MD_APP: APP})
@@ -65,13 +67,15 @@ class FuyaoSweeper:
             user, kind = owner(s)
             seen = max(last_active(s), acts.get((user, kind), 0.0))
             try:
+                left = self._left(s, now)
                 if s.running:
                     counts["active"] += 1
-                    if now - seen >= self.policy.idle_s:
+                    if left is not None:
+                        r = self.expire(s, left)
+                        counts[r] = counts.get(r, 0) + 1
+                    elif now - seen >= self.policy.idle_s:
                         r = self.retire(s, now)
                         counts[r] = counts.get(r, 0) + 1
-                    elif self._renew(s, now, now + self.policy.sandbox_timeout_s):
-                        counts["renewed"] += 1
                 elif s.paused:
                     paused_at = _num(s.metadata.get(MD_PAUSED)) or seen
                     if outdated(s, self.policy) and synced_before_pause(s):
@@ -80,8 +84,13 @@ class FuyaoSweeper:
                     elif now - paused_at >= self.policy.retain_s:
                         self._delete(s, "暂停超过保留期")
                         counts["deleted"] += 1
-                    elif self._renew(s, now, paused_at + self.policy.retain_s):
-                        counts["renewed"] += 1
+                    elif left is not None and synced_before_pause(s):
+                        self._delete(s, "快到平台寿命上限,暂停前已收尾回写")
+                        counts["expired"] += 1
+                    elif left is not None:
+                        counts["failed"] += 1
+                        self.log("Fuyao 清扫:%s 的沙箱 %s 还有 %d 秒到平台寿命上限,暂停前没回写成,到期会丢最后一个同步周期"
+                                 % (user, s.id, int(left)))
             except osb.OpenSandboxError as exc:
                 counts["failed"] += 1
                 self.log("Fuyao 清扫:处理沙箱 %s(%s)失败:%s" % (s.id, user, exc))
@@ -133,11 +142,23 @@ class FuyaoSweeper:
         self.router.forget_sandbox(s.id)
         self.log("Fuyao:删除 %s 的沙箱 %s(%s)" % (owner(s)[0], s.id, why))
 
-    def _renew(self, s: osb.Sandbox, now: float, until: float) -> bool:
-        if not s.expires_at or s.expires_at - now >= self.renew_margin_s or until <= s.expires_at:
-            return False
-        self.os.renew(s.id, until)
-        return True
+    def _left(self, s: osb.Sandbox, now: float) -> Optional[float]:
+        """离平台寿命上限还剩几秒;不到 expire_margin_s 才返回,否则 None(没有寿命也是 None)。"""
+        e = expires_at(s)
+        if not e or e - now >= self.policy.expire_margin_s:
+            return None
+        return max(e - now, 0.0)
+
+    def expire(self, s: osb.Sandbox, left: float) -> str:
+        """快到平台寿命上限:收尾、放开独占后删除(平台到点直接删,虚拟机收不到信号)。返回 expired / busy / failed。"""
+        user, _kind = owner(s)
+        host = self.os.address(s.id)
+        if user and left > self.policy.expire_margin_s / 3 and self.busy_check(host, self.router.password_for(user)):
+            return "busy"                           # 有会话在跑:等到最后三分之一再动
+        if not self.router.stop(s.id, host, release=True):
+            return "failed"                         # 下一轮再试;真到期平台会删,至多丢最后一个同步周期
+        self._delete(s, "快到平台寿命上限(还剩 %d 秒),已收尾回写" % int(left))
+        return "expired"
 
     # -- 运维接口(/admin/fuyao) -------------------------------------------------------------------
 
@@ -149,7 +170,7 @@ class FuyaoSweeper:
             items.append({"sandbox": s.id, "user_id": user, "kind": kind, "state": s.state,
                           "template": s.metadata.get(MD_TEMPLATE, ""), "outdated": outdated(s, self.policy),
                           "last_active": last_active(s), "paused_at": _num(s.metadata.get(MD_PAUSED)) or None,
-                          "expires_at": s.expires_at or None})
+                          "expires_at": expires_at(s) or None})
         states: Dict[str, int] = {}
         for it in items:
             states[it["state"]] = states.get(it["state"], 0) + 1
@@ -161,8 +182,9 @@ class FuyaoSweeper:
     def act(self, verb: str, sandbox_id: str) -> Tuple[int, dict]:
         if verb not in ACTIONS:
             return 404, {"error": "没有这个动作,只能是 %s" % " / ".join(ACTIONS)}
-        s = self.os.get(sandbox_id)
-        if s is None or s.metadata.get(MD_APP) != APP:
+        # 不用单台查询:平台的 GET /v1/sandboxes/{id} 不带业务 metadata(实测),只能从列举里认是不是本智能体的
+        s = next((b for b in self.os.list({MD_APP: APP}) if b.id == sandbox_id), None)
+        if s is None:
             return 404, {"error": "没有这台沙箱(或不是本智能体的)"}
         now = self.clock()
         if verb == "resume":

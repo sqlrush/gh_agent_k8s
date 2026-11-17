@@ -4,7 +4,8 @@
 - 建沙箱要 extensions.sandboxGroup、resourceLimits、非空 entrypoint;沙箱组满了回 503「no available capacity」;
 - metadata 原样存、可 PATCH(值为 None 删键)、列举按 metadata 过滤(查询串 `k=v&k2=v2`);
 - 暂停后恢复会换地址;`stale_after_resume=True` 时 /endpoints 仍回旧地址(平台的已知问题);
-- 删除即时生效。
+- 删除即时生效;
+- 单台查询(GET /v1/sandboxes/{id})不带业务 metadata、列举与单台查询都不带 expiresAt,只有建沙箱的回包带(端到端实测)。
 """
 import itertools
 import json
@@ -88,11 +89,14 @@ class FakeOpenSandbox:
 
     # -- 协议 -----------------------------------------------------------------------------------
 
-    def _json(self, bid):
+    def _json(self, bid, view="list"):
         b = self.boxes[bid]
         iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))      # noqa: E731
-        return {"id": bid, "status": {"state": b["state"]}, "metadata": b["metadata"],
-                "createdAt": iso(b["created"]), "expiresAt": iso(b["expires"])}
+        out = {"id": bid, "status": {"state": b["state"]}, "createdAt": iso(b["created"]),
+               "metadata": b["metadata"] if view != "get" else {"sandbox.flux.io/sandbox-id": bid}}
+        if view == "create" and b["expires"]:
+            out["expiresAt"] = iso(b["expires"])
+        return out
 
     def handle(self, method, path, query, body):
         parts = [p for p in path.split("/") if p]          # ['v1','sandboxes',id,...]
@@ -113,7 +117,7 @@ class FakeOpenSandbox:
             return 404, {"detail": {"message": "sandbox not found"}}
         b = self.boxes[bid]
         if len(parts) == 3 and method == "GET":
-            return 200, self._json(bid)
+            return 200, self._json(bid, "get")
         if len(parts) == 3 and method == "DELETE":
             del self.boxes[bid]
             return 204, None
@@ -138,10 +142,6 @@ class FakeOpenSandbox:
                 else:
                     b["metadata"][k] = str(v)
             return 200, self._json(bid)
-        if verb == "renew-expiration" and method == "POST":
-            t = time.strptime(body["expiresAt"], "%Y-%m-%dT%H:%M:%SZ")
-            b["expires"] = float(__import__("calendar").timegm(t))
-            return 200, {"expiresAt": body["expiresAt"]}
         return 404, {"detail": "no route"}
 
     def _create(self, body):
@@ -157,10 +157,11 @@ class FakeOpenSandbox:
         if group in self.capacity and used >= self.capacity[group]:
             return 503, {"detail": {"message": "no available capacity in sandbox group %s" % group}}
         bid = self.add(body.get("metadata") or {}, group=group, template=(body.get("image") or {}).get("uri"),
-                       expires=time.time() + int(body.get("timeout") or 3600))
+                       expires=time.time() + int(body["timeout"]) if body.get("timeout") else 0)
+        self.boxes[bid]["timeout"] = body.get("timeout")
         if self.on_create is not None:
             self.on_create(self, bid)
-        return 202, self._json(bid)
+        return 202, self._json(bid, "create")
 
 
 class FakeEnvd:

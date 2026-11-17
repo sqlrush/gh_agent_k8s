@@ -32,6 +32,7 @@ from .poolrouter import NotActive, PoolFull, PoolWait, Target
 APP = "gaussdb-agent"
 MD_APP, MD_USER, MD_KIND, MD_ACTIVE, MD_PAUSED = "gsdb-app", "gsdb-user", "gsdb-kind", "gsdb-active", "gsdb-paused"
 MD_TEMPLATE, MD_SYNCED = "gsdb-template", "gsdb-synced"     # 建它的模板;暂停前收尾回写是否成功("1" / "0")
+MD_EXPIRES = "gsdb-expires"                                  # 平台寿命的到期时刻(只在 sandbox_timeout_s > 0 时有)
 OPENCODE_PORT, REPORTS_PORT, CLIP_PORT = 4096, 4097, 4095
 KINDS = (KIND_RUNTIME, KIND_KB_IMPORT)
 RELAUNCH_GAP_S = 30.0
@@ -47,7 +48,9 @@ class Policy:
     groups: Mapping[str, str]                    # 种类 → 沙箱组
     cpu: str = "2"
     memory: str = "4Gi"
-    sandbox_timeout_s: int = 86400               # 平台的沙箱寿命(现场上限 24 小时),回收器在到期前续期
+    sandbox_timeout_s: int = 0                   # 0 = 不给平台寿命(实测:不带 timeout 就没有到期时间)。
+    # >0:平台到点直接删、不能续期、虚拟机收不到信号(实测,上限 24 小时)—— 清扫器在到期前 expire_margin_s 收尾后删除
+    expire_margin_s: int = 900
     idle_s: int = 1800                           # 闲置多久收尾并暂停(或删除)
     retain_s: int = 7 * 86400                    # 暂停多久后删除
     pause: bool = True                           # False:闲置即收尾后删除(平台不支持暂停时)
@@ -102,6 +105,14 @@ def outdated(s: osb.Sandbox, policy: Policy) -> bool:
 
 def synced_before_pause(s: osb.Sandbox) -> bool:
     return s.metadata.get(MD_SYNCED) == "1"
+
+
+def expires_at(s: osb.Sandbox) -> float:
+    """平台寿命的到期时刻;0 = 没有。列举接口不回 expiresAt(实测),建沙箱时记进 metadata。"""
+    try:
+        return s.expires_at or float(s.metadata.get(MD_EXPIRES) or 0)
+    except ValueError:
+        return 0.0
 
 
 class FuyaoRouter:
@@ -236,8 +247,10 @@ class FuyaoRouter:
 
     def _create(self, user: str, kind: str) -> osb.Sandbox:
         p = self.policy
-        md = {MD_APP: APP, MD_USER: user, MD_KIND: kind, MD_ACTIVE: str(int(self.clock())),
-              MD_TEMPLATE: p.templates[kind]}
+        now = self.clock()
+        md = {MD_APP: APP, MD_USER: user, MD_KIND: kind, MD_ACTIVE: str(int(now)), MD_TEMPLATE: p.templates[kind]}
+        if p.sandbox_timeout_s > 0:          # 建之前取时刻:比平台算的早一点,只会提前收尾
+            md[MD_EXPIRES] = str(int(now + p.sandbox_timeout_s))
         try:
             s = self.os.create(p.templates[kind], p.groups[kind], md, p.cpu, p.memory, p.sandbox_timeout_s)
         except osb.CapacityError:

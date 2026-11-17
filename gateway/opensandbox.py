@@ -133,9 +133,11 @@ class Client:
 
     def create(self, template: str, group: str, metadata: Mapping[str, str], cpu: str, memory: str,
                timeout_s: int) -> Sandbox:
-        body = {"image": {"uri": template}, "entrypoint": ENTRYPOINT_PLACEHOLDER, "timeout": int(timeout_s),
+        body = {"image": {"uri": template}, "entrypoint": ENTRYPOINT_PLACEHOLDER,
                 "resourceLimits": {"cpu": cpu, "memory": memory}, "metadata": dict(metadata),
                 "extensions": {"sandboxGroup": group}}
+        if timeout_s > 0:                    # 不带 timeout = 没有到期时间(实测);带了平台到点直接删,不能续期
+            body["timeout"] = int(timeout_s)
         code, out = self._call("POST", "/v1/sandboxes", body)
         out = self._ok("建沙箱", code, out)
         if not isinstance(out, dict) or not out.get("id"):
@@ -198,8 +200,3 @@ class Client:
         code, out = self._call("PATCH", "/v1/sandboxes/%s/metadata" % urllib.parse.quote(sandbox_id, safe=""),
                                dict(patch))
         self._ok("改沙箱 metadata", code, out)
-
-    def renew(self, sandbox_id: str, expires_at: float) -> None:
-        code, out = self._call("POST", "/v1/sandboxes/%s/renew-expiration" % urllib.parse.quote(sandbox_id, safe=""),
-                               {"expiresAt": _iso(expires_at)})
-        self._ok("续期沙箱", code, out)

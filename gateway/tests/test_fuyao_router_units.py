@@ -240,7 +240,7 @@ def test_forget_drops_the_cached_target(env):
 # -- 回收器 ------------------------------------------------------------------------------------------
 
 def _sweeper(router, clock, busy=lambda h, p: False):
-    return fs.FuyaoSweeper(router, sweep_s=30, renew_margin_s=600, busy_check=busy, log=lambda m: None, clock=clock)
+    return fs.FuyaoSweeper(router, sweep_s=30, busy_check=busy, log=lambda m: None, clock=clock)
 
 
 def test_activity_is_written_into_sandbox_metadata_and_kept_when_writing_fails(env):
@@ -290,16 +290,64 @@ def test_a_sandbox_paused_beyond_the_retention_is_deleted(env):
     assert _sweeper(router, clock).sweep()["deleted"] == 1 and bid not in fake.boxes
 
 
-def test_sandboxes_near_expiry_are_renewed_paused_ones_only_until_retention_ends(env):
+def test_by_default_no_platform_lifetime_is_requested(env):
+    fake, _envd, router, _clock, *_ = env
+    t = router.target("u1001")
+    create = [b for m, p, b, _h in fake.requests if m == "POST" and p == "/v1/sandboxes"][0]
+    assert "timeout" not in create, "不带 timeout:平台不设到期时间(实测),生命周期由网关管"
+    assert "gsdb-expires" not in fake.boxes[t.pod]["metadata"]
+
+
+def _with_lifetime(router, seconds=3600):
+    router.policy = POLICY.__class__(**dict(POLICY.__dict__, sandbox_timeout_s=seconds))
+    return router.policy
+
+
+def test_with_a_platform_lifetime_the_sandbox_is_synced_released_and_deleted_before_it_expires(env):
+    fake, envd, router, clock, *_ = env
+    policy = _with_lifetime(router)
+    t = router.target("u1001")
+    create = [b for m, p, b, _h in fake.requests if m == "POST" and p == "/v1/sandboxes"][0]
+    assert create["timeout"] == 3600
+    assert fake.boxes[t.pod]["metadata"]["gsdb-expires"] == str(int(clock.t + 3600)), "列举不回 expiresAt,自己记"
+    sw = _sweeper(router, clock, busy=lambda h, p: True)
+    sw.policy = policy
+    clock.t += 3600 - 900 - 5
+    router.note_activity("u1001")
+    assert sw.sweep()["expired"] == 0 and t.pod in fake.boxes
+    clock.t += 10
+    out = sw.sweep()
+    assert out["busy"] == 1 and t.pod in fake.boxes, "有会话在跑:等到最后三分之一"
+    clock.t += 600
+    assert sw.sweep()["expired"] == 1 and t.pod not in fake.boxes, "最后五分钟:有会话也收尾删除(平台到点会直接删)"
+    assert envd.runs[-1][1][-2:] == ["fuyao-stop", "--release"]
+    assert router.target("u1001").pod != t.pod, "下次请求按新沙箱重建"
+
+
+def test_a_sandbox_whose_final_sync_fails_near_expiry_is_kept_for_another_try(env):
+    fake, envd, router, clock, *_ = env
+    sw = _sweeper(router, clock)
+    sw.policy = _with_lifetime(router)
+    t = router.target("u1001")
+    clock.t += 3600 - 60
+    envd.fail_stop = True
+    assert sw.sweep()["failed"] == 1 and t.pod in fake.boxes, "收尾没成不删,下一轮再试"
+
+
+def test_paused_sandboxes_near_expiry_are_deleted_only_if_synced_before_pause(env):
     fake, _envd, router, clock, *_ = env
-    run = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime",
-                    "gsdb-active": str(int(clock.t))}, expires=clock.t + 300)
-    paused = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1002", "gsdb-kind": "runtime",
-                       "gsdb-paused": str(int(clock.t - 86000))}, state="Paused", expires=clock.t + 300)
-    out = _sweeper(router, clock).sweep()
-    assert out["renewed"] == 2
-    assert fake.boxes[run]["expires"] == pytest.approx(clock.t + POLICY.sandbox_timeout_s, abs=2)
-    assert fake.boxes[paused]["expires"] == pytest.approx(clock.t - 86000 + 86400, abs=2), "暂停的只续到保留期满"
+    logs = []
+    sw = fs.FuyaoSweeper(router, sweep_s=30, busy_check=lambda h, p: False, log=logs.append, clock=clock)
+    sw.policy = _with_lifetime(router)
+    soon = str(int(clock.t + 300))
+    ok = _box(fake, "u1001", "tpl-run", **{"gsdb-synced": "1", "gsdb-paused": str(int(clock.t)), "gsdb-expires": soon})
+    bad = _box(fake, "u1002", "tpl-run", **{"gsdb-synced": "0", "gsdb-paused": str(int(clock.t)), "gsdb-expires": soon})
+    later = _box(fake, "u1003", "tpl-run", **{"gsdb-synced": "1", "gsdb-paused": str(int(clock.t)),
+                                              "gsdb-expires": str(int(clock.t + 7200))})
+    out = sw.sweep()
+    assert out["expired"] == 1 and ok not in fake.boxes and later in fake.boxes
+    assert out["failed"] == 1 and bad in fake.boxes and "没回写成" in "\n".join(logs)
+    assert sw.summary()["sandboxes"][0]["expires_at"] is not None
 
 
 def test_admin_summary_and_actions(env):

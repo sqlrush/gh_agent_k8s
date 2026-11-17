@@ -233,7 +233,7 @@ def test_an_idle_sandbox_is_synced_then_paused_and_a_busy_one_is_left_alone(env)
     out = _sweeper(router, clock).sweep()
     assert out["retired"] == 1 and fake.boxes[t.pod]["state"] == "Paused"
     assert fake.boxes[t.pod]["metadata"]["gsdb-paused"] == str(int(clock.t))
-    assert [r[1][-1] for r in envd.runs] == ["fuyao-start", "fuyao-stop"], "先收尾,再暂停"
+    assert [r[1][-1] for r in envd.runs] == ["fuyao-start", "fuyao-stop"], "先收尾,再暂停(暂停不放开独占)"
     assert router.cached() == {}
 
 
@@ -248,6 +248,7 @@ def test_without_pause_a_sandbox_whose_final_sync_failed_is_not_deleted(env):
     assert sw.sweep()["failed"] == 1 and t.pod in fake.boxes, "删了会丢最后一个同步周期"
     envd.fail_stop = False
     assert sw.sweep()["retired"] == 1 and t.pod not in fake.boxes
+    assert envd.runs[-1][1][-2:] == ["fuyao-stop", "--release"], "删除之前放开独占,新沙箱不用等它过期"
 
 
 def test_a_sandbox_paused_beyond_the_retention_is_deleted(env):

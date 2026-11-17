@@ -281,10 +281,11 @@ class FuyaoRouter:
             tail = (res.stderr or res.stdout).strip().splitlines()[-3:]
             raise LaunchError("退出码 %d:%s" % (res.exit_code, " / ".join(tail)[:400]))
 
-    def stop(self, sandbox_id: str, host: str) -> bool:
-        """收尾同步(删除 / 暂停之前)。成功返回 True。"""
+    def stop(self, sandbox_id: str, host: str, release: bool = False) -> bool:
+        """收尾同步(删除 / 暂停之前)。release:同时放开本人目录的独占(删除之前;暂停时不放,回来还是这台)。"""
+        argv = list(self.policy.stop_argv) + (["--release"] if release else [])
         try:
-            res = self.envd.run(host, list(self.policy.stop_argv), user="root", timeout_s=self.policy.stop_timeout_s)
+            res = self.envd.run(host, argv, user="root", timeout_s=self.policy.stop_timeout_s)
         except sandboxexec.ExecError as exc:
             self.log("Fuyao:沙箱 %s 收尾同步时连不上:%s" % (sandbox_id, exc))
             return False

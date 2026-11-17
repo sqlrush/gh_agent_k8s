@@ -1,0 +1,157 @@
+"""沙箱里的启动器(docker/fuyao.py)与 entrypoint.sh 的 FUYAO 分支(2026-11-17)。
+
+启动器对着真的状态服务跑(临时目录当 NAS 与沙箱本地盘);systemd 与 opencode 探活用替身。要点:
+- 删掉撑磁盘的占位文件;沙箱令牌只进 root 可读的文件,给 agent 的环境里没有令牌、没有集群服务地址、没有任何密钥;
+- 先拿独占再载入;拉知识库;按顺序起中继、同步、agent 三个服务;探活通过才返回;已在运行时不重复启动;
+- 后台同步:续独占、回写、诊断环境拉知识库;独占丢了就停;
+- 收尾:完整回写、清 dirty、--release 时放开独占;
+- entrypoint.sh 在 FUYAO=1 时跳过独占、载入、回写、收尾(这些在 root 侧),只跑服务与 WAL 合并。
+"""
+import os
+import pathlib
+import re
+import stat
+import sys
+import threading
+import time
+
+import pytest
+
+_ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT / "docker"))
+
+import fuyao  # noqa: E402
+import remotesync as rs  # noqa: E402
+import sbxtoken  # noqa: E402
+import statesvc  # noqa: E402
+import statesync  # noqa: E402
+
+KEY = b"c" * 32
+
+
+@pytest.fixture()
+def box(tmp_path, monkeypatch):
+    nas = tmp_path / "nas"
+    (nas / "users" / "u1001" / "workspace").mkdir(parents=True)
+    (nas / "users" / "u1001" / "workspace" / "a.txt").write_text("A")
+    (nas / "kb" / "cases").mkdir(parents=True)
+    (nas / "kb" / "cases" / "c1.md").write_text("案例")
+    svc = statesvc.Service(str(nas), KEY, log=lambda m: None)
+    srv = statesvc.ThreadingHTTPServer(("127.0.0.1", 0), statesvc.handler(svc))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    data, run, var = tmp_path / "data", tmp_path / "run", tmp_path / "var"
+    data.mkdir()
+    for name, val in (("DATA", data), ("ME", data / "me"), ("KB", data / "kb"), ("RUN", run),
+                      ("TOKEN_FILE", run / "sandbox-token"), ("ROOT_ENV", run / "root.env"),
+                      ("AGENT_ENV", run / "agent.env"), ("VAR", var), ("KB_STATE", var / "kb-state.json"),
+                      ("RESERVE", var / "disk-reserve")):
+        monkeypatch.setattr(fuyao, name, str(val))
+    var.mkdir()
+    (var / "disk-reserve").write_bytes(b"\0" * 1024)
+    units, state = [], {"up": False}
+
+    def run_unit(name, argv, env_path=None, uid=None, gid=None, restart="on-failure", workdir="/data"):
+        units.append((name, argv, env_path, uid))
+        if name == fuyao.UNIT_AGENT:
+            state["up"] = True
+    monkeypatch.setattr(fuyao, "run_unit", run_unit)
+    monkeypatch.setattr(fuyao, "active", lambda name: state["up"])
+    monkeypatch.setattr(fuyao, "healthy", lambda pw, timeout=3.0: state["up"] and pw == "pw-1")
+    env = {"GSDB_USER_ID": "u1001", "GSDB_KIND": "runtime", "GSDB_SANDBOX_ID": "sbx-1",
+           "GSDB_SANDBOX_TOKEN": sbxtoken.issue(KEY, "sbx-1", "u1001", "runtime"),
+           "GSDB_STATE_URL": "http://127.0.0.1:%d" % srv.server_address[1], "GSDB_CREDPROXY_URL": "http://10.0.0.9:8091",
+           "OPENCODE_SERVER_PASSWORD": "pw-1", "GSDB_REPORTS_TOKEN": "rt-1",
+           "GSDB_AGENT_UID": str(os.getuid()), "GSDB_AGENT_GID": str(os.getgid()),
+           "MODEL_ID": "m1", "GRMP_API_HOST": "10.0.0.5", "MODEL_API_KEY": "不该出现", "GRMP_AUTH_TOKEN": "不该出现",
+           "PATH": "/usr/bin"}
+    yield env, nas, data, units, state
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_start_loads_state_and_kb_writes_secrets_root_only_and_starts_the_three_units(box):
+    env, nas, data, units, _state = box
+    assert fuyao.start(env) == 0
+    assert not os.path.exists(fuyao.RESERVE), "占位文件删掉,空间留给用户状态"
+    assert (data / "me" / "workspace" / "a.txt").read_text() == "A" and (data / "kb" / "cases" / "c1.md").exists()
+    assert (nas / "users" / "u1001" / ".owner").exists() and (nas / "users" / "u1001" / statesync.MARK_DIRTY).exists()
+    assert stat.S_IMODE(os.stat(fuyao.TOKEN_FILE).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(fuyao.ROOT_ENV).st_mode) == 0o600
+    agent = fuyao.read_env_file(fuyao.AGENT_ENV)
+    for k in ("GSDB_SANDBOX_TOKEN", "GSDB_STATE_URL", "GSDB_CREDPROXY_URL", "MODEL_API_KEY", "GRMP_AUTH_TOKEN", "PATH"):
+        assert k not in agent, "agent 的环境里不该有 %s" % k
+    assert agent["OPENCODE_SERVER_PASSWORD"] == "pw-1" and agent["REPORTS_TOKEN"] == "rt-1" and agent["FUYAO"] == "1"
+    assert agent["GRMP_PROXY_SOCKET"] == "/run/credproxy/credproxy.sock" and agent["MODEL_ID"] == "m1"
+    assert agent["NAS_ME"] == fuyao.ME and agent["TZ"] == "Asia/Shanghai", "镜像 ENV 在 systemd 服务里不生效,要补"
+    assert [u[0] for u in units] == [fuyao.UNIT_RELAY, fuyao.UNIT_SYNC, fuyao.UNIT_AGENT]
+    assert units[2][3] == int(env["GSDB_AGENT_UID"]) and units[0][3] is None, "中继、同步以 root,opencode 以 agent"
+    assert fuyao.start(env) == 0 and len(units) == 3, "已在运行:不重复启动"
+
+
+def test_the_import_environment_gets_a_writable_kb_and_its_clip_receiver(box):
+    env, nas, data, units, _s = box
+    env = dict(env, GSDB_KIND="kb-import", GSDB_SANDBOX_TOKEN=sbxtoken.issue(KEY, "sbx-1", "u1001", "kb-import"))
+    (nas / "kb" / "docsets" / "G1").mkdir(parents=True)
+    (nas / "kb" / "docsets" / "G1" / "a.md").write_text("官方")
+    assert fuyao.start(env) == 0
+    assert (data / "kb" / "docsets" / "G1" / "a.md").exists(), "导入环境要官方文档集一起建索引"
+    agent = fuyao.read_env_file(fuyao.AGENT_ENV)
+    assert agent["KB_CLIP_RECEIVER"] == "1" and agent["GSDB_KB_INBOX"] == fuyao.KB + "/inbox/uploads"
+    assert (nas / "admins" / "u1001" / ".owner").exists()
+
+
+def test_missing_launch_settings_or_a_busy_lease_do_not_start(box, monkeypatch):
+    env, nas, _d, units, _s = box
+    assert fuyao.start(dict(env, GSDB_SANDBOX_TOKEN="")) == 2 and not units
+    other = rs.Client(env["GSDB_STATE_URL"], sbxtoken.issue(KEY, "sbx-old", "u1001", "runtime"))
+    rs.lease(other, "acquire")
+    monkeypatch.setattr(fuyao, "LEASE_WAIT_S", 0)
+    assert fuyao.start(env) == 3 and not units, "上一台沙箱还持有独占:不启动、不碰状态"
+
+
+def test_syncloop_writes_back_and_stop_finishes_and_releases(box, monkeypatch):
+    env, nas, data, _units, _s = box
+    assert fuyao.start(env) == 0
+    (data / "me" / "workspace" / "b.txt").write_text("B")
+    root_env = fuyao.read_env_file(fuyao.ROOT_ENV)
+    assert fuyao.syncloop(root_env, once=True) == 0
+    assert (nas / "users" / "u1001" / "workspace" / "b.txt").read_text() == "B"
+    (data / "me" / "workspace" / "c.txt").write_text("C")
+    monkeypatch.setattr(fuyao, "PODCTL", ["true"])
+    assert fuyao.stop(release=True) == 0
+    u = nas / "users" / "u1001"
+    assert (u / "workspace" / "c.txt").read_text() == "C" and not (u / statesync.MARK_DIRTY).exists()
+    assert not (u / ".owner").exists(), "删除之前放开独占"
+
+
+def test_syncloop_stops_when_the_lease_is_gone(box):
+    env, nas, _d, _u, _s = box
+    assert fuyao.start(env) == 0
+    (nas / "users" / "u1001" / ".owner").write_text('{"pod": "sbx/someone-else", "ts": %f}' % time.time())
+    assert fuyao.syncloop(fuyao.read_env_file(fuyao.ROOT_ENV), once=True) == 0
+
+
+def test_env_file_round_trips_quotes_and_drops_multiline_values():
+    text = fuyao.env_file({"A": 'x"y\\z', "B": "line1\nline2", "BAD-KEY": "v", "C": "plain"})
+    assert 'A="x\\"y\\\\z"' in text and "B=" not in text and "BAD-KEY" not in text
+    p = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / ("envfile-%d" % os.getpid())
+    p.write_text(text)
+    try:
+        assert fuyao.read_env_file(str(p)) == {"A": 'x"y\\z', "C": "plain"}
+    finally:
+        p.unlink()
+
+
+# -- entrypoint.sh 的 FUYAO 分支 ----------------------------------------------------------------------
+
+_EP = (_ROOT / "docker" / "entrypoint.sh").read_text(encoding="utf-8")
+
+
+def test_entrypoint_in_fuyao_mode_leaves_lease_load_sync_and_finish_to_the_root_side():
+    assert re.search(r'^if \[ "\$FUYAO" != "1" \]; then\n\s+\$PODCTL owner-acquire', _EP, re.M), "独占由状态服务管"
+    assert '[ "$FUYAO" = "1" ] || $PODCTL state-load' in _EP, "载入由启动器做"
+    assert '[ "$FUYAO" = "1" ] || $PODCTL state-sync' in _EP, "回写由 root 的 gsdb-statesync 做"
+    m = re.search(r'^if \[ "\$FUYAO" = "1" \]; then\n(.*?)^fi$', _EP, re.M | re.S)
+    assert m and 'exit "$RC"' in m.group(1) and m.start() < _EP.index("state-finish"), "收尾由 fuyao-stop 做"
+    loop = _EP[_EP.index('( while sleep "$STATE_SYNC_SECONDS"'):]
+    assert "db-checkpoint" in loop.split("done )")[0], "WAL 合并照做,以 agent 身份"

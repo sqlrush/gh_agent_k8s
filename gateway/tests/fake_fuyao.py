@@ -187,7 +187,7 @@ class FakeEnvd:
                 return self._mod.Result(2, "", "启动器:载入状态失败\n")
             self.ready.add(host)
             return self._mod.Result(0, "ok\n", "")
-        if argv[-1] == "fuyao-stop":
+        if "fuyao-stop" in argv:
             return self._mod.Result(1 if self.fail_stop else 0, "", "收尾失败\n" if self.fail_stop else "")
         return self._mod.Result(0, "", "")
 

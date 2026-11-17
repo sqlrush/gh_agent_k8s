@@ -102,7 +102,7 @@ class FuyaoSweeper:
         host = self.os.address(s.id)
         if user and self.busy_check(host, self.router.password_for(user)):
             return "busy"
-        synced = self.router.stop(s.id, host)
+        synced = self.router.stop(s.id, host, release=not self.policy.pause)
         if self.policy.pause:
             self.os.pause(s.id)
             self.os.patch_metadata(s.id, {MD_PAUSED: str(int(now))})
@@ -159,7 +159,7 @@ class FuyaoSweeper:
             return 200, {"sandbox": s.id, "synced": self.router.stop(s.id, self.os.address(s.id))}
         synced = None
         if s.running:
-            synced = self.router.stop(s.id, self.os.address(s.id))
+            synced = self.router.stop(s.id, self.os.address(s.id), release=verb == "delete")
         if verb == "pause":
             if not s.running:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}

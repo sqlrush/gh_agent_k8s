@@ -45,12 +45,13 @@ ROOTS = {"runtime": "users", "kb-import": "admins"}
 KB = "kb"
 KB_VERSION = ".kb-version"
 KB_LOCK = ".lock"                       # agent/common/kb/lock.py
-KB_DOCSETS = "docsets"                  # 官方文档集,kbstd Job 管;诊断环境的模板里自带一份
+KB_DOCSETS = "docsets"                  # 官方文档集,kbstd Job 管;两种模板里都自带一份(随版本走),不经状态服务下发
 OWNER, GEN = ".owner", ".gen"           # 与 docker/podctl.py 相同
 LEASE_STALE_S = 90
 MAX_FILE = 4 << 30
 MAX_UPLOAD = 16 << 30
 KB_EXCLUDE_RUNTIME = ("inbox", KB_DOCSETS)
+KB_EXCLUDE_IMPORT = (KB_DOCSETS,)       # 导入环境首次启动不必拉一遍文档集(实测拉一遍要近两分钟)
 HDR_KB_BASE = "X-Gsdb-Kb-Base"
 
 
@@ -276,7 +277,7 @@ class Service:
     def _kb_skip_dir(kind: str) -> Callable[[str], bool]:
         if kind == "runtime":
             return lambda rel: rel in KB_EXCLUDE_RUNTIME
-        return lambda rel: False
+        return lambda rel: rel in KB_EXCLUDE_IMPORT
 
     @staticmethod
     def _kb_skip(rel: str) -> bool:

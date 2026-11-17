@@ -235,7 +235,8 @@ def test_only_the_import_environment_publishes_and_a_stale_base_writes_nothing(s
     imp = client(base, "sbx-i", "u2001", "kb-import")
     local, state = tmp / "ikb", str(tmp / "ikb-state.json")
     rs.kb_pull(imp, str(local), state, writable_by=(os.getuid(), os.getgid()))
-    assert (local / "docsets" / "G1" / "a.md").exists() and (local / "inbox" / "clips" / "x.md").exists()
+    assert not (local / "docsets").exists(), "文档集模板自带,导入环境也不拉"
+    assert (local / "inbox" / "clips" / "x.md").exists()
     assert rs.kb_publish(imp, str(local), state) == {"skipped": "unchanged"}
     (local / "cases" / "c3.md").write_text("新案例")
     (local / "inbox" / "clips" / "x.md").unlink()

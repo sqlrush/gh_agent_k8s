@@ -65,6 +65,12 @@ MAIN, E2B = _stages(_MAIN), _stages(_E2B)
 PAIRS = (("runtime-e2b", "runtime-prep", "runtime"), ("kbimport-e2b", "kbimport-prep", "kb-import"))
 
 
+def test_both_templates_carry_the_official_docsets():
+    for prep in ("runtime-prep", "kbimport-prep"):
+        assert ("COPY", "--from=docsets /out/kb/docsets /data/kb/docsets") in E2B[prep][1], \
+            "%s:状态服务不给两种环境下发 docsets,模板里要自带" % prep
+
+
 def test_both_template_targets_are_flattened_to_a_single_layer():
     for target, prep, _src in PAIRS:
         base, instrs = E2B[target]

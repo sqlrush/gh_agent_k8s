@@ -4,7 +4,8 @@
 # 在已发布的镜像上只加两样(业务代码与技能不变,模板与同版本的容器版逐字节同源):
 #   1. 磁盘占位文件:平台按「镜像大小 + 固定余量」定模板磁盘,模板参数里的 diskSizeMB 不生效(平台实测);
 #      全零文件撑大磁盘,沙箱启动时 podctl fuyao-start 删掉它,空间留给用户状态。全零数据压缩后只有几 MB。
-#   2. 诊断模板内置官方文档集(kb/docsets):沙箱挂不了 NAS,文档集随版本走,不必每台沙箱都从状态服务拉一遍。
+#   2. 两种模板都内置官方文档集(kb/docsets):沙箱挂不了 NAS,文档集随版本走,不必每台沙箱都从状态服务拉一遍
+#      (导入环境实测拉一遍近两分钟)。状态服务给两种环境的知识库清单都不含 docsets,发布也不动它。
 #      用导入镜像里的 `kb.py docset install` 装(与 kbstd-install Job、管理员手工安装是同一段代码)。
 #
 # **最后压成一层**(FROM scratch + COPY --from=… / /):平台的模板构建服务解层时**不处理 OCI whiteout**(实测):
@@ -39,6 +40,7 @@ RUN mkdir -p /var/lib/gsdb && chmod 0700 /var/lib/gsdb \
 FROM ${KBIMPORT_IMAGE} AS kbimport-prep
 ARG RESERVE_MB=6144
 USER root
+COPY --from=docsets /out/kb/docsets /data/kb/docsets
 RUN mkdir -p /var/lib/gsdb && chmod 0700 /var/lib/gsdb \
     && dd if=/dev/zero of=/var/lib/gsdb/disk-reserve bs=1M count=${RESERVE_MB} status=none
 

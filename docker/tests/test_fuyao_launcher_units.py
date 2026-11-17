@@ -94,7 +94,7 @@ def test_the_import_environment_gets_a_writable_kb_and_its_clip_receiver(box):
     (nas / "kb" / "docsets" / "G1").mkdir(parents=True)
     (nas / "kb" / "docsets" / "G1" / "a.md").write_text("官方")
     assert fuyao.start(env) == 0
-    assert (data / "kb" / "docsets" / "G1" / "a.md").exists(), "导入环境要官方文档集一起建索引"
+    assert not (data / "kb" / "docsets").exists(), "官方文档集在模板里自带,不经状态服务拉(拉一遍近两分钟)"
     agent = fuyao.read_env_file(fuyao.AGENT_ENV)
     assert agent["KB_CLIP_RECEIVER"] == "1" and agent["GSDB_KB_INBOX"] == fuyao.KB + "/inbox/uploads"
     assert (nas / "admins" / "u1001" / ".owner").exists()

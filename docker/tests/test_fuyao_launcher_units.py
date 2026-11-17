@@ -160,7 +160,7 @@ def test_entrypoint_in_fuyao_mode_leaves_lease_load_sync_and_finish_to_the_root_
 
 def test_instance_aliases_survive_the_env_file_with_the_same_meaning():
     import podctl
-    raw = "og7=10.0.0.71/postgres   # 管理员\nog7-mon=10.0.0.72/postgres\n\n"
+    raw = "db1=10.0.0.11/postgres   # 管理员\ndb1-mon=10.0.0.12/postgres\n\n"
     text = fuyao.env_file({"GRMP_INSTANCE_ALIASES": raw})
     p = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / ("envfile-al-%d" % os.getpid())
     p.write_text(text)

@@ -185,6 +185,37 @@ def test_a_failed_launch_becomes_a_wait_with_the_reason_logged_but_not_the_secre
     assert "pw-u1001" not in text and sbxtoken.PREFIX not in text, "日志里不出现口令与令牌"
 
 
+def test_cluster_service_names_are_resolved_before_they_reach_the_sandbox():
+    from gateway.__main__ import ip_url
+    seen = []
+
+    def resolve(host):
+        seen.append(host)
+        if host == "gone.example.svc":
+            raise OSError("Name or service not known")
+        return "10.96.0.7"
+    assert ip_url("http://statesvc.gaussdb-agent.svc:8090", resolve) == "http://10.96.0.7:8090"
+    assert ip_url("http://statesvc.gaussdb-agent.svc", resolve) == "http://10.96.0.7"
+    assert ip_url("http://10.96.0.8:8091", resolve) == "http://10.96.0.8:8091" and len(seen) == 2, "已是 IP 不解析"
+    for bad in ("http://gone.example.svc:8090", ""):
+        with pytest.raises(OSError):
+            ip_url(bad, resolve)
+
+
+def test_an_unresolvable_service_address_is_a_launch_failure_not_a_sandbox_with_a_dead_url(env):
+    fake, envd, _router, clock, logs, _p = env
+
+    def launch_env(u, k):
+        raise fr.LaunchError("解析状态服务 / 凭据代理服务地址失败:Name or service not known")
+    router = fr.FuyaoRouter(osb.Client(fake.url, timeout_s=5), envd, POLICY, KEY, password_for=lambda u: "pw-" + u,
+                            launch_env=launch_env, prereq=lambda u, k: None, prober=envd.prober, log=logs.append,
+                            clock=clock, sleep=clock.sleep)
+    with pytest.raises(poolrouter.PoolWait) as ei:
+        router.target("u1001")
+    assert ei.value.reason == "launch_failed" and "解析状态服务" in "\n".join(logs)
+    assert not [r for r in envd.runs if r[1][-1] == "fuyao-start"], "地址不对就不进沙箱启动"
+
+
 def test_the_import_environment_is_its_own_sandbox_from_its_own_template_and_group(env):
     fake, envd, router, *_ = env
     router.target("u1001")

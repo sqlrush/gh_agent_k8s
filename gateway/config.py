@@ -99,7 +99,7 @@ class Config:
     fuyao_pause: bool = True                # 平台不支持暂停时设 0:闲置即收尾后删除
     fuyao_sweep_seconds: int = 30
     fuyao_wait_seconds: int = 90
-    # 沙箱里访问的两个集群服务:虚拟机的 DNS 解析不了集群域名(平台实测),这里写 ClusterIP
+    # 沙箱里访问的两个集群服务:虚拟机的 DNS 解析不了集群域名(平台实测),网关下发前解析成 ClusterIP
     fuyao_state_url: str = ""
     fuyao_credproxy_url: str = ""
 

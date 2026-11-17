@@ -61,6 +61,24 @@ def agent_config_env(kube, ttl_s: float = 60.0):
     return get
 
 
+def ip_url(url: str, resolve=None) -> str:
+    """http://域名:端口 → http://IP:端口(网关所在的 Pod 能解析集群域名,沙箱不能)。已经是 IP 时原样返回;
+    解析失败抛 OSError —— 带着域名下发下去,沙箱里只会报一个看不懂的连接失败。"""
+    import socket
+    from urllib.parse import urlsplit, urlunsplit
+    u = urlsplit(url)
+    host = u.hostname or ""
+    if not host:
+        raise OSError("地址里没有主机名:%r" % url)
+    try:
+        socket.inet_aton(host)
+        return url
+    except OSError:
+        pass
+    ip = (resolve or socket.gethostbyname)(host)
+    return urlunsplit((u.scheme, "%s:%d" % (ip, u.port) if u.port else ip, u.path, u.query, u.fragment))
+
+
 def start_fuyao(cfg, kube, mgr, app):
     from . import fuyaorouter, fuyaosweeper, opensandbox, sandboxexec
     client = opensandbox.Client(cfg.fuyao_api, api_key=cfg.fuyao_api_key)
@@ -75,7 +93,12 @@ def start_fuyao(cfg, kube, mgr, app):
 
     def launch_env(user_id: str, kind: str) -> dict:
         env = base_env()
-        env.update({"GSDB_STATE_URL": cfg.fuyao_state_url, "GSDB_CREDPROXY_URL": cfg.fuyao_credproxy_url})
+        # 沙箱(虚拟机)的 DNS 解析不了集群域名(平台实测):配置里可以写 Service 域名,这里换成 ClusterIP 再下发
+        try:
+            env.update({"GSDB_STATE_URL": ip_url(cfg.fuyao_state_url),
+                        "GSDB_CREDPROXY_URL": ip_url(cfg.fuyao_credproxy_url)})
+        except OSError as exc:
+            raise fuyaorouter.LaunchError("解析状态服务 / 凭据代理服务地址失败:%s" % exc)
         return env
 
     def prereq(user_id: str, kind: str) -> None:

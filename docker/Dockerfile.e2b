@@ -1,0 +1,40 @@
+# Fuyao 运行模式(2026-11-17):构建 E2B 模板用的镜像。由 scripts/build-e2b-template.py 在构建服务所在的主机上构建,
+# 不推任何仓库 —— 导出成 OCI 目录后由 scripts/oci-serve.py 只读端出(127.0.0.1),平台的模板构建服务从那里拉。
+#
+# 在已发布的镜像上只加两样(业务代码与技能不变,模板与同版本的容器版逐字节同源):
+#   1. 磁盘占位文件:平台按「镜像大小 + 固定余量」定模板磁盘,模板参数里的 diskSizeMB 不生效(平台实测);
+#      全零文件撑大磁盘,沙箱启动时 podctl fuyao-start 删掉它,空间留给用户状态。全零数据压缩后只有几 MB。
+#   2. 诊断模板内置官方文档集(kb/docsets):沙箱挂不了 NAS,文档集随版本走,不必每台沙箱都从状态服务拉一遍。
+#      用导入镜像里的 `kb.py docset install` 装(与 kbstd-install Job、管理员手工安装是同一段代码)。
+#
+# 构建参数:
+#   RUNTIME_IMAGE / KBIMPORT_IMAGE / KBSTD_IMAGE   同一版本的三个镜像(本机 containerd 里已有,或可拉取)
+#   RESERVE_MB                                     占位文件大小,默认 6144(模板磁盘约 9.3GB,删后可用约 8GB)
+# 目标:runtime-e2b(诊断)、kbimport-e2b(导入)
+ARG RUNTIME_IMAGE
+ARG KBIMPORT_IMAGE
+ARG KBSTD_IMAGE
+
+FROM ${KBSTD_IMAGE} AS kbstd
+
+FROM ${KBIMPORT_IMAGE} AS docsets
+USER root
+COPY --from=kbstd /kbstd/ /packs/
+RUN mkdir -p /out/kb \
+    && python3 /opt/agent/config/opencode/skills/gaussdb-kb-import/scripts/kb.py docset install /packs --kb /out/kb \
+    && test -d /out/kb/docsets && chmod -R a+rX /out/kb/docsets
+
+FROM ${RUNTIME_IMAGE} AS runtime-e2b
+ARG RESERVE_MB=6144
+USER root
+COPY --from=docsets /out/kb/docsets /data/kb/docsets
+RUN mkdir -p /var/lib/gsdb && chmod 0700 /var/lib/gsdb \
+    && dd if=/dev/zero of=/var/lib/gsdb/disk-reserve bs=1M count=${RESERVE_MB} status=none
+USER agent
+
+FROM ${KBIMPORT_IMAGE} AS kbimport-e2b
+ARG RESERVE_MB=6144
+USER root
+RUN mkdir -p /var/lib/gsdb && chmod 0700 /var/lib/gsdb \
+    && dd if=/dev/zero of=/var/lib/gsdb/disk-reserve bs=1M count=${RESERVE_MB} status=none
+USER agent

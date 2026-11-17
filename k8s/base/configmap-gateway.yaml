@@ -68,8 +68,8 @@ data:
   FUYAO_PAUSE: "1"                  # 平台不支持暂停时设 0:闲置即收尾后删除
   FUYAO_SWEEP_SECONDS: "30"         # 清扫多久一轮(≥5)
   FUYAO_WAIT_SECONDS: "90"          # 一次请求为准备沙箱最多等多久;等不到回等待页(≥10)
-  FUYAO_STATE_URL: ""               # 状态服务地址(写 ClusterIP:沙箱解析不了集群域名),如 http://10.96.x.x:8090
-  FUYAO_CREDPROXY_URL: ""           # 凭据代理服务地址(同上)
+  FUYAO_STATE_URL: "http://statesvc.gaussdb-agent.svc:8090"     # 状态服务(k8s/fuyao/statesvc.yaml);网关解析成 ClusterIP 再下发给沙箱
+  FUYAO_CREDPROXY_URL: "http://credproxy.gaussdb-agent.svc:8091" # 凭据代理服务(k8s/fuyao/credproxy.yaml),同上
 
   # 允许携带工号头的来源网段(上游 SSO / Ingress 的地址),逗号分隔。
   # 与 Secret 里的 TRUST_SECRET 两道门任一即可,但**两者不能都为空** —— 都空网关拒绝启动。

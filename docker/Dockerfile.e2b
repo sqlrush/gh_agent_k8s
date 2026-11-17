@@ -7,6 +7,11 @@
 #   2. 诊断模板内置官方文档集(kb/docsets):沙箱挂不了 NAS,文档集随版本走,不必每台沙箱都从状态服务拉一遍。
 #      用导入镜像里的 `kb.py docset install` 装(与 kbstd-install Job、管理员手工安装是同一段代码)。
 #
+# **最后压成一层**(FROM scratch + COPY --from=… / /):平台的模板构建服务解层时**不处理 OCI whiteout**(实测):
+# 上层删掉的文件全回来了(诊断镜像里删掉的两个导入技能、/opt/agent/src、pip 都在),`.wh.*` 标记文件也留在
+# 根文件系统里(属主 root、权限 000,entrypoint.sh 复制配置目录时读不了而失败)。压成一层就没有 whiteout 可处理。
+# 压层会丢镜像配置,ENV / USER / WORKDIR / ENTRYPOINT 在下面照 docker/Dockerfile 原样补回(守卫测试核对)。
+#
 # 构建参数:
 #   RUNTIME_IMAGE / KBIMPORT_IMAGE / KBSTD_IMAGE   同一版本的三个镜像(本机 containerd 里已有,或可拉取)
 #   RESERVE_MB                                     占位文件大小,默认 6144(模板磁盘约 9.3GB,删后可用约 8GB)
@@ -24,17 +29,32 @@ RUN mkdir -p /out/kb \
     && python3 /opt/agent/config/opencode/skills/gaussdb-kb-import/scripts/kb.py docset install /packs --kb /out/kb \
     && test -d /out/kb/docsets && chmod -R a+rX /out/kb/docsets
 
-FROM ${RUNTIME_IMAGE} AS runtime-e2b
+FROM ${RUNTIME_IMAGE} AS runtime-prep
 ARG RESERVE_MB=6144
 USER root
 COPY --from=docsets /out/kb/docsets /data/kb/docsets
 RUN mkdir -p /var/lib/gsdb && chmod 0700 /var/lib/gsdb \
     && dd if=/dev/zero of=/var/lib/gsdb/disk-reserve bs=1M count=${RESERVE_MB} status=none
-USER agent
 
-FROM ${KBIMPORT_IMAGE} AS kbimport-e2b
+FROM ${KBIMPORT_IMAGE} AS kbimport-prep
 ARG RESERVE_MB=6144
 USER root
 RUN mkdir -p /var/lib/gsdb && chmod 0700 /var/lib/gsdb \
     && dd if=/dev/zero of=/var/lib/gsdb/disk-reserve bs=1M count=${RESERVE_MB} status=none
+
+FROM scratch AS runtime-e2b
+COPY --from=runtime-prep / /
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Shanghai GSDB_ROOTSPEC_HOME=/workspace
 USER agent
+WORKDIR /data
+ENTRYPOINT ["/opt/agent/entrypoint.sh"]
+
+FROM scratch AS kbimport-e2b
+COPY --from=kbimport-prep / /
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TZ=Asia/Shanghai GSDB_ROOTSPEC_HOME=/workspace \
+    GSDB_KB_INBOX=/nas/kb/inbox/uploads AGENT_ROLE=kb-import
+USER agent
+WORKDIR /data
+ENTRYPOINT ["/opt/agent/entrypoint.sh"]

@@ -145,6 +145,8 @@ def serve_and_build(layout: str, ref: str, kind: str, args, api: E2B) -> dict:
             except (urllib.error.URLError, OSError):
                 time.sleep(0.2)
         name = template_name(kind, args.tag)
+        log("注册模板 %s(%s/%s,%d vCPU / %d MB),构建服务拉取并制作快照,通常几分钟"
+            % (name, LISTEN, ref, args.cpu, args.memory))
         got = api.build(name, args.cpu, args.memory, "%s/%s" % (LISTEN, ref))
         log("模板 %s 就绪(%d 秒,templateID %s)" % (name, got["seconds"], got["templateID"]))
         return got

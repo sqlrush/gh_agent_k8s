@@ -170,3 +170,14 @@ def test_instance_aliases_survive_the_env_file_with_the_same_meaning():
         p.unlink()
     assert "\n" not in got
     assert podctl.parse_instance_aliases(got) == podctl.parse_instance_aliases(raw), "合成一行,解析结果不变"
+
+
+def test_syncloop_says_hello_on_the_ticks_between_lease_refreshes(box, monkeypatch):
+    env, _nas, _data, _units, _s = box
+    assert fuyao.start(env) == 0
+    calls = []
+    monkeypatch.setattr(fuyao.rs, "hello", lambda c: calls.append("hello"))
+    monkeypatch.setattr(fuyao.rs, "lease", lambda c, a: calls.append("lease") or {})
+    monkeypatch.setattr(fuyao, "LEASE_S", 10 ** 12)                  # 这一拍不到续独占的时候
+    assert fuyao.syncloop(fuyao.read_env_file(fuyao.ROOT_ENV), once=True) == 0
+    assert calls == ["hello"], "恢复后网关要尽快拿到新地址:每一拍都报到"

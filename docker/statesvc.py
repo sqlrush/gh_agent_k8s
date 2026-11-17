@@ -411,6 +411,12 @@ def handler(svc: Service):
             c = self._claims()
             if c is None:
                 return
+            if self.path == "/v1/hello":             # 只记来源地址(_claims 里),不碰 NAS:恢复后网关靠它尽快拿到新地址
+                r = self._body(1 << 10)
+                if r is not None:
+                    r.drain()
+                    self._json(200, {"ok": True})
+                return
             if self.path == "/v1/lease":
                 body = self._small_json()
                 if body is not None:

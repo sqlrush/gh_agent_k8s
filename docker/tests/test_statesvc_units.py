@@ -312,3 +312,18 @@ def test_the_service_remembers_where_each_sandbox_last_called_from(svc):
         raise AssertionError("不带令牌不该回 200")
     except urllib.error.HTTPError as e:
         assert e.code == 401
+
+
+def test_hello_only_records_the_address_and_touches_no_nas(svc):
+    base, nas, _s, _clock, _tmp = svc
+    before = sorted(p.name for p in nas.rglob("*"))
+    c = client(base, sid="sbx-h")
+    rs.hello(c)
+    assert _where(base, sid="sbx-h")[1]["address"] == "127.0.0.1"
+    assert sorted(p.name for p in nas.rglob("*")) == before, "报到不写 NAS"
+    bad = rs.Client(base, "st1.bad.token")
+    try:
+        rs.hello(bad)
+        raise AssertionError("坏令牌不该报到成功")
+    except rs.StateError:
+        pass

@@ -122,6 +122,13 @@ class Client:
 
 # -- 独占 ---------------------------------------------------------------------------------------------
 
+def hello(client: Client) -> None:
+    """报到:状态服务记下本沙箱现在的来源地址(不碰 NAS)。失败不要紧,下一拍再报。"""
+    code, out = client.call_json("POST", "/v1/hello", {})
+    if code != 200:
+        raise StateError("状态服务 hello 回了 %d:%s" % (code, out.get("error")))
+
+
 def lease(client: Client, action: str) -> dict:
     code, out = client.call_json("POST", "/v1/lease", {"action": action})
     if code == 409:

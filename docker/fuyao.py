@@ -252,6 +252,9 @@ def syncloop(env: Mapping[str, str] = os.environ, once: bool = False) -> int:
             if now - last["lease"] >= LEASE_S:
                 rs.lease(client, "refresh")
                 last["lease"] = now
+            else:
+                # 每一拍(5 秒)报到一次:平台恢复暂停的沙箱后不回新地址,网关从状态服务取 —— 报得勤,恢复后几秒就能连上
+                rs.hello(client)
             if now - last["sync"] >= SYNC_S:
                 out = rs.sync(client, ME)
                 last["sync"] = now

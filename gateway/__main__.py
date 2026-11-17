@@ -79,7 +79,7 @@ def ip_url(url: str, resolve=None) -> str:
     return urlunsplit((u.scheme, "%s:%d" % (ip, u.port) if u.port else ip, u.path, u.query, u.fragment))
 
 
-LOCATE_FRESH_S = 75                 # 沙箱每 30 秒续一次独占;超过这么久没见到就不信这个地址
+LOCATE_FRESH_S = 30                 # 沙箱每 5 秒报到一次(fuyao-syncloop);超过这么久没见到就不信这个地址
 
 
 def state_locator(state_url: str, key: bytes, timeout: float = 3.0):

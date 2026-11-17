@@ -1,0 +1,91 @@
+"""沙箱令牌(Fuyao 运行模式,2026-11-17):网关签发,状态服务与凭据代理服务校验。
+
+令牌自带「沙箱 ID、工号、环境种类」,用控制密钥(Secret sandbox-control,与固定池化同一把)派生的子密钥签名。
+两个集群服务各自持有同一把控制密钥,就能独立核对,不需要网关逐个登记、也不需要它们之间同步状态。
+
+为什么不用登记表:网关两个副本、两个集群服务、重启与扩缩都要保持一致,登记表要么放共享存储、要么每处各记一份;
+签名令牌只要密钥一致就成立。代价是不能单独吊销某一张 —— 令牌只存在于它那台沙箱里,沙箱删除即随之消失,
+被暂停的沙箱恢复后继续有效(本来就该有效)。
+
+与 docker/sbxtoken.py 一字不差(守卫测试核对):runtime 镜像里的两个集群服务用那一份。
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import re
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+PREFIX = "st1."
+MAX_LEN = 1024
+_ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+_USER = re.compile(r"^[a-z0-9]([a-z0-9-]{0,52}[a-z0-9])?$")       # 与 gateway/identity.py 的工号规则一致
+KINDS = ("runtime", "kb-import")
+
+
+@dataclass(frozen=True)
+class Claims:
+    sandbox_id: str
+    user_id: str
+    kind: str
+    issued_at: int
+
+
+def _subkey(key: bytes) -> bytes:
+    return hmac.new(key, b"sandbox-token\n", hashlib.sha256).digest()
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _unb64(text: str) -> bytes:
+    return base64.urlsafe_b64decode((text + "=" * (-len(text) % 4)).encode("ascii"))
+
+
+def issue(key: bytes, sandbox_id: str, user_id: str, kind: str, now: Optional[float] = None) -> str:
+    if len(key) < 16:
+        raise ValueError("控制密钥至少 16 字节")
+    if not _ID.match(sandbox_id) or not _USER.match(user_id) or kind not in KINDS:
+        raise ValueError("沙箱 ID / 工号 / 种类不合法")
+    body = json.dumps({"s": sandbox_id, "u": user_id, "k": kind, "t": int(time.time() if now is None else now)},
+                      separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload = _b64(body)
+    sig = hmac.new(_subkey(key), payload.encode("ascii"), hashlib.sha256).hexdigest()
+    return PREFIX + payload + "." + sig
+
+
+def verify(key: bytes, token: object) -> Optional[Claims]:
+    """签名对、字段合法返回 Claims;否则 None(不说原因)。"""
+    if not isinstance(token, str) or not token.startswith(PREFIX) or len(token) > MAX_LEN:
+        return None
+    rest = token[len(PREFIX):]
+    if rest.count(".") != 1:
+        return None
+    payload, sig = rest.split(".")
+    want = hmac.new(_subkey(key), payload.encode("ascii", "replace"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, sig):
+        return None
+    try:
+        d = json.loads(_unb64(payload))
+        c = Claims(sandbox_id=str(d["s"]), user_id=str(d["u"]), kind=str(d["k"]), issued_at=int(d["t"]))
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not _ID.match(c.sandbox_id) or not _USER.match(c.user_id) or c.kind not in KINDS:
+        return None
+    return c
+
+
+def reports_token(key: bytes, sandbox_id: str) -> str:
+    """报告端口(4097)的令牌:按沙箱派生,网关两个副本算出来一样,不用存。"""
+    return hmac.new(_subkey(key), ("reports\n" + sandbox_id).encode("utf-8"), hashlib.sha256).hexdigest()[:48]
+
+
+def bearer(header: Optional[str]) -> str:
+    """从 Authorization 头里取 Bearer 令牌;没有返回空串。"""
+    h = (header or "").strip()
+    return h[7:].strip() if h[:7].lower() == "bearer " else ""

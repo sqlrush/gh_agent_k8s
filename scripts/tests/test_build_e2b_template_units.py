@@ -54,6 +54,22 @@ def test_the_served_reference_comes_from_the_oci_layout_itself(tmp_path):
         bt.served_ref(str(tmp_path), "arm64")
 
 
+def test_a_prebuilt_package_with_both_template_images_serves_each_by_name_and_tag(tmp_path):
+    ann = lambda n, tg: {"io.containerd.image.name": "docker.io/library/%s:%s" % (n, tg),       # noqa: E731
+                         "org.opencontainers.image.ref.name": tg}
+    (tmp_path / "index.json").write_text(json.dumps({"schemaVersion": 2, "manifests": [
+        {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + c * 64, "size": 1,
+         "annotations": ann(n, tg)} for c, n, tg in (("a", "gaussdb-agent-runtime-e2b", "v9"),
+                                                     ("b", "gaussdb-agent-kb-import-e2b", "v9"),
+                                                     ("c", "gaussdb-agent-runtime-e2b", "v8"))]}))
+    assert bt.prebuilt_layout(str(tmp_path), "unused") == str(tmp_path)
+    assert bt.served_ref(str(tmp_path), "arm64", "gaussdb-agent-runtime-e2b", "v9") == "gaussdb-agent-runtime-e2b:v9"
+    assert bt.served_ref(str(tmp_path), "arm64", "gaussdb-agent-kb-import-e2b", "v9") == \
+        "gaussdb-agent-kb-import-e2b:v9"
+    with pytest.raises(SystemExit):
+        bt.served_ref(str(tmp_path), "arm64", "gaussdb-agent-runtime-e2b", "v7")
+
+
 class _FakeE2B:
     def __init__(self, statuses):
         self.calls, self.statuses = [], list(statuses)

@@ -56,7 +56,7 @@ data:
   POOL_WAIT_SECONDS: "60"           # 一次请求为分配最多等多久;等不到回等待页,页面 30 秒自动重试(≥10)
   # —— Fuyao 运行模式(RUNTIME_MODE: "fuyao")才用到下面这组;模板与沙箱组由平台方给,集群服务地址写 ClusterIP ——
   FUYAO_API: ""                     # OpenSandbox 地址,如 http://opensandbox-server.flux-system.svc:80;平台开认证后 API Key 放 Secret fuyao-api
-  FUYAO_RUNTIME_TEMPLATE: ""        # 诊断环境的 E2B 模板名(scripts/build-e2b-template.sh 构建)
+  FUYAO_RUNTIME_TEMPLATE: ""        # 诊断环境的 E2B 模板名(scripts/build-e2b-template.py 构建)
   FUYAO_RUNTIME_GROUP: ""           # 诊断环境的沙箱组
   FUYAO_IMPORT_TEMPLATE: ""         # 导入环境的 E2B 模板名
   FUYAO_IMPORT_GROUP: ""            # 导入环境的沙箱组

@@ -3,12 +3,15 @@
 
     build-e2b-template.py --tag agent-v1.5.0-oc1.18.27 [--registry ghcr.io/sqlrush] [--kind runtime|kb-import|all]
                           [--cpu 2 --memory 4096] [--reserve-mb 6144] [--e2b-api http://IP:3000] [--e2b-config /root/.e2b/config.json]
+                          [--from-oci <OCI 目录或 tar>]
 
 每种模板四步(设计文档 docs/specs/2026-11-17-fuyao-sandbox-design.md §8):
   1. buildkit 按 docker/Dockerfile.e2b 构建(加磁盘占位文件;诊断模板装进官方文档集),导出成 OCI 目录;
   2. scripts/oci-serve.py 只听 127.0.0.1 端出 —— 构建服务没有根证书、拉不了公网仓库,对本机地址走 HTTP(平台实测);
   3. E2B 接口:POST /v3/templates(名字、vCPU、内存)→ POST /v2/templates/{tid}/builds/{bid}(fromImage 指向本机);
   4. 等构建就绪,停掉临时仓库。
+--from-oci:跳过第 1 步,用别处构建好的 OCI 包(目录或 tar,可同时含两种模板镜像 gaussdb-agent-*-e2b:<tag>)——
+构建服务所在的主机不能上网时,镜像在能上网的机器上按 Dockerfile.e2b 构建好带过去。
 模板名 = gsdb-<种类>-<版本>(如 gsdb-runtime-v1-5-0),填进 gateway-config 的 FUYAO_RUNTIME_TEMPLATE / FUYAO_IMPORT_TEMPLATE。
 团队 API Key 从 --e2b-config 读,只在本进程里用,不打印。
 """
@@ -86,15 +89,27 @@ class E2B:
         raise SystemExit("模板 %s 构建超时(%d 秒)" % (name, wait_s))
 
 
-def served_ref(layout: str, arch: str) -> str:
-    """OCI 目录在 oci-serve 上的「名字:标签」—— 直接用 oci-serve 自己的解析,不另写一份。"""
+def served_ref(layout: str, arch: str, name: str = "", tag: str = "") -> str:
+    """OCI 目录在 oci-serve 上的「名字:标签」—— 直接用 oci-serve 自己的解析,不另写一份。
+    给了 name / tag 就只认匹配的那一个(一个目录里可以有几个镜像)。"""
     spec = importlib.util.spec_from_file_location("oci_serve", str(ROOT / "scripts" / "oci-serve.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    tags = sorted(mod.Layout(layout, arch).tags)
+    tags = sorted(k for k in mod.Layout(layout, arch).tags if (not name or k[0] == name) and (not tag or k[1] == tag))
     if len(tags) != 1:
-        raise SystemExit("OCI 目录 %s 里应正好一个镜像,实际 %s" % (layout, tags))
+        raise SystemExit("OCI 目录 %s 里应正好一个 %s:%s,实际 %s" % (layout, name or "*", tag or "*", tags))
     return "%s:%s" % tags[0]
+
+
+def prebuilt_layout(path: str, work: str) -> str:
+    """--from-oci:目录直接用;tar 解到工作目录(只解一次,两种模板共用)。"""
+    if os.path.isdir(path):
+        return path
+    out = os.path.join(work, "prebuilt")
+    if not os.path.isdir(out):
+        os.makedirs(out)
+        subprocess.run(["tar", "-xf", path, "-C", out], check=True)
+    return out
 
 
 def build_command(target: str, tar: str, args, kind: str) -> list:
@@ -150,6 +165,7 @@ def main(argv=None) -> int:
     ap.add_argument("--e2b-api", default="")
     ap.add_argument("--e2b-config", default="/root/.e2b/config.json")
     ap.add_argument("--workdir", default="")
+    ap.add_argument("--from-oci", default="", help="不构建,用现成的 OCI 包(目录或 tar)")
     a = ap.parse_args(argv)
     key = json.loads(pathlib.Path(a.e2b_config).read_text())["teamApiKey"]
     api = E2B(e2b_api(a.e2b_api), key)
@@ -157,8 +173,12 @@ def main(argv=None) -> int:
     done = []
     try:
         for kind in (("runtime", "kb-import") if a.kind == "all" else (a.kind,)):
-            layout = os.path.join(work, kind)
-            ref = build_oci(KINDS[kind][0], layout, a, kind)
+            if a.from_oci:
+                layout = prebuilt_layout(a.from_oci, work)
+                ref = served_ref(layout, a.arch, KINDS[kind][1] + "-e2b", a.tag)
+            else:
+                layout = os.path.join(work, kind)
+                ref = build_oci(KINDS[kind][0], layout, a, kind)
             done.append(serve_and_build(layout, ref, kind, a, api))
     finally:
         if not a.workdir:

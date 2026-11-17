@@ -131,9 +131,10 @@ def test_syncloop_stops_when_the_lease_is_gone(box):
     assert fuyao.syncloop(fuyao.read_env_file(fuyao.ROOT_ENV), once=True) == 0
 
 
-def test_env_file_round_trips_quotes_and_drops_multiline_values():
+def test_env_file_round_trips_quotes_and_drops_multiline_values(capsys):
     text = fuyao.env_file({"A": 'x"y\\z', "B": "line1\nline2", "BAD-KEY": "v", "C": "plain"})
     assert 'A="x\\"y\\\\z"' in text and "B=" not in text and "BAD-KEY" not in text
+    assert "B、BAD-KEY" in capsys.readouterr().out, "写不进去的要记日志,不悄悄丢"
     p = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / ("envfile-%d" % os.getpid())
     p.write_text(text)
     try:
@@ -155,3 +156,17 @@ def test_entrypoint_in_fuyao_mode_leaves_lease_load_sync_and_finish_to_the_root_
     assert m and 'exit "$RC"' in m.group(1) and m.start() < _EP.index("state-finish"), "收尾由 fuyao-stop 做"
     loop = _EP[_EP.index('( while sleep "$STATE_SYNC_SECONDS"'):]
     assert "db-checkpoint" in loop.split("done )")[0], "WAL 合并照做,以 agent 身份"
+
+
+def test_instance_aliases_survive_the_env_file_with_the_same_meaning():
+    import podctl
+    raw = "og7=10.0.0.71/postgres   # 管理员\nog7-mon=10.0.0.72/postgres\n\n"
+    text = fuyao.env_file({"GRMP_INSTANCE_ALIASES": raw})
+    p = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / ("envfile-al-%d" % os.getpid())
+    p.write_text(text)
+    try:
+        got = fuyao.read_env_file(str(p))["GRMP_INSTANCE_ALIASES"]
+    finally:
+        p.unlink()
+    assert "\n" not in got
+    assert podctl.parse_instance_aliases(got) == podctl.parse_instance_aliases(raw), "合成一行,解析结果不变"

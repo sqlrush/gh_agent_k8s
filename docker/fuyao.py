@@ -73,14 +73,27 @@ def _write(path: str, text: str, mode: int, gid: Optional[int] = None) -> None:
     os.replace(tmp, path)
 
 
+# 多行值:systemd 的环境文件一行一个变量。这些键本身认「;」分隔(podctl.parse_instance_aliases 先按行、再按「;」切),
+# 合成一行语义不变;其余多行值写不进去,记日志说清楚(不悄悄丢)
+_JOIN_LINES = ("GRMP_INSTANCE_ALIASES",)
+
+
 def env_file(mapping: Mapping[str, str]) -> str:
-    """systemd EnvironmentFile 格式:KEY="值",反斜杠与双引号转义;含换行的值不写(systemd 不认)。"""
-    lines = []
+    """systemd EnvironmentFile 格式:KEY="值",反斜杠与双引号转义。"""
+    lines, dropped = [], []
     for k in sorted(mapping):
         v = str(mapping[k])
-        if "\n" in v or "\r" in v or not k.replace("_", "").isalnum():
+        if k in _JOIN_LINES:
+            v = "; ".join(s.strip() for s in v.splitlines() if s.strip())
+        if not k.replace("_", "").isalnum():
+            dropped.append(k)
+            continue
+        if "\n" in v or "\r" in v:
+            dropped.append(k)
             continue
         lines.append('%s="%s"' % (k, v.replace("\\", "\\\\").replace('"', '\\"')))
+    if dropped:
+        log("这些变量是多行值或名字不合法,写不进 systemd 环境文件,没有下发:%s" % "、".join(dropped))
     return "\n".join(lines) + "\n"
 
 

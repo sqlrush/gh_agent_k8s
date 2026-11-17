@@ -125,6 +125,23 @@ spec:
             - {name: GATEWAY_POOL_SWEEP_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: POOL_SWEEP_SECONDS, optional: true}}}
             - {name: GATEWAY_POOL_WAIT_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: POOL_WAIT_SECONDS, optional: true}}}
             - {name: GATEWAY_POOL_CONTROL_KEY, valueFrom: {secretKeyRef: {name: sandbox-control, key: KEY, optional: true}}}
+            # Fuyao 运行模式(RUNTIME_MODE=fuyao,docs/specs/2026-11-17-fuyao-sandbox-design.md);控制密钥与池化同一把(上一行)
+            - {name: GATEWAY_FUYAO_API, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_API, optional: true}}}
+            - {name: GATEWAY_FUYAO_API_KEY, valueFrom: {secretKeyRef: {name: fuyao-api, key: API_KEY, optional: true}}}
+            - {name: GATEWAY_FUYAO_CPU, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_CPU, optional: true}}}
+            - {name: GATEWAY_FUYAO_CREDPROXY_URL, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_CREDPROXY_URL, optional: true}}}
+            - {name: GATEWAY_FUYAO_IDLE_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_IDLE_SECONDS, optional: true}}}
+            - {name: GATEWAY_FUYAO_IMPORT_GROUP, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_IMPORT_GROUP, optional: true}}}
+            - {name: GATEWAY_FUYAO_IMPORT_TEMPLATE, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_IMPORT_TEMPLATE, optional: true}}}
+            - {name: GATEWAY_FUYAO_MEMORY, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_MEMORY, optional: true}}}
+            - {name: GATEWAY_FUYAO_PAUSE, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_PAUSE, optional: true}}}
+            - {name: GATEWAY_FUYAO_RETAIN_DAYS, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_RETAIN_DAYS, optional: true}}}
+            - {name: GATEWAY_FUYAO_RUNTIME_GROUP, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_RUNTIME_GROUP, optional: true}}}
+            - {name: GATEWAY_FUYAO_RUNTIME_TEMPLATE, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_RUNTIME_TEMPLATE, optional: true}}}
+            - {name: GATEWAY_FUYAO_SANDBOX_TIMEOUT, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_SANDBOX_TIMEOUT, optional: true}}}
+            - {name: GATEWAY_FUYAO_STATE_URL, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_STATE_URL, optional: true}}}
+            - {name: GATEWAY_FUYAO_SWEEP_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_SWEEP_SECONDS, optional: true}}}
+            - {name: GATEWAY_FUYAO_WAIT_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: FUYAO_WAIT_SECONDS, optional: true}}}
             # 网页剪藏(2026-10-27):与导入容器读同一份 agent-config,名单只在一处配
             - {name: GATEWAY_KB_CLIP_ORIGINS, valueFrom: {configMapKeyRef: {name: agent-config, key: KB_CLIP_ORIGINS, optional: true}}}
             - {name: GATEWAY_KB_CLIP_MAX_MB, valueFrom: {configMapKeyRef: {name: agent-config, key: KB_CLIP_MAX_MB, optional: true}}}

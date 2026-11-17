@@ -182,6 +182,8 @@ class _Handler(BaseHTTPRequestHandler):
         parts = [p for p in path.split("/") if p]        # ['admin','pods',...]
         if len(parts) >= 2 and parts[1] == "pool":
             return self._admin_pool(parts)
+        if len(parts) >= 2 and parts[1] == "fuyao":
+            return self._admin_fuyao(parts)
         if len(parts) == 2 and parts[1] == "pods" and self.command == "GET":
             return self._json(200, {"pods": self.app.list_pods()})
         if len(parts) == 3 and parts[1] == "pods":
@@ -216,6 +218,26 @@ class _Handler(BaseHTTPRequestHandler):
                 self.app.mgr.remove(uid)
                 return self._json(200, {"user_id": uid, "removed": True,
                                         "note": "NAS 上的会话/历史/上传文件保留,下次登录挂回来即恢复"})
+        self._json(404, {"error": "没有这个控制接口"})
+
+    def _admin_fuyao(self, parts) -> None:
+        adm = self.app.fuyao_admin
+        if adm is None:
+            return self._json(404, {"error": "网关不是 Fuyao 模式(GATEWAY_RUNTIME_MODE=fuyao)"})
+        from . import opensandbox
+        try:
+            if len(parts) == 2 and self.command == "GET":
+                return self._json(200, adm.summary())
+            if len(parts) == 3 and self.command == "POST":
+                raw = self._read_body() or b"{}"
+                try:
+                    sid = str(json.loads(raw)["sandbox"])
+                except (ValueError, KeyError, TypeError):
+                    return self._json(400, {"error": "请求体要是 {\"sandbox\": 沙箱 ID}"})
+                code, body = adm.act(parts[2], sid)
+                return self._json(code, body)
+        except opensandbox.OpenSandboxError as exc:
+            return self._json(502, {"error": str(exc)})
         self._json(404, {"error": "没有这个控制接口"})
 
     def _admin_pool(self, parts) -> None:
@@ -272,8 +294,10 @@ class _Handler(BaseHTTPRequestHandler):
             kb_admin = self.app.is_kb_admin(who)
             # 报告只在诊断容器里;对话按目标选
             kind = self._target(who, kb_admin) if route == ROUTE_OPENCODE else pods.KIND_RUNTIME
-            if kind == pods.KIND_RUNTIME and self.app.pool is not None:
-                return self._proxy_pool(who, route, body)      # 固定池化;导入容器照旧按需建
+            if self.app.pool is not None and (kind == pods.KIND_RUNTIME
+                                              or getattr(self.app.pool, "handles_kb_import", False)):
+                # 固定池化:导入容器照旧按需建;Fuyao:导入环境也是沙箱
+                return self._proxy_pool(who, route, body, kind)
             try:
                 password = self.app.ensure_ready(who.user_id, kb_admin, kind)
             except pods.PrerequisiteMissing as exc:
@@ -358,13 +382,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- 固定池化 -------------------------------------------------------------
 
-    def _proxy_pool(self, who: idt.Identity, route: str, body: Optional[bytes]) -> None:
+    def _proxy_pool(self, who: idt.Identity, route: str, body: Optional[bytes],
+                    kind: str = pods.KIND_RUNTIME) -> None:
         """槽位由 poolrouter 分配。活动只按交互请求记一次(不按转发字节:事件流的心跳不算在用)。"""
         interactive = pool_interactive(self.command, self.path, self.headers)
         pool = self.app.pool
         for attempt in (0, 1):
             try:
-                t = pool.target(who.user_id, interactive)
+                t = (pool.target(who.user_id, interactive) if kind == pods.KIND_RUNTIME
+                     else pool.target(who.user_id, interactive, kind=kind))
             except poolrouter.NotActive:
                 return self._json_retry(503, {"reason": "not_active", "error": "您的环境当前未在运行,有操作时自动恢复"}, 30)
             except poolrouter.PoolFull as exc:
@@ -379,7 +405,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self.app.log("为 %s 分配槽位失败:%s" % (who.user_id, exc))
                 return self._text(502, "环境准备失败,请联系管理员。")
             if interactive:
-                pool.note_activity(who.user_id)
+                if kind == pods.KIND_RUNTIME:
+                    pool.note_activity(who.user_id)
+                else:
+                    pool.note_activity(who.user_id, kind=kind)
             if route == ROUTE_REPORTS:
                 up = proxy.Upstream(t.host, t.reports_port, retries=1)
                 headers = proxy.forward_headers(self.headers.items(), None, who.user_id) + \
@@ -485,6 +514,7 @@ class App:
         self.log = log
         self.pool = pool                    # 固定池化时是 poolrouter.PoolRouter;按需模式 None
         self.pool_admin = pool_admin        # 固定池化的运维接口(/admin/pool)
+        self.fuyao_admin = None             # Fuyao 模式的运维接口(/admin/fuyao)
         self._waiters: dict = {}
         self._lock = threading.Lock()
 

@@ -54,6 +54,22 @@ data:
   POOL_FREE_SLOTS: "1"              # 每个 Pod 后台至少留几个空闲槽位给新人(≥0)
   POOL_SWEEP_SECONDS: "30"          # 清扫多久一轮:报活动、转保留、腾挪、核验(≥5)
   POOL_WAIT_SECONDS: "60"           # 一次请求为分配最多等多久;等不到回等待页,页面 30 秒自动重试(≥10)
+  # —— Fuyao 运行模式(RUNTIME_MODE: "fuyao")才用到下面这组;模板与沙箱组由平台方给,集群服务地址写 ClusterIP ——
+  FUYAO_API: ""                     # OpenSandbox 地址,如 http://opensandbox-server.flux-system.svc:80;平台开认证后 API Key 放 Secret fuyao-api
+  FUYAO_RUNTIME_TEMPLATE: ""        # 诊断环境的 E2B 模板名(scripts/build-e2b-template.sh 构建)
+  FUYAO_RUNTIME_GROUP: ""           # 诊断环境的沙箱组
+  FUYAO_IMPORT_TEMPLATE: ""         # 导入环境的 E2B 模板名
+  FUYAO_IMPORT_GROUP: ""            # 导入环境的沙箱组
+  FUYAO_CPU: "2"                    # 建沙箱请求里的资源字段(平台要求必填;虚拟机实际规格由模板决定)
+  FUYAO_MEMORY: "4Gi"
+  FUYAO_SANDBOX_TIMEOUT: "86400"    # 沙箱寿命(秒,≥600,不超过平台上限);到期前自动续期
+  FUYAO_IDLE_SECONDS: "1800"        # 闲置多久收尾同步并暂停(≥300)
+  FUYAO_RETAIN_DAYS: "7"            # 暂停多少天后删除;数据早已写回 NAS(≥1)
+  FUYAO_PAUSE: "1"                  # 平台不支持暂停时设 0:闲置即收尾后删除
+  FUYAO_SWEEP_SECONDS: "30"         # 清扫多久一轮(≥5)
+  FUYAO_WAIT_SECONDS: "90"          # 一次请求为准备沙箱最多等多久;等不到回等待页(≥10)
+  FUYAO_STATE_URL: ""               # 状态服务地址(写 ClusterIP:沙箱解析不了集群域名),如 http://10.96.x.x:8090
+  FUYAO_CREDPROXY_URL: ""           # 凭据代理服务地址(同上)
 
   # 允许携带工号头的来源网段(上游 SSO / Ingress 的地址),逗号分隔。
   # 与 Secret 里的 TRUST_SECRET 两道门任一即可,但**两者不能都为空** —— 都空网关拒绝启动。

@@ -10,11 +10,13 @@ const fmtS = (n) => (n >= 60 ? `${Math.floor(n / 60)} 分 ${Math.round(n % 60)} 
 const tm = (t) => (t ? new Date(t * 1000).toTimeString().slice(0, 8) : "—");
 const dt = (t) => (t ? new Date(t * 1000).toLocaleString("zh-CN", { hour12: false }) : "—");
 
-const PHASE = { pkg: 0, plan: 0, images: 0, config: 0, review: 1, whitelist: 1, gateway: 2, pool: 2, kbimport: 2, kbstd: 2, smoke: 3, done: 3 };
+const PHASE = { pkg: 0, plan: 0, images: 0, config: 0, review: 1, whitelist: 1, template: 1, gateway: 2, sandbox: 2, pool: 2, kbimport: 2, kbstd: 2, smoke: 3, done: 3 };
 const PHASES = ["准备", "确认", "替换", "验证"];
 const NUM = "①②③④";
 const KIND = { deploy: "首次部署", upgrade: "升级", rollback: "回滚", resume: "接着发" };
 const POOLMODE = { slot: "按槽位在线替换", pod: "按 Pod 整体替换", fresh: "新建" };
+// 计划里「怎么换」:Fuyao 模式没有池子,换的是沙箱模板
+const RUNWAY = (p) => (p.mode === "fuyao" ? "Fuyao 沙箱 · 换模板" : "池子" + (POOLMODE[p.pool_mode] || ""));
 const ST_PILL = { pending: ["p-gray", "未开始"], running: ["p-blue", "进行中"], waiting: ["p-amber", "需要处理"], done: ["p-green", "已完成"],
   skipped: ["p-gray", "已跳过"], failed: ["p-red", "失败"], paused: ["p-amber", "已暂停"], interrupted: ["p-amber", "被中断"] };
 const RUN_PILL = { pending: ["p-gray", "未开始"], running: ["p-blue", "进行中"], waiting: ["p-amber", "需要处理"], paused: ["p-amber", "已暂停"],
@@ -153,7 +155,7 @@ function renderPlanBox() {
   if (!p) return setHtml($("#planbox"), "");
   const probs = (p.problems || []).map((x) => `<div>✕ ${esc(x)}</div>`).join("");
   const notes = (p.notes || []).map((x) => `<div>! ${esc(x)}</div>`).join("");
-  const info = p.kind ? `<div class="card"><h3>本次计划 <span class="sub">${esc(KIND[p.kind] || p.kind)} · ${esc(p.from_v || "未部署")} → ${esc(p.to_v)} · 池子${esc(POOLMODE[p.pool_mode] || "")}</span></h3>
+  const info = p.kind ? `<div class="card"><h3>本次计划 <span class="sub">${esc(KIND[p.kind] || p.kind)} · ${esc(p.from_v || "未部署")} → ${esc(p.to_v)} · ${esc(RUNWAY(p))}</span></h3>
       ${probs ? `<div class="err-box">${probs}</div>` : ""}${notes ? `<div class="note-box">${notes}</div>` : ""}
       ${(p.required || []).length ? `<div class="small muted">必填配置:${(p.required || []).map((r) => esc(r.map + " 的 " + r.key)).join("、")}</div>` : ""}
       ${(p.whitelist_files || []).length ? `<div class="small muted">白名单团队要执行的增量:${(p.whitelist_files || []).map(esc).join("、")}</div>` : ""}</div>`
@@ -287,7 +289,7 @@ const MAIN = {
   },
   plan() {
     const m = runMeta();
-    return `<h3>本次计划</h3>${kv([["类型", esc(KIND[m.kind] || m.kind || "—")], ["当前 → 目标", `${esc(m.from_v || "未部署")} → ${esc(m.to_v)}`], ["池子", esc(POOLMODE[m.pool_mode] || "—")],
+    return `<h3>本次计划</h3>${kv([["类型", esc(KIND[m.kind] || m.kind || "—")], ["当前 → 目标", `${esc(m.from_v || "未部署")} → ${esc(m.to_v)}`], m.mode === "fuyao" ? ["运行模式", esc(RUNWAY(m))] : ["池子", esc(POOLMODE[m.pool_mode] || "—")],
       ["必填配置", esc((m.required || []).map((r) => r.map + " 的 " + r.key).join("、") || "无")], ["特有步骤", esc((m.special || []).join("、") || "无")],
       ["白名单增量", esc((m.whitelist_files || []).join("、") || "无")]])}
       ${(m.notes || []).length ? `<div class="note-box">${m.notes.map((x) => "! " + esc(x)).join("<br>")}</div>` : ""}
@@ -333,6 +335,19 @@ const MAIN = {
     const c = G.cluster || {};
     return `<h3>网关副本</h3><table><tr><th>Pod</th><th>版本</th><th>就绪</th></tr>${(c.gateway || []).map((g) => `<tr><td>${esc(g.name)}</td><td class="mono">${esc(g.tag)}</td><td>${g.ready ? '<span class="pill p-green">就绪</span>' : '<span class="pill p-amber">未就绪</span>'}</td></tr>`).join("")}</table>
       ${kv([["用户镜像标签", esc(c.user_tag || "—")], ["滚动方式", "Deployment 滚动更新,一次一个副本,另一个继续服务"]])}`;
+  },
+  template() {
+    const t = sh().templates;
+    if (!t) return '<div class="empty-state">还没探测</div>';
+    return `<h3>模板核对 <span class="sub">按目标版本的模板名各建一台探测沙箱,进入 Running 就删掉</span></h3>
+      <table><tr><th>环境</th><th>模板</th><th>结果</th><th>说明</th></tr>${(t.results || []).map((r) => `<tr><td>${esc({ runtime: "诊断", "kb-import": "导入" }[r.kind] || r.kind)}</td><td class="mono">${esc((t.want || {})[r.kind] || r.template)}</td><td>${r.ok ? '<span class="pill p-green">可用</span>' : '<span class="pill p-red">不可用</span>'}</td><td class="small">${esc(r.ok ? `${r.seconds} 秒` : r.err || "")}</td></tr>`).join("")}</table>
+      <p class="small muted">探测沙箱已清理 ${esc(t.swept || 0)} 台${(t.left || []).length ? `;<b class="bad">没删掉:${t.left.map(esc).join("、")}</b>` : ""}。模板在平台的模板构建服务所在主机上用 scripts/build-e2b-template.py 构建。</p>`;
+  },
+  sandbox() {
+    const f = sh().fuyao;
+    if (!f) return '<div class="empty-state">还没读取</div>';
+    return `<h3>沙箱换版 <span class="sub">旧版沙箱由网关在闲置时收尾删除、下次按新模板建;在用的不打断</span></h3>
+      ${kv([["网关的模板", esc(Object.entries(f.templates || {}).map(([k, v]) => `${k}=${v}`).join(" · ") || "—")], ["沙箱", `${esc(f.total)} 台`], ["旧版沙箱", f.outdated ? `还有 ${esc(f.outdated)} 台,闲置后自动换新` : "没有"]])}`;
   },
   pool() {
     const c = G.cluster || {}; const target = toTag(); const prog = sh().pool || {};
@@ -405,7 +420,7 @@ async function renderPackages() {
 async function previewPlan(tag) {
   try {
     const p = await api("GET", `/api/plan?tag=${encodeURIComponent(tag)}`);
-    setHtml($("#pkplan"), `<div class="card"><h3>计划预览:${esc(p.to_v)} <span class="sub">${esc(KIND[p.kind] || p.kind)} · ${esc(p.from_v || "未部署")} → ${esc(p.to_v)} · 池子${esc(POOLMODE[p.pool_mode] || "")}</span></h3>
+    setHtml($("#pkplan"), `<div class="card"><h3>计划预览:${esc(p.to_v)} <span class="sub">${esc(KIND[p.kind] || p.kind)} · ${esc(p.from_v || "未部署")} → ${esc(p.to_v)} · ${esc(RUNWAY(p))}</span></h3>
       ${(p.problems || []).length ? `<div class="err-box">${p.problems.map((x) => "✕ " + esc(x)).join("<br>")}</div>` : ""}
       ${(p.notes || []).length ? `<div class="note-box">${p.notes.map((x) => "! " + esc(x)).join("<br>")}</div>` : ""}
       <table><tr><th>#</th><th>步骤</th><th>为什么</th></tr>${p.steps.map((s, k) => `<tr><td>${k + 1}</td><td>${esc(s.name)}${s.skip ? ' <span class="pill p-gray">跳过</span>' : ""}</td><td class="small muted">${esc(s.why)}</td></tr>`).join("")}</table></div>`);
@@ -549,7 +564,7 @@ document.addEventListener("change", async (ev) => {
 async function startScan() { await act("POST", "/api/scan", { tag: G.sel }, "开始扫描"); }
 async function startRun() {
   const p = G.plan || {};
-  confirmDo(`开始${KIND[p.kind] || "发布"}`, `<p>${esc(p.from_v || "未部署")} → <b>${esc(p.to_v)}</b>,池子${esc(POOLMODE[p.pool_mode] || "")}。改动集群前会停在「变更预览」请你确认。</p>`, "开始",
+  confirmDo(`开始${KIND[p.kind] || "发布"}`, `<p>${esc(p.from_v || "未部署")} → <b>${esc(p.to_v)}</b>,${esc(RUNWAY(p))}。改动集群前会停在「变更预览」请你确认。</p>`, "开始",
     async () => { const r = await act("POST", "/api/runs", { tag: G.sel }, "已开始"); if (r) { G.pinned = r.run; G.fresh = false; await refresh(true); } }, "pri");
 }
 function askRollback() {

@@ -70,6 +70,17 @@ def test_a_prebuilt_package_with_both_template_images_serves_each_by_name_and_ta
         bt.served_ref(str(tmp_path), "arm64", "gaussdb-agent-runtime-e2b", "v7")
 
 
+def test_a_prebuilt_package_for_another_arch_is_matched_with_its_arch_suffix(tmp_path):
+    (tmp_path / "index.json").write_text(json.dumps({"schemaVersion": 2, "manifests": [
+        {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + "d" * 64, "size": 1,
+         "annotations": {"io.containerd.image.name": "docker.io/library/gaussdb-agent-runtime-e2b:v9-amd64",
+                         "org.opencontainers.image.ref.name": "v9-amd64"}}]}))
+    a = _args(tag="v9", arch="amd64")
+    assert bt.prebuilt_ref(str(tmp_path), a, "runtime") == "gaussdb-agent-runtime-e2b:v9-amd64"
+    with pytest.raises(SystemExit):
+        bt.prebuilt_ref(str(tmp_path), a, "kb-import")
+
+
 class _FakeE2B:
     def __init__(self, statuses):
         self.calls, self.statuses = [], list(statuses)

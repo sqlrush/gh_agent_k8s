@@ -101,6 +101,17 @@ def served_ref(layout: str, arch: str, name: str = "", tag: str = "") -> str:
     return "%s:%s" % tags[0]
 
 
+def prebuilt_ref(layout: str, args, kind: str) -> str:
+    """离线包里非本机架构的镜像标签带「-<架构>」后缀(scripts/package-images.sh),两种写法都认。"""
+    name = KINDS[kind][1] + "-e2b"
+    for tag in (args.tag, "%s-%s" % (args.tag, args.arch)):
+        try:
+            return served_ref(layout, args.arch, name, tag)
+        except SystemExit:
+            continue
+    return served_ref(layout, args.arch, name, args.tag)     # 都没有:按原标签报错
+
+
 def prebuilt_layout(path: str, work: str) -> str:
     """--from-oci:目录直接用;tar 解到工作目录(只解一次,两种模板共用)。"""
     if os.path.isdir(path):
@@ -177,7 +188,7 @@ def main(argv=None) -> int:
         for kind in (("runtime", "kb-import") if a.kind == "all" else (a.kind,)):
             if a.from_oci:
                 layout = prebuilt_layout(a.from_oci, work)
-                ref = served_ref(layout, a.arch, KINDS[kind][1] + "-e2b", a.tag)
+                ref = prebuilt_ref(layout, a, kind)
             else:
                 layout = os.path.join(work, kind)
                 ref = build_oci(KINDS[kind][0], layout, a, kind)

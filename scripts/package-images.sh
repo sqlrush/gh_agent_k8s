@@ -7,14 +7,18 @@
 #   gaussdb-agent-kbstd                  标准知识库(官方文档集),部署时由 Job kbstd-install 装进 NAS(2026-10-27 起)
 # 漏了哪个,行方拿到包也部署不完整 —— 网关起不来、大盘 502、官方文档集装不上,而现场往往没有外网可以补拉。
 # 开发时没有标准知识库包可加 --without-kbstd,正式发版不许用。
+# --e2b:另出 Fuyao 沙箱模式的两种模板镜像(docker/Dockerfile.e2b 构建,压成一层的 OCI 包,每种架构一个
+#   <包名>-e2b-<架构>.oci.tar),连同 e2b/ 目录(模板构建脚本、临时仓库、Dockerfile.e2b)。平台的模板构建主机
+#   不能上网时,把 OCI 包拷过去执行 e2b/scripts/build-e2b-template.py --tag <TAG> --from-oci <OCI 包>。要有 kbstd。
 # (原第 5 个 openGauss 向量库镜像 2026-10-23 下线:知识库索引改为 NAS 上的 index/store.sqlite。)
-# 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64] [--without-kbstd]
+# 用法: scripts/package-images.sh <TAG> [--arch amd64,arm64] [--without-kbstd] [--e2b]
 #   前提: 镜像已构建——本机架构用 <TAG>,另一架构用 <TAG>-<arch>(scripts/build-images.sh <TAG>-<arch> --platform linux/<arch>)。
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 TAG=${1:?tag}; shift || true
-ARCHS="amd64,arm64"; KBSTD="kbstd"
-while [ $# -gt 0 ]; do case "$1" in --arch) ARCHS=$2; shift 2 ;; --without-kbstd) KBSTD=""; shift ;; *) echo "unknown $1" >&2; exit 2 ;; esac; done
+ARCHS="amd64,arm64"; KBSTD="kbstd"; E2B=""
+while [ $# -gt 0 ]; do case "$1" in --arch) ARCHS=$2; shift 2 ;; --without-kbstd) KBSTD=""; shift ;; --e2b) E2B=1; shift ;; *) echo "unknown $1" >&2; exit 2 ;; esac; done
+[ -z "$E2B" ] || [ -n "$KBSTD" ] || { echo "--e2b 要用 kbstd(模板里内置官方文档集),不能和 --without-kbstd 一起用" >&2; exit 2; }
 HOST_ARCH=$(docker info --format '{{.Architecture}}' 2>/dev/null | sed 's/aarch64/arm64/; s/x86_64/amd64/')
 # 包名:标签本身以 agent- 开头时不再重复(gaussdb-agent-v0.4-…),否则 gaussdb-agent-<TAG>
 case "$TAG" in agent-*) PKG="gaussdb-$TAG" ;; *) PKG="gaussdb-agent-$TAG" ;; esac
@@ -49,7 +53,26 @@ for ARCH in ${ARCHS//,/ }; do
   docker save "$RIMG" | gzip -6 > "$ROUT"
   (cd "$DIST" && shasum -a 256 "$(basename "$ROUT")" > "$(basename "$ROUT").sha256")
   echo "  → $(basename "$ROUT") $(du -h "$ROUT" | cut -f1)  发版台(release-console.sh 导入)" >> "$DIST/MANIFEST.txt"
+  if [ -n "$E2B" ]; then
+    # Fuyao 模板镜像:层都已压缩,OCI 包不再 gzip。名字不是「<包名>-<架构>.tar.gz」,发版台不会把它当成要入库的镜像包
+    for K in runtime:runtime-e2b kb-import:kbimport-e2b; do
+      docker buildx build -q --load --platform "linux/$ARCH" -f "$HERE/docker/Dockerfile.e2b" --target "${K#*:}" \
+        --build-arg "RUNTIME_IMAGE=gaussdb-agent-runtime:$TAG$SUFFIX" \
+        --build-arg "KBIMPORT_IMAGE=gaussdb-agent-kb-import:$TAG$SUFFIX" \
+        --build-arg "KBSTD_IMAGE=gaussdb-agent-kbstd:$TAG$SUFFIX" \
+        -t "gaussdb-agent-${K%%:*}-e2b:$TAG$SUFFIX" "$HERE" >/dev/null
+    done
+    EOUT="$DIST/$PKG-e2b-$ARCH.oci.tar"
+    docker save --platform "linux/$ARCH" -o "$EOUT" "gaussdb-agent-runtime-e2b:$TAG$SUFFIX" "gaussdb-agent-kb-import-e2b:$TAG$SUFFIX"
+    (cd "$DIST" && shasum -a 256 "$(basename "$EOUT")" > "$(basename "$EOUT").sha256")
+    echo "  → $(basename "$EOUT") $(du -h "$EOUT" | cut -f1)  Fuyao 模板镜像(e2b/scripts/build-e2b-template.py --from-oci)" >> "$DIST/MANIFEST.txt"
+  fi
 done
+if [ -n "$E2B" ]; then
+  mkdir -p "$DIST/e2b/scripts" "$DIST/e2b/docker"          # 照仓库的相对路径放:脚本按自己的位置找 oci-serve.py
+  install -m 0755 "$HERE/scripts/build-e2b-template.py" "$HERE/scripts/oci-serve.py" "$DIST/e2b/scripts/"
+  install -m 0644 "$HERE/docker/Dockerfile.e2b" "$DIST/e2b/docker/"
+fi
 install -m 0755 "$HERE/scripts/release-console.sh" "$DIST/release-console.sh"
 install -m 0755 "$HERE/scripts/rootspec-overlay.sh" "$DIST/rootspec-overlay.sh"   # 行内把根规范模板换成正式规范(版本说明)
 
@@ -86,6 +109,7 @@ cat >> "$DIST/MANIFEST.txt" <<EOF
   → release.yaml     发版台读的版本说明(镜像 digest、白名单全量、各版本的变化);用发版台时把整个目录拷进发布包目录即可
   → release-console.sh  发版台一条命令起:整个目录拷进发布包目录后运行 <目录>/release-console.sh(--help 看选项)
   → rootspec-overlay.sh 把镜像里的三份根规范模板换成行内正式规范,另出一个新包目录(--help 看用法;版本说明有步骤)
+$( [ -n "$E2B" ] && echo "  → e2b/               Fuyao 模板:在平台的模板构建主机上 python3 e2b/scripts/build-e2b-template.py --tag $TAG --arch <架构> --from-oci $PKG-e2b-<架构>.oci.tar" )
 
 导入镜像:
   docker:      gunzip -c $PKG-<arch>.tar.gz | docker load

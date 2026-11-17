@@ -96,6 +96,22 @@ class Service:
         self._locks: Dict[str, threading.Lock] = {}
         self._guard = threading.Lock()
         self._kb_lock = threading.Lock()
+        self._where: Dict[str, Tuple[str, float]] = {}       # 沙箱 → (最近一次请求的来源地址, 时刻)
+
+    # -- 沙箱现在在哪 ---------------------------------------------------------------------------------
+    # 平台恢复暂停的沙箱后虚拟机换了地址,而 /endpoints 仍回旧地址(端到端实测)。沙箱里的后台同步每 30 秒续一次独占,
+    # 来源地址就是虚拟机现在的 Pod 网段地址(集群内不做源地址转换,实测)。网关问这里,再用本人口令探活做最终核对。
+
+    def saw(self, sandbox_id: str, address: str) -> None:
+        with self._guard:
+            self._where[sandbox_id] = (address, self.clock())
+
+    def where(self, sandbox_id: str) -> Optional[dict]:
+        with self._guard:
+            got = self._where.get(sandbox_id)
+        if got is None:
+            return None
+        return {"address": got[0], "age": max(0.0, self.clock() - got[1])}
 
     # -- 小工具 -------------------------------------------------------------------------------------
 
@@ -338,6 +354,8 @@ def handler(svc: Service):
             c = sbxtoken.verify(svc.key, sbxtoken.bearer(self.headers.get("Authorization")))
             if c is None:
                 self._json(401, {"error": "沙箱令牌无效"})
+            elif self.path != "/v1/where":                 # 网关来问地址时用的也是这台沙箱的令牌,那次不算
+                svc.saw(c.sandbox_id, self.client_address[0])
             return c
 
         def _body(self, limit: int) -> Optional[LimitedReader]:
@@ -370,6 +388,9 @@ def handler(svc: Service):
             c = self._claims()
             if c is None:
                 return
+            if self.path == "/v1/where":
+                got = svc.where(c.sandbox_id)
+                return self._json(200, got) if got else self._json(404, {"error": "还没收到过这台沙箱的请求"})
             try:
                 if self.path == "/v1/state":
                     ufd, err = svc.prepare_load(c)

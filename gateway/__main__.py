@@ -79,6 +79,33 @@ def ip_url(url: str, resolve=None) -> str:
     return urlunsplit((u.scheme, "%s:%d" % (ip, u.port) if u.port else ip, u.path, u.query, u.fragment))
 
 
+LOCATE_FRESH_S = 75                 # 沙箱每 30 秒续一次独占;超过这么久没见到就不信这个地址
+
+
+def state_locator(state_url: str, key: bytes, timeout: float = 3.0):
+    """问状态服务:这台沙箱最近一次请求从哪个地址来(恢复后平台回的地址会过期)。只认 LOCATE_FRESH_S 内的。"""
+    import http.client
+    import json
+    from urllib.parse import urlsplit
+    from . import sbxtoken
+
+    def locate(sandbox_id: str, user: str, kind: str):
+        u = urlsplit(ip_url(state_url))
+        conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=timeout)
+        try:
+            conn.request("GET", "/v1/where", headers={
+                "Authorization": "Bearer " + sbxtoken.issue(key, sandbox_id, user, kind)})
+            r = conn.getresponse()
+            body = r.read()
+        finally:
+            conn.close()
+        if r.status != 200:
+            return None
+        got = json.loads(body or b"{}")
+        return got.get("address") if float(got.get("age", 1e9)) <= LOCATE_FRESH_S else None
+    return locate
+
+
 def start_fuyao(cfg, kube, mgr, app):
     from . import fuyaorouter, fuyaosweeper, opensandbox, sandboxexec
     client = opensandbox.Client(cfg.fuyao_api, api_key=cfg.fuyao_api_key)
@@ -106,9 +133,10 @@ def start_fuyao(cfg, kube, mgr, app):
         if kind == pods.KIND_RUNTIME:
             lookup(user_id)
 
-    router = fuyaorouter.FuyaoRouter(client, sandboxexec.Envd(), policy, cfg.pool_control_key.encode("utf-8"),
+    key = cfg.pool_control_key.encode("utf-8")
+    router = fuyaorouter.FuyaoRouter(client, sandboxexec.Envd(), policy, key,
                                      password_for=mgr.ensure_password, launch_env=launch_env, prereq=prereq,
-                                     log=app.log)
+                                     log=app.log, locate=state_locator(cfg.fuyao_state_url, key))
     sweeper = fuyaosweeper.FuyaoSweeper(router, sweep_s=cfg.fuyao_sweep_seconds, log=app.log)
     app.pool, app.fuyao_admin = router, sweeper
     sweeper.start()

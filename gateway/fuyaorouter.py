@@ -128,12 +128,13 @@ class FuyaoRouter:
                  password_for: Callable[[str], str], launch_env: Callable[[str, str], Mapping[str, str]],
                  prereq: Optional[Callable[[str, str], None]] = None,
                  prober: Callable[[str, str], bool] = probe, log: Callable[[str], None] = print,
+                 locate: Optional[Callable[[str, str, str], Optional[str]]] = None,
                  clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep):
         if len(key) < 16:
             raise ValueError("控制密钥至少 16 字节")
         self.os, self.envd, self.policy, self.key = client, envd, policy, key
         self.password_for, self.launch_env, self.prereq, self.prober = password_for, launch_env, prereq, prober
-        self.log, self.clock, self.sleep = log, clock, sleep
+        self.log, self.clock, self.sleep, self.locate = log, clock, sleep, locate
         self._creds: Dict[Tuple[str, str], Target] = {}
         self._locks: Dict[Tuple[str, str], threading.Lock] = {}
         self._launched: Dict[str, float] = {}
@@ -275,10 +276,24 @@ class FuyaoRouter:
             self.log("Fuyao:删除沙箱 %s(%s)失败,交给回收器:%s" % (sandbox_id, why, exc))
         self.forget_sandbox(sandbox_id)
 
+    def address(self, s: osb.Sandbox) -> str:
+        """沙箱现在的地址:优先用状态服务最近看到的来源地址(平台恢复后 /endpoints 会回旧地址,实测),
+        没有再问平台。拿到的地址一律经本人口令探活核对,连错了只会被拒。"""
+        user, kind = owner(s)
+        if self.locate is not None and user:
+            try:
+                got = self.locate(s.id, user, kind)
+            except Exception as exc:                    # noqa: BLE001 —— 状态服务问不到就退回平台给的地址
+                self.log("Fuyao:向状态服务问沙箱 %s 的地址失败:%s" % (s.id, exc))
+                got = None
+            if got:
+                return got
+        return self.os.address(s.id)
+
     def _ready(self, s: osb.Sandbox, user: str, kind: str, launch: bool,
                resumed: bool = False) -> Tuple[Optional[Target], str]:
         try:
-            host = self.os.address(s.id)
+            host = self.address(s)
         except osb.OpenSandboxError as exc:
             self.log("Fuyao:取 %s 的地址失败:%s" % (s.id, exc))
             return None, "no_address"

@@ -279,3 +279,35 @@ def test_the_state_service_and_sandbox_sync_modules_and_their_local_imports_are_
         imported = set(re.findall(r"^import (\w+)", src, re.M)) | set(re.findall(r"^from (\w+) import", src, re.M))
         need = {mod} | (imported & local)
         assert {n + ".py" for n in need} <= copied, "Dockerfile 没拷:%s" % sorted({n + ".py" for n in need} - copied)
+
+
+# -- 沙箱现在在哪(恢复后平台回的地址会过期) -----------------------------------------------------------
+
+def _where(base, sid="sbx-1", user="u1001", kind="runtime"):
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(base + "/v1/where",
+                                 headers={"Authorization": "Bearer " + sbxtoken.issue(KEY, sid, user, kind)})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, None
+
+
+def test_the_service_remembers_where_each_sandbox_last_called_from(svc):
+    base, _nas, _s, clock, _tmp = svc
+    assert _where(base)[0] == 404, "还没见过这台沙箱"
+    rs.lease(client(base), "acquire")
+    code, got = _where(base)
+    assert code == 200 and got["address"] == "127.0.0.1" and got["age"] == 0
+    clock["t"] += 40
+    assert _where(base)[1]["age"] == 40, "问地址本身不刷新时刻(网关用的也是这台沙箱的令牌)"
+    assert _where(base, sid="sbx-2")[0] == 404, "别的沙箱的令牌问不到这台"
+    import urllib.error
+    import urllib.request
+    try:
+        urllib.request.urlopen(base + "/v1/where", timeout=5)
+        raise AssertionError("不带令牌不该回 200")
+    except urllib.error.HTTPError as e:
+        assert e.code == 401

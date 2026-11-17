@@ -140,6 +140,36 @@ def test_a_stale_address_after_resume_never_reaches_someone_else_and_ends_in_a_w
     assert ei.value.reason == "address_stale"
 
 
+def test_after_resume_the_address_seen_by_the_state_service_is_used(env):
+    fake, envd, router, clock, *_ = env
+    fake.stale_after_resume = True
+    bid = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime"}, state="Paused")
+    seen = {}
+
+    def locate(sid, user, kind):
+        assert (user, kind) == ("u1001", "runtime")
+        return seen.get(sid)
+    router.locate = locate
+    real_resume = fake.handle
+
+    def handle(method, path, query, body):
+        out = real_resume(method, path, query, body)
+        if path.endswith("/resume"):                                   # 恢复后沙箱里的同步续独占:状态服务看到新地址
+            seen[bid] = fake.ip(bid)
+            envd.ready.add(fake.ip(bid))
+        return out
+    fake.handle = handle
+    t = router.target("u1001")
+    assert t.host == fake.ip(bid) != fake.boxes[bid]["old_ip"], "平台回旧地址,用状态服务看到的新地址"
+
+
+def test_a_failing_locator_falls_back_to_the_platform_address(env):
+    fake, envd, router, *_ = env
+    router.locate = lambda sid, user, kind: (_ for _ in ()).throw(OSError("状态服务连不上"))
+    t = router.target("u1001")
+    assert t.host == fake.ip(t.pod)
+
+
 def test_concurrent_creation_by_two_gateways_keeps_only_the_oldest(env):
     fake, envd, router, *_ = env
     md = {"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime"}

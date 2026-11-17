@@ -115,7 +115,7 @@ class FuyaoSweeper:
     def retire(self, s: osb.Sandbox, now: float) -> str:
         """闲置:收尾同步 → 暂停(或删除)。旧版沙箱收尾成功就删除(换版)。返回 retired / upgraded / busy / failed。"""
         user, _kind = owner(s)
-        host = self.os.address(s.id)
+        host = self.router.address(s)
         if user and self.busy_check(host, self.router.password_for(user)):
             return "busy"
         old = outdated(s, self.policy)
@@ -152,7 +152,7 @@ class FuyaoSweeper:
     def expire(self, s: osb.Sandbox, left: float) -> str:
         """快到平台寿命上限:收尾、放开独占后删除(平台到点直接删,虚拟机收不到信号)。返回 expired / busy / failed。"""
         user, _kind = owner(s)
-        host = self.os.address(s.id)
+        host = self.router.address(s)
         if user and left > self.policy.expire_margin_s / 3 and self.busy_check(host, self.router.password_for(user)):
             return "busy"                           # 有会话在跑:等到最后三分之一再动
         if not self.router.stop(s.id, host, release=True):
@@ -194,10 +194,10 @@ class FuyaoSweeper:
         if verb == "stop":
             if not s.running:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}
-            return 200, {"sandbox": s.id, "synced": self.router.stop(s.id, self.os.address(s.id))}
+            return 200, {"sandbox": s.id, "synced": self.router.stop(s.id, self.router.address(s))}
         synced = None
         if s.running:
-            synced = self.router.stop(s.id, self.os.address(s.id), release=verb == "delete")
+            synced = self.router.stop(s.id, self.router.address(s), release=verb == "delete")
         if verb == "pause":
             if not s.running:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}

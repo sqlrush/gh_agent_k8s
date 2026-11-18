@@ -141,6 +141,21 @@ def test_a_full_fuyao_snapshot_joins_platform_sandboxes_with_the_gateway_summary
     json.dumps(doc)
 
 
+def test_capacity_and_agent_pods_come_from_the_subgroups_not_the_group_totals():
+    """鲲鹏现场(2026-11-18):sg-gaussdb-poc 调过 agentPodMax=3、agentPodMin=2 后,沙箱组状态是
+    totalAgentPods=3 / totalCapacity=6(跟着最大值走),而真正调度用的子组是 desired=2、ready=2、capacity=4、allocated=0
+    (三台都暂停)。大盘按子组的算,否则把容量说大了。"""
+    poc = _sg("sg-poc", 2, 3, 2, 3)
+    api = FakeApi(_routes(**{
+        SBX + "/sandboxgroups/sg-run": poc, SBX + "/sandboxgroups/sg-imp": poc,
+        SBX + "/subsandboxgroups": {"items": [{"spec": {"ownerSandboxGroup": "sg-run"},
+                                               "status": {"readyAgentPods": 2, "desiredAgentPods": 2, "capacity": 4,
+                                                          "allocated": 0, "idle": 4}}]}}))
+    run = [g for g in dashdata.Collector(App(api), ops=Ops()).build()["platform"]["groups"] if g["name"] == "sg-run"][0]
+    assert (run["agent_pods"], run["ready_agent_pods"], run["capacity"], run["allocated"]) == (2, 2, 4, 0)
+    assert (run["pod_min"], run["pod_max"], run["capacity_max"]) == (2, 3, 6)
+
+
 def test_without_platform_read_permission_only_the_platform_block_is_marked():
     api = FakeApi(_routes(**{SBX + "/subsandboxgroups": KubeError("forbidden", 403)}))
     app = App(api)

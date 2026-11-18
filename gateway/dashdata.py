@@ -219,7 +219,10 @@ class Collector:
             ready = sum(int((x.get("status") or {}).get("readyAgentPods") or 0) for x in mine)
             desired = sum(int((x.get("status") or {}).get("desiredAgentPods") or 0) for x in mine)
             per_pod = int(cap.get("maxSandboxesPerPod") or 0)
-            agent_pods = int(st.get("totalAgentPods") or desired or 0)
+            # 以子组(真正调度的)为准:鲲鹏现场沙箱组状态的 totalAgentPods / totalCapacity 跟着 agentPodMax 走
+            # (3 / 6),子组是 desired=2 / capacity=4(2026-11-18 实测)。没有子组时才退回沙箱组的数
+            sub_cap = sum(int((x.get("status") or {}).get("capacity") or 0) for x in mine)
+            agent_pods = desired or int(st.get("totalAgentPods") or 0)
             pods: Dict[str, List[str]] = {}
             unplaced: List[str] = []
             for s in sbxs:
@@ -235,7 +238,7 @@ class Collector:
                 "name": name, "kinds": kinds, "phase": st.get("phase") or "",
                 "pod_min": int(cap.get("agentPodMin") or 0), "pod_max": int(cap.get("agentPodMax") or 0), "per_pod": per_pod,
                 "agent_pods": agent_pods, "ready_agent_pods": ready, "desired_agent_pods": desired,
-                "capacity": int(st.get("totalCapacity") or agent_pods * per_pod),
+                "capacity": sub_cap or agent_pods * per_pod or int(st.get("totalCapacity") or 0),
                 "capacity_max": int(cap.get("agentPodMax") or 0) * per_pod,
                 "allocated": sum(int((x.get("status") or {}).get("allocated") or 0) for x in mine),
                 "per_sandbox": res, "agent_reserve": _sum([res] * per_pod) if per_pod else None,

@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资源大盘 · Fuyao 沙箱 · GaussDB 智能体(UI 设计稿)</title>
+<style>
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-Regular.woff2) format("woff2"); font-weight: 400; }
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-Medium.woff2) format("woff2"); font-weight: 500; }
+@font-face { font-family: "Plex"; src: url(../../../frontend/fonts/IBMPlexSans-SemiBold.woff2) format("woff2"); font-weight: 600; }
+@font-face { font-family: "Plex Mono"; src: url(../../../frontend/fonts/IBMPlexMono-Regular.woff2) format("woff2"); }
+:root {
+  --sans: "Plex", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; --mono: "Plex Mono", "SF Mono", Menlo, monospace;
+  --bg: #f4f6fa; --panel: #fff; --fill: #f7f8fa; --fill-2: #f0f2f5; --line: #e6e9ef; --line-2: #cfd5de;
+  --t1: #1d2129; --t2: #4e5969; --t3: #86909c; --t4: #c9cdd4;
+  --primary: #2462e8; --primary-tint: #eef3fe; --primary-line: #bed0fa;
+  --ai-1: #2462e8; --ai-2: #7c5cff; --ai-3: #16b4c8; --ai-grad: linear-gradient(120deg, var(--ai-1), var(--ai-2) 55%, var(--ai-3));
+  --ok: #1f9d63; --notice: #b98200; --warn: #e2621f; --crit: #d5342b; --ok-tint: #e8f6ee; --notice-tint: #fcf4dd; --crit-tint: #fcebea;
+  --h-bg-1: #0a1430; --h-bg-2: #13265a; --h-t1: #f3f6fb; --h-t2: #b6c2d9; --h-t3: #8492ad; --h-glass: rgba(255,255,255,.07); --h-line: rgba(255,255,255,.13);
+  --s-use: linear-gradient(150deg, #3a78f2, #6a5cf6); --s-use-flat: #4a6cf3; --s-keep: #f0b43c; --s-keep-tint: #fdf3dc; --s-free: #edf0f5; --s-free-line: #d6dce6; --s-bad: #d5342b;
+  --canvas: #fbfcfe; --grid: rgba(36,98,232,.06); --card: #fff; --card-line: #e3e8f1; --group: rgba(36,98,232,.035); --group-line: #c9d6ef;
+  --r-xl: 22px; --r-lg: 16px; --r-md: 12px;
+  --shadow-1: 0 1px 2px rgba(17,24,39,.04), 0 4px 16px rgba(17,24,39,.04); --shadow-2: 0 18px 50px rgba(10,20,48,.22), 0 2px 6px rgba(10,20,48,.08);
+}
+[data-theme="dark"] {
+  --bg: #0b1120; --panel: #111a2e; --fill: #16203a; --fill-2: #1b2744; --line: #243250; --line-2: #33456b;
+  --t1: #e8edf7; --t2: #b3bfd6; --t3: #7d8aa6; --t4: #4b5876; --primary-tint: #17264a; --primary-line: #2c4a8a;
+  --s-free: #1b2744; --s-free-line: #2c3b5e; --s-keep-tint: #3a2f12; --ok-tint: #12301f; --notice-tint: #362a0c; --crit-tint: #3a1515;
+  --canvas: #0d1528; --grid: rgba(120,160,255,.06); --card: #131d33; --card-line: #26365a; --group: rgba(90,130,255,.05); --group-line: #2d4170;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--t1); font-family: var(--sans); font-size: 14px; -webkit-font-smoothing: antialiased; }
+.num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+a { color: var(--primary); text-decoration: none; }
+/* ---------------- 外框 ---------------- */
+.top { position: sticky; top: 0; z-index: 30; height: 60px; display: flex; align-items: center; gap: 18px; padding: 0 22px 0 16px; background: color-mix(in srgb, var(--panel) 86%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; width: 190px; font-weight: 600; font-size: 15px; }
+.logo { width: 30px; height: 30px; border-radius: 9px; background: var(--ai-grad); display: grid; place-items: center; box-shadow: 0 4px 12px rgba(36,98,232,.35); }
+.search { flex: 0 1 340px; height: 34px; border: 1px solid var(--line); border-radius: 10px; background: var(--fill); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--t3); font-size: 13px; }
+.kbd { margin-left: auto; font: 11px var(--mono); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; background: var(--panel); }
+.sp { flex: 1; }
+.seg { display: flex; background: var(--fill-2); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--t2); font: 13px var(--sans); padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+.seg button.on { background: var(--panel); color: var(--primary); font-weight: 500; box-shadow: var(--shadow-1); }
+.ask { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 10px; border: 1.5px solid transparent; background: linear-gradient(var(--panel), var(--panel)) padding-box, var(--ai-grad) border-box; font-weight: 500; }
+.me { display: flex; align-items: center; gap: 8px; color: var(--t2); }
+.av { width: 28px; height: 28px; border-radius: 50%; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; font-weight: 600; font-size: 12px; }
+.shell { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 60px); }
+.nav { border-right: 1px solid var(--line); padding: 18px 10px; background: var(--panel); }
+.nav .g { font-size: 12px; color: var(--t3); margin: 16px 12px 8px; }
+.nav .g:first-child { margin-top: 0; }
+.nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; color: var(--t2); margin-bottom: 2px; }
+.nav a.on { background: var(--primary-tint); color: var(--primary); font-weight: 500; box-shadow: inset 0 0 0 1px var(--primary-line); }
+.nav a .lk { margin-left: auto; font-size: 11px; color: var(--t3); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
+.nav svg { width: 16px; height: 16px; flex: none; }
+.main { padding: 22px 28px 60px; min-width: 0; }
+/* ---------------- 页头 ---------------- */
+.crumb { color: var(--t3); font-size: 13px; }
+.crumb b { color: var(--t1); font-weight: 500; }
+.ph { display: flex; align-items: flex-end; gap: 14px; margin: 10px 0 6px; }
+.ph h1 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: .3px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--fill-2); color: var(--t2); }
+.pill.ok { background: var(--ok-tint); color: var(--ok); }
+.pill.blue { background: var(--primary-tint); color: var(--primary); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.live { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(31,157,99,.45); } 50% { box-shadow: 0 0 0 5px rgba(31,157,99,0); } }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; color: var(--t3); font-size: 13px; margin-bottom: 18px; }
+.meta b { color: var(--t2); font-weight: 500; }
+.ph .btns { margin-left: auto; display: flex; gap: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--t1); font: 13px var(--sans); cursor: pointer; }
+/* ---------------- 主视觉 ---------------- */
+.hero { border-radius: var(--r-xl); padding: 22px; background: radial-gradient(120% 140% at 0% 0%, #1b3a86 0%, transparent 55%), radial-gradient(90% 120% at 100% 100%, #3b2a8a 0%, transparent 50%), linear-gradient(135deg, var(--h-bg-1), var(--h-bg-2)); box-shadow: var(--shadow-2); display: grid; grid-template-columns: 1.05fr 1fr; gap: 18px; color: var(--h-t1); position: relative; overflow: hidden; }
+.hero::after { content: ""; position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1px); background-size: 22px 22px; mask-image: linear-gradient(180deg, rgba(0,0,0,.5), transparent 70%); pointer-events: none; }
+.glass { position: relative; z-index: 1; background: var(--h-glass); border: 1px solid var(--h-line); border-radius: var(--r-lg); padding: 18px 20px; backdrop-filter: blur(6px); }
+.gt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--h-t2); }
+.gt .r { margin-left: auto; color: var(--h-t3); font-size: 12px; }
+.capw { display: grid; grid-template-columns: 1fr 150px; gap: 10px; align-items: center; margin-top: 8px; }
+.big { font-size: 44px; font-weight: 500; letter-spacing: -1px; line-height: 1.1; }
+.big small { font-size: 15px; color: var(--h-t2); margin-left: 6px; letter-spacing: 0; }
+.split { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 13px; color: var(--h-t2); }
+.split i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.split b { color: var(--h-t1); font-weight: 500; margin-left: 4px; }
+.mini { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.trend { margin-top: 14px; border-top: 1px solid var(--h-line); padding-top: 10px; }
+.trend .l { display: flex; justify-content: space-between; font-size: 12px; color: var(--h-t3); }
+.trend svg { width: 100%; height: 64px; display: block; margin-top: 4px; }
+.mini > div { border-top: 1px solid var(--h-line); padding-top: 10px; }
+.mini .l { font-size: 12px; color: var(--h-t3); }
+.mini .v { font-size: 18px; margin-top: 3px; }
+.mini .v small { font-size: 12px; color: var(--h-t3); }
+.hbar { height: 6px; background: rgba(255,255,255,.10); border-radius: 4px; margin-top: 7px; position: relative; overflow: hidden; }
+.hbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.hbar .rq { background: rgba(255,255,255,.28); }
+.hbar .us { background: linear-gradient(90deg, #7aa2ff, #a088ff); }
+.insight h3 { margin: 10px 0 10px; font-size: 19px; font-weight: 600; line-height: 1.45; }
+.insight ul { margin: 0; padding-left: 0; list-style: none; }
+.insight li { position: relative; padding-left: 14px; margin: 7px 0; color: var(--h-t2); line-height: 1.65; font-size: 13.5px; }
+.insight li::before { content: ""; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: #7aa2ff; }
+.insight li b { color: var(--h-t1); font-weight: 500; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.chip { font-size: 12.5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--h-line); color: var(--h-t1); background: rgba(255,255,255,.05); cursor: pointer; }
+.qbox { margin-top: 12px; display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 12px; padding: 10px 10px 10px 16px; color: #86909c; font-size: 13px; }
+.qbox .go { margin-left: auto; width: 32px; height: 32px; border-radius: 9px; background: var(--ai-grad); display: grid; place-items: center; }
+.ai-ic { width: 22px; height: 22px; border-radius: 7px; background: var(--ai-grad); display: grid; place-items: center; }
+/* ---------------- 卡片 ---------------- */
+.card { background: var(--panel); border-radius: var(--r-xl); box-shadow: var(--shadow-1); border: 1px solid var(--line); margin-top: 18px; }
+.ch { display: flex; align-items: center; gap: 12px; padding: 18px 22px 0; }
+.ch h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.ch .sub { color: var(--t3); font-size: 13px; }
+.ch .r { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+.legend { display: flex; gap: 14px; color: var(--t2); font-size: 12.5px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 4px; }
+.sw.use { background: var(--s-use); } .sw.keep { background: var(--s-keep); } .sw.free { background: var(--s-free); box-shadow: inset 0 0 0 1px var(--s-free-line); }
+.sw.bad { background: repeating-linear-gradient(135deg, var(--s-bad) 0 3px, #f6c7c3 3px 6px); }
+/* ---------------- 架构大盘 ---------------- */
+.topo { position: relative; margin: 16px 18px 18px; border-radius: 18px; background-color: var(--canvas); background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; border: 1px solid var(--line); padding: 20px 22px 22px; display: grid; grid-template-columns: 1fr 178px; grid-template-rows: auto 1fr; gap: 26px 30px; }
+.band { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 60px; position: relative; z-index: 3; }
+.band .node { width: 210px; }
+.band .sp { flex: 1; }
+.links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
+.links path { fill: none; stroke-width: 1.6; }
+.links .flow { stroke-dasharray: 5 7; animation: flow 1.2s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -12; } }
+.links text { font: 11px var(--sans); fill: var(--t3); }
+.col { display: flex; flex-direction: column; gap: 16px; position: relative; z-index: 3; }
+.col.ext { justify-content: flex-start; gap: 64px; }
+.node { background: var(--card); border: 1px solid var(--card-line); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-1); position: relative; transition: transform .15s, box-shadow .15s, border-color .15s; cursor: pointer; }
+.node:hover, .node.sel { transform: translateY(-2px); border-color: var(--primary-line); box-shadow: 0 10px 28px rgba(36,98,232,.14); }
+.node h4 { margin: 0; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; white-space: nowrap; }
+.node h4 svg { width: 16px; height: 16px; color: var(--primary); flex: none; }
+.node p { margin: 5px 0 0; color: var(--t3); font-size: 12px; line-height: 1.55; }
+.kind { margin-left: auto; font: 11px var(--mono); color: var(--primary); background: var(--primary-tint); padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+.node.ext { background: color-mix(in srgb, var(--card) 70%, transparent); border-style: dashed; }
+.cluster { position: relative; border: 1.5px dashed var(--group-line); border-radius: 18px; background: var(--group); padding: 34px 16px 16px; display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; z-index: 1; }
+.cluster > .gl { position: absolute; top: 10px; left: 16px; font-size: 12px; color: var(--primary); display: flex; gap: 6px; align-items: center; font-weight: 500; }
+.cluster > .gl .ns { font-family: var(--mono); color: var(--t3); font-weight: 400; }
+.span3 { grid-column: span 3; } .span4 { grid-column: span 4; } .span5 { grid-column: span 5; } .span8 { grid-column: span 8; } .span9 { grid-column: span 9; } .span12 { grid-column: span 12; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+/* 资源条 */
+.res { margin-top: 10px; display: grid; gap: 6px; }
+.rl { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; align-items: center; font-size: 11.5px; color: var(--t3); }
+.lim-note { font-size: 11px; color: var(--t3); margin-top: 2px; text-align: right; font-family: var(--mono); }
+.rb { height: 7px; border-radius: 5px; background: var(--fill-2); position: relative; overflow: visible; }
+.rb .q { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; background: color-mix(in srgb, var(--primary) 18%, transparent); }
+.rb .u { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; background: var(--s-use); }
+.rb .lim { position: absolute; right: 0; top: -3px; bottom: -3px; width: 2px; background: var(--t4); border-radius: 2px; }
+.rv { font-family: var(--mono); color: var(--t2); white-space: nowrap; }
+.serve { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--t2); }
+.serve b { font-size: 15px; color: var(--t1); font-weight: 600; }
+.serve .x { margin-left: auto; color: var(--t3); }
+.reps { display: flex; gap: 8px; margin-top: 10px; }
+.rep { flex: 1; border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; font-size: 11.5px; color: var(--t3); background: var(--fill); }
+.rep b { display: block; color: var(--t1); font: 12px var(--mono); margin-bottom: 4px; }
+/* 池子 */
+.pool { padding: 14px; background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 6%, var(--card)), var(--card)); }
+.pool .ph2 { display: flex; align-items: center; gap: 10px; }
+.pool .ph2 h4 { font-size: 14px; }
+.pool .sum { display: flex; gap: 16px; margin: 8px 0 12px; font-size: 12px; color: var(--t3); flex-wrap: wrap; }
+.pool .sum b { color: var(--t1); font-family: var(--mono); font-weight: 500; }
+.pods { display: grid; grid-template-columns: repeat(var(--pc, 4), minmax(0, 1fr)); gap: 10px; }
+.pod { border: 1px solid var(--card-line); border-radius: 12px; background: var(--card); padding: 9px 10px 10px; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; position: relative; }
+.pod:hover, .pod.sel { border-color: var(--primary); box-shadow: 0 8px 20px rgba(36,98,232,.16); transform: translateY(-1px); }
+.pod .pn { display: flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--t2); }
+.pod .pn .st { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.pod .pn .st.warn { background: var(--warn); }
+.slots { display: grid; grid-template-columns: repeat(var(--k, 8), 1fr); gap: 4px; margin: 8px 0 8px; }
+.slot { aspect-ratio: 1; border-radius: 5px; background: var(--s-free); box-shadow: inset 0 0 0 1px var(--s-free-line); position: relative; }
+.slot.use { background: var(--s-use); box-shadow: 0 2px 6px rgba(74,108,243,.35); }
+.slot.keep { background: var(--s-keep); box-shadow: none; }
+.slot.bad { background: repeating-linear-gradient(135deg, var(--s-bad) 0 3px, #f6c7c3 3px 6px); box-shadow: none; }
+.slot.stw { background: none; box-shadow: inset 0 0 0 1.5px var(--t4); border-radius: 50%; transform: scale(.7); }
+.slot.big { aspect-ratio: auto; height: 30px; display: grid; place-items: center; font: 10.5px var(--mono); color: #fff; }
+.slot.big.free { color: var(--t3); }
+.pod .pm { display: grid; grid-template-columns: auto 1fr 58px; gap: 6px; align-items: center; font: 10.5px var(--mono); color: var(--t3); margin-top: 3px; }
+.pod .pm span:last-child { text-align: right; }
+.pod .pm .rb { height: 5px; }
+.pod .pu { font-size: 11px; color: var(--t3); margin-top: 6px; display: flex; justify-content: space-between; }
+.pod .pu b { color: var(--t1); font-weight: 500; }
+.store { display: grid; grid-template-columns: 1.2fr 2fr; gap: 18px; align-items: center; background: linear-gradient(90deg, color-mix(in srgb, var(--ai-3) 7%, var(--card)), var(--card)); }
+.dirs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.cfg4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cfg4 .node { padding: 10px 12px; box-shadow: none; cursor: default; }
+.cfg4 .node:hover { transform: none; }
+.dir { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--fill); font-size: 12px; color: var(--t3); }
+.dir b { display: block; font: 12.5px var(--mono); color: var(--t1); margin-bottom: 3px; }
+.smallcards { display: contents; }
+.sc { padding: 10px 12px; }
+.sc .cnt { font: 20px var(--mono); margin-top: 4px; }
+.sc .cnt small { font: 12px var(--sans); color: var(--t3); margin-left: 4px; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--fill-2); color: var(--t2); }
+.tag.ok { background: var(--ok-tint); color: var(--ok); } .tag.warn { background: var(--notice-tint); color: var(--notice); } .tag.bad { background: var(--crit-tint); color: var(--crit); }
+.users { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.u { font: 11px var(--mono); padding: 2px 7px; border-radius: 6px; background: var(--fill-2); color: var(--t2); }
+.u.on { background: var(--primary-tint); color: var(--primary); }
+/* 提示 */
+.tip { position: fixed; z-index: 60; pointer-events: none; background: #0f1830; color: #e8edf7; border-radius: 12px; padding: 10px 12px; font-size: 12px; box-shadow: var(--shadow-2); min-width: 200px; max-width: 300px; opacity: 0; transition: opacity .12s; }
+.tip.on { opacity: 1; }
+.tip h5 { margin: 0 0 6px; font: 12px var(--mono); color: #fff; }
+.tip .row { display: flex; justify-content: space-between; gap: 12px; color: #b6c2d9; margin: 3px 0; }
+.tip .row b { color: #fff; font-weight: 500; font-family: var(--mono); }
+/* 表 */
+.two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.two .card { margin-top: 18px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--t3); font-size: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.r, th.r { text-align: right; }
+.tw { padding: 8px 8px 12px; max-height: 420px; overflow: auto; }
+.tw table { min-width: 100%; }
+.cell-bar { display: inline-block; width: 64px; height: 6px; border-radius: 4px; background: var(--fill-2); vertical-align: middle; position: relative; overflow: hidden; margin-left: 8px; }
+.cell-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--s-use); border-radius: 4px; }
+.state { display: inline-flex; align-items: center; gap: 6px; }
+.state i { width: 8px; height: 8px; border-radius: 3px; }
+.state.use i { background: var(--s-use); } .state.keep i { background: var(--s-keep); } .state.bad i { background: var(--s-bad); } .state.idle i { background: var(--t4); }
+.find { height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: var(--fill); color: var(--t1); font: 13px var(--sans); width: 160px; }
+/* 抽屉 */
+.mask { position: fixed; inset: 0; background: rgba(10,20,48,.28); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 70; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 440px; background: var(--panel); z-index: 71; box-shadow: -20px 0 60px rgba(10,20,48,.25); transform: translateX(100%); transition: transform .25s ease; display: flex; flex-direction: column; }
+.open .mask { opacity: 1; pointer-events: auto; } .open .drawer { transform: none; }
+.dh { padding: 20px 22px 14px; border-bottom: 1px solid var(--line); }
+.dh .k { font: 12px var(--mono); color: var(--primary); }
+.dh h3 { margin: 6px 0 4px; font-size: 18px; }
+.dh .x { position: absolute; top: 16px; right: 16px; border: 0; background: var(--fill-2); width: 30px; height: 30px; border-radius: 9px; cursor: pointer; color: var(--t2); font-size: 16px; }
+.db { padding: 16px 22px; overflow: auto; flex: 1; }
+.db h6 { margin: 16px 0 8px; font-size: 12px; color: var(--t3); font-weight: 500; }
+.db h6:first-child { margin-top: 0; }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; font-size: 13px; }
+.kv span { color: var(--t3); }
+.ct { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+.ct .cn { display: flex; justify-content: space-between; font: 12.5px var(--mono); }
+.spark { width: 100%; height: 46px; }
+.foot { color: var(--t3); font-size: 12px; margin-top: 16px; display: flex; gap: 18px; flex-wrap: wrap; }
+.design-note { position: fixed; right: 18px; bottom: 18px; z-index: 50; background: #0f1830; color: #dfe6f5; border-radius: 999px; padding: 8px 8px 8px 16px; font-size: 12.5px; display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-2); }
+.design-note .seg { background: rgba(255,255,255,.08); }
+.design-note .seg button { color: #b6c2d9; font-size: 12px; padding: 4px 10px; }
+.design-note .seg button.on { background: #fff; color: #1d2129; }
+/* ---------------- Fuyao 版新增 ---------------- */
+:root { --s-idle: #9db8f5; --plat: rgba(124,92,255,.035); --plat-line: #d6caf6; --host-line: #cfd5de; }
+[data-theme="dark"] { --s-idle: #3e5a9c; --plat: rgba(124,92,255,.07); --plat-line: #4b3f86; --host-line: #33456b; }
+.sw.idle { background: var(--s-idle); } .sw.pause { background: var(--s-keep); }
+.sw.nosync { background: repeating-linear-gradient(135deg, var(--s-keep) 0 3px, var(--s-bad) 3px 6px); }
+.sw.old { background: var(--s-free); box-shadow: inset 0 0 0 1px var(--s-free-line); position: relative; overflow: hidden; }
+.sw.old::after { content: ""; position: absolute; top: 0; right: 0; border-top: 7px solid var(--warn); border-left: 7px solid transparent; }
+.slot.idle { background: var(--s-idle); box-shadow: none; }
+.slot.pause { background: var(--s-keep); box-shadow: none; }
+.slot.nosync { background: repeating-linear-gradient(135deg, var(--s-keep) 0 3px, var(--s-bad) 3px 6px); box-shadow: none; }
+.slot.old::after { content: ""; position: absolute; top: 0; right: 0; border-top: 6px solid var(--warn); border-left: 6px solid transparent; border-top-right-radius: 4px; }
+.slot.big.pause, .slot.big.nosync { color: #3a2a00; }
+.slot.big { height: 44px; line-height: 1.25; text-align: center; padding: 0 4px; }
+.state.idle2 i { background: var(--s-idle); } .state.pause i { background: var(--s-keep); } .state.nosync i { background: var(--s-bad); }
+.lanes { display: flex; flex-direction: column; gap: 30px; position: relative; z-index: 1; min-width: 0; }
+.cluster.plat { border-color: var(--plat-line); background: var(--plat); }
+.cluster.plat > .gl { color: var(--ai-2); }
+.cluster > .gl .src { margin-left: 6px; }
+.hostbox { position: relative; border: 1.5px dashed var(--host-line); border-radius: 18px; padding: 34px 16px 14px; display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; }
+.hostbox > .gl { position: absolute; top: 10px; left: 16px; font-size: 12px; color: var(--t2); display: flex; gap: 6px; align-items: center; font-weight: 500; }
+.hostbox > .gl .ns { font-family: var(--mono); color: var(--t3); font-weight: 400; }
+.chain { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; border: 1px solid var(--card-line); background: var(--card); border-radius: 12px; padding: 9px 10px; }
+.chain .t { width: 100%; font-size: 11.5px; color: var(--t3); margin-bottom: 2px; }
+.chain .c { border: 1px solid var(--line); background: var(--fill); border-radius: 8px; padding: 3px 8px; font: 11.5px var(--mono); color: var(--t1); white-space: nowrap; }
+.chain .c.vm { border-color: var(--primary-line); background: var(--primary-tint); color: var(--primary); }
+.chain .a { color: var(--t4); font-size: 12px; }
+.src { font: 10.5px var(--mono); color: var(--t3); border: 1px dashed var(--line-2); border-radius: 6px; padding: 0 6px; white-space: nowrap; font-weight: 400; }
+.src.need { color: var(--notice); border-color: color-mix(in srgb, var(--notice) 50%, transparent); }
+.src.miss { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 45%, transparent); }
+.glass .src { color: var(--h-t3); border-color: var(--h-line); }
+.glass .src.need { color: #f0c46a; } .glass .src.miss { color: #f59a93; }
+.node.faded { opacity: .55; border-style: dashed; }
+.node .tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+.pool .sum .tag { font-family: var(--sans); }
+.grp-note { font-size: 11.5px; color: var(--t3); margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap; }
+.grp-note b { color: var(--t2); font-weight: 500; }
+.pods.dense .pod { padding: 7px 8px 8px; }
+.pods.dense .slots { gap: 3px; margin: 6px 0 4px; }
+.pods.dense .slot { border-radius: 3px; }
+.pod .pu.ph { margin-top: 2px; }
+/* 安全与来源 */
+.seccols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; padding: 14px 22px 20px; }
+.secg h5 { margin: 0 0 8px; font-size: 12.5px; color: var(--t3); font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.si { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); }
+.si.crit { border-color: color-mix(in srgb, var(--crit) 35%, var(--line)); background: color-mix(in srgb, var(--crit-tint) 55%, var(--panel)); }
+.si h6 { margin: 0; font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.si h6 .tag { margin-left: auto; }
+.si p { margin: 5px 0 0; font-size: 12px; color: var(--t2); line-height: 1.65; }
+.si p span { color: var(--t3); }
+.mini-list { margin: 0; padding: 0; list-style: none; }
+.mini-list li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 7px 2px; border-bottom: 1px dashed var(--line); font-size: 12.5px; color: var(--t2); }
+.mini-list li:last-child { border-bottom: 0; }
+.mini-list li span { color: var(--t3); font-size: 12px; text-align: right; }
+td .src { margin-left: 0; }
+td.wrap { white-space: normal; line-height: 1.55; min-width: 220px; }
+/* 抽屉补充 */
+.ops { display: grid; gap: 8px; }
+.op { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: var(--t3); line-height: 1.6; }
+.op b { font: 12px var(--mono); color: var(--t1); margin-right: 6px; }
+.op .tag { margin-left: 4px; }
+.proc { width: 100%; border-collapse: collapse; font-size: 12px; }
+.proc td, .proc th { padding: 7px 8px; white-space: normal; vertical-align: top; }
+.proc td:first-child { font-family: var(--mono); white-space: nowrap; }
+.note { font-size: 12px; color: var(--t3); line-height: 1.65; margin-top: 10px; }
+.span6 { grid-column: span 6; }
+.ch h2 { white-space: nowrap; }
+.pods.dense .pod .pu { flex-direction: column; gap: 1px; }
+.lanes { gap: 44px; }
+.tplv { display: grid; gap: 5px; margin-top: 9px; }
+.tplv div { border-radius: 8px; background: var(--primary-tint); padding: 4px 8px; min-width: 0; }
+.tplv div.old { background: var(--notice-tint); }
+.tplv span { display: block; font-size: 11px; color: var(--t3); }
+.tplv b { display: block; font: 11px var(--mono); color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+.tplv div.old b { color: var(--notice); }
+.slot.big { height: 56px; font: 12.5px/1.45 var(--sans); }
+.slot.big.pause, .slot.big.nosync { color: #3a2a00; font-weight: 500; }
+/* 沙箱组:容量条 + 一台一块 */
+.caplbl { display: flex; gap: 6px 14px; font-size: 12px; color: var(--t3); flex-wrap: wrap; align-items: center; }
+.caplbl b { color: var(--t1); font-family: var(--mono); font-weight: 500; }
+.caplbl .r { margin-left: auto; display: flex; gap: 6px; }
+.capbar { display: flex; height: 12px; border-radius: 7px; overflow: hidden; background: var(--s-free); box-shadow: inset 0 0 0 1px var(--s-free-line); margin: 8px 0 4px; }
+.capbar i { display: block; height: 100%; }
+.capbar i.use { background: var(--s-use); } .capbar i.idle { background: var(--s-idle); } .capbar i.pause { background: var(--s-keep); }
+.capbar i.nosync { background: repeating-linear-gradient(135deg, var(--s-keep) 0 3px, var(--s-bad) 3px 6px); }
+.tiles-wrap { margin-top: 10px; }
+.tiles-wrap.scroll { max-height: 480px; overflow: auto; padding-right: 4px; }
+.tgrp { margin-top: 12px; } .tgrp:first-child { margin-top: 0; }
+.tgrp h5 { margin: 0 0 6px; font-size: 12px; color: var(--t2); font-weight: 500; display: flex; align-items: center; gap: 6px; position: sticky; top: 0; background: var(--card); padding: 2px 0; z-index: 1; }
+.tgrp h5 i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.tgrp h5 b { font-family: var(--mono); color: var(--t1); font-weight: 500; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 5px; }
+.tile { position: relative; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 5px; font: 11px var(--mono); font-style: normal; color: #fff; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.tile em { font: 10.5px var(--sans); font-style: normal; opacity: .85; }
+.tile.use { background: var(--s-use); }
+.tile.idle { background: var(--s-idle); color: #13285a; }
+.tile.pause { background: var(--s-keep); color: #3a2a00; }
+.tile.nosync { background: repeating-linear-gradient(135deg, #f6d48a 0 5px, #f5b2ab 5px 10px); color: #5a0f0a; box-shadow: inset 0 0 0 1.5px var(--s-bad); }
+.tile.old::after { content: ""; position: absolute; top: 0; right: 0; border-top: 9px solid var(--warn); border-left: 9px solid transparent; }
+.tile:hover { outline: 2px solid var(--primary); outline-offset: 1px; }
+.tiles.big { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.tiles.big .tile { height: 48px; font-size: 13px; flex-direction: column; gap: 1px; }
+.tiles.big .tile em { font-size: 12px; }
+[data-theme="dark"] .tile.idle { color: #e8edf7; }
+/* 抽屉:平台承载 Pod */
+.hps { display: grid; gap: 6px; max-height: 300px; overflow: auto; }
+.hp { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 12px; color: var(--t3); }
+.hp b { font: 11.5px var(--mono); color: var(--t1); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp .ok { color: var(--ok); }
+.tiles { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 4px; }
+.tile { height: 22px; font-size: 10.5px; border-radius: 5px; gap: 4px; }
+.tile em { font-size: 10px; }
+.tgrp h5 { position: static; }
+/* 沙箱组:承载 Pod × 沙箱 */
+.podcap { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 12px 0 8px; font-size: 12.5px; color: var(--t2); }
+.podcap b { font-weight: 600; color: var(--t1); }
+.podcap .num { color: var(--t2); }
+.podcap em { width: 100%; font-style: normal; font-size: 12px; color: var(--t3); }
+.pods.dense { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.pods.dense .pod { padding: 8px 9px 8px; border-radius: 11px; }
+.pods.dense .slots { grid-template-columns: repeat(5, 1fr); gap: 3px; margin: 6px 0 6px; }
+.pods.dense .slot { aspect-ratio: 1.15; border-radius: 4px; }
+.pods.dense .slot.old::after { border-top-width: 7px; border-left-width: 7px; }
+.pods.dense .pod .pu { flex-direction: row; gap: 4px; margin-top: 2px; font-size: 10.5px; }
+.pod .pn .st { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+.slot.big { height: 50px; aspect-ratio: auto; font: 12px/1.4 var(--sans); }
+.slot.big.free { color: var(--t3); font-size: 11.5px; }
+.slot { cursor: pointer; }
+.podmore { display: flex; flex-direction: column; justify-content: center; gap: 3px; border: 1.5px dashed var(--line-2); background: repeating-linear-gradient(135deg, transparent 0 8px, color-mix(in srgb, var(--primary) 4%, transparent) 8px 16px); color: var(--t3); font-size: 11px; line-height: 1.45; text-align: center; grid-column: span 2; cursor: pointer; }
+.podmore b { color: var(--primary); font-size: 13px; font-weight: 600; }
+.podmore.full b { color: var(--t2); }
+.pods:not(.dense) .podmore { grid-column: span 1; }
+.pods.dense { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
+.pods.dense .pod { padding: 7px 8px 7px; }
+.pods.dense .pod .pn { font-size: 11px; }
+.slot.big { font: 500 12.5px/1.35 var(--mono); }
+.slot.big em { font: 400 11.5px var(--sans); font-style: normal; opacity: .85; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-gw" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.2-3 7.6-7 9-4-1.4-7-4.8-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-fe" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 14l3-3 3 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-pool" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" fill="currentColor" opacity=".35"/></symbol>
+  <symbol id="i-kb" viewBox="0 0 24 24"><path d="M5 4.5h10.5A3.5 3.5 0 0119 8v11.5H8.5A3.5 3.5 0 015 16z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 9h6M9 12.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-run" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-cfg" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-np" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5M12 3.5C9.5 6.1 8.5 8.9 8.5 12s1 5.9 3.5 8.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-nas" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3.5" y="14" width="17" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7.5" cy="7" r="1" fill="currentColor"/><circle cx="7.5" cy="17" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-sso" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-reg" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-mw" viewBox="0 0 24 24"><path d="M4 12h4l2-5 4 10 2-5h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-llm" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" fill="currentColor"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5l2.2 6.6 6.8 2.4-6.8 2.4L12 20.5l-2.2-6.6-6.8-2.4 6.8-2.4z" fill="#fff"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M3 12h4l2-4 4 8 2-4h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M5 7h14M5 12h10M5 17h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-vm" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 20h10M9.5 16.5V20M14.5 16.5V20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="7.5" y="8" width="9" height="5" rx="1.2" fill="currentColor" opacity=".3"/></symbol>
+  <symbol id="i-tpl" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4V20.5H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 3.5v4h4M9 12h6M9 15.5h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-ctl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-host" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 8h8M8 12h8M8 16h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M5 10a7 7 0 0112.3-3.6L19 8M19 4v4h-4M19 14a7 7 0 01-12.3 3.6L5 16M5 20v-4h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.2-3 7.6-7 9-4-1.4-7-4.8-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 8v5M12 16v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-job" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="top">
+  <div class="brand"><div class="logo"><svg width="16" height="16"><use href="#i-spark"/></svg></div>GaussDB 智能体</div>
+  <div class="search"><svg width="14" height="14" style="color:var(--t3)"><use href="#i-list"/></svg>搜索页面、工号、沙箱、组件…<span class="kbd">⌘ K</span></div>
+  <div class="sp"></div>
+  <div class="seg" id="theme"><button class="on" data-t="light">普通</button><button data-t="dark">深色</button></div>
+  <div class="ask"><svg width="15" height="15" style="color:var(--ai-2)"><use href="#i-llm"/></svg>问智能体 <span class="kbd" style="margin-left:6px">⌘ J</span></div>
+  <div class="me"><div class="av">A</div>ops-admin</div>
+</div>
+
+<div class="shell">
+  <nav class="nav">
+    <div class="g">诊断大盘</div>
+    <a href="#"><svg><use href="#i-heart"/></svg>健康检查</a>
+    <a href="#"><svg><use href="#i-list"/></svg>Top SQL</a>
+    <a href="#"><svg><use href="#i-clock"/></svg>WDR 分析</a>
+    <div class="g">知识</div>
+    <a href="#"><svg><use href="#i-kb"/></svg>知识库</a>
+    <div class="g">运维</div>
+    <a href="#" class="on"><svg><use href="#i-vm"/></svg>资源大盘<span class="lk">管理员</span></a>
+    <div class="g">对话</div>
+    <a href="#"><svg><use href="#i-plus"/></svg>新对话</a>
+    <a href="#"><svg><use href="#i-chat"/></svg>最近对话</a>
+  </nav>
+
+  <main class="main">
+    <div class="crumb">运维 / <b>资源大盘</b></div>
+    <div class="ph">
+      <h1>资源大盘</h1>
+      <span class="pill ok"><span class="dot live"></span>运行中</span>
+      <span class="pill blue" id="modePill"></span>
+      <div class="btns">
+        <button class="btn" id="refresh">↻ 刷新</button>
+        <button class="btn">在会话里问</button>
+      </div>
+    </div>
+    <div class="meta" id="meta"></div>
+
+    <section class="hero" id="hero"></section>
+
+    <section class="card">
+      <div class="ch">
+        <h2>Fuyao 架构大盘</h2>
+        <span class="sub" id="topoSub"></span>
+        <div class="r legend">
+          <span><i class="sw use"></i>运行·在用</span><span><i class="sw idle"></i>运行·闲置</span><span><i class="sw pause"></i>暂停</span>
+          <span><i class="sw nosync"></i>暂停前没回写成</span><span><i class="sw free"></i>空余</span><span><i class="sw old"></i>旧版模板</span>
+        </div>
+      </div>
+      <div class="topo" id="topo">
+        <svg class="links" id="links"></svg>
+        <div class="band" id="band"></div>
+        <div class="lanes">
+          <div class="cluster" id="cluster"></div>
+          <div class="cluster plat" id="plat"></div>
+          <div class="hostbox" id="host"></div>
+        </div>
+        <div class="col ext" id="colR"></div>
+      </div>
+    </section>
+
+    <div class="two">
+      <section class="card">
+        <div class="ch"><h2>工号分布</h2><span class="sub" id="userSub"></span><span class="src">/admin/fuyao</span><div class="r"><input class="find" id="find" placeholder="找工号、沙箱…"></div></div>
+        <div class="tw"><table id="userTable"></table></div>
+      </section>
+      <section class="card">
+        <div class="ch"><h2>资源明细</h2><span class="sub">按组件 · request / limit / 实际</span><span class="src">K8s API</span></div>
+        <div class="tw" style="max-height:none"><table id="resTable"></table></div>
+      </section>
+      <section class="card">
+        <div class="ch"><h2>安全与平台前提</h2><span class="sub">上线前必须由平台落实的三项,以及平台行为的处理现状</span><span class="src">平台问题清单 · 端到端实测</span></div>
+        <div class="seccols" id="sec"></div>
+      </section>
+      <section class="card">
+        <div class="ch"><h2>数据来源</h2><span class="sub">大盘上每一项从哪里取、现在能不能取到</span></div>
+        <div class="tw" style="max-height:none"><table id="srcTable"></table></div>
+      </section>
+    </div>
+    <div class="foot" id="foot"></div>
+  </main>
+</div>
+
+<div class="tip" id="tip"></div>
+<div id="dw"><div class="mask" id="mask"></div><aside class="drawer" id="drawer"></aside></div>
+<div class="design-note">UI 设计稿 · 数据为示意
+  <div class="seg" id="scen"><button class="on" data-s="prod">生产规模(示意)</button><button data-s="test">鲲鹏测试环境(实测 11-18)</button></div>
+</div>
+
+<script>
+// ============================================================ 数据
+// 生产规模:示意数据(6 台鲲鹏节点、诊断 / 导入两个沙箱组);鲲鹏测试环境:取自 2026-11-18 15:00 的只读查询
+// (网关 /admin/fuyao、kubectl get sandboxgroups / sandboxes / deploy / pods,平台承载 Pod 的资源占位)。
+function rng(seed) { let s = seed; return () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648; }
+const GI = 1024;
+const SVC = (cpu, mem, lcpu, lmem) => ({ req: { cpu, mem }, lim: { cpu: lcpu, mem: lmem } });
+function platform() {
+  return [
+    { id: 'osb', n: 'OpenSandbox Server', ns: 'flux-system', kind: 'Deployment ×1', reps: 1, ...SVC(1, 4 * GI, 2, 8 * GI) },
+    { id: 'flux', n: 'Flux Controller', ns: 'flux-system', kind: 'Deployment ×1', reps: 1, ...SVC(0.5, 512, 4, 2 * GI) },
+    { id: 'flux', n: 'Flux Scheduler', ns: 'flux-system', kind: 'StatefulSet ×3', reps: 3, ...SVC(0.5, 512, 4, GI) },
+    { id: 'flux', n: 'Flux Watcher', ns: 'flux-system', kind: 'DaemonSet', reps: 1, req: null, lim: null },
+    { id: 'e2b', n: 'E2B API', ns: 'e2b', kind: 'Deployment ×1', reps: 1, ...SVC(20, 20 * GI, 20, 40 * GI) },
+    { id: 'e2b', n: 'E2B Edge', ns: 'e2b', kind: 'Deployment ×1', reps: 1, ...SVC(40, 40 * GI, 40, 60 * GI) },
+    { id: 'e2b', n: 'PostgreSQL', ns: 'e2b', kind: 'Deployment ×1', reps: 1, ...SVC(2, 2 * GI, 4, 4 * GI) },
+    { id: 'e2b', n: 'Redis', ns: 'e2b', kind: 'Deployment ×1', reps: 1, ...SVC(1, 2 * GI, 1, 4 * GI) },
+    { id: 'tpl', n: 'Template Manager', ns: 'e2b', kind: 'DaemonSet', reps: 1, req: { cpu: 2.048, mem: 8 * GI }, lim: null },
+  ];
+}
+const AGENT = { cpu: 0.1, mem: 128 };          // 平台每个承载 Pod 里的 sandbox-agent 容器(实测 100m / 128Mi)
+const hex = (r) => Array.from({ length: 8 }, () => '0123456789abcdef'[Math.floor(r() * 16)]).join('');
+function makeProd() {
+  const r = rng(17);
+  const TPL = { runtime: 'gsdb-runtime-v1-5-0', 'kb-import': 'gsdb-import-v1-5-0' };
+  const OLD = { runtime: 'gsdb-runtime-v1-4-15', 'kb-import': 'gsdb-import-v1-4-15' };
+  // 诊断组容量 420(平台 42 个承载 Pod × 每 Pod 10 台):在用 168、闲置 41、暂停 174、暂停前没回写成 2、空余 35
+  const st = [];
+  [['use', 168], ['idle', 41], ['pause', 174], ['nosync', 2], ['free', 35]].forEach(([s, n]) => { for (let i = 0; i < n; i++) st.push(s); });
+  for (let i = st.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [st[i], st[j]] = [st[j], st[i]]; }
+  let uid = 1001, oldLeft = 9;
+  const mkS = (s, kind, pod) => {
+    if (s === 'free') return null;
+    const old = oldLeft > 0 && (s === 'pause' || s === 'idle') && r() < 0.06 ? (oldLeft--, true) : false;
+    const pausedDays = s === 'pause' || s === 'nosync' ? Math.floor(r() * 7) : 0, ph = Math.floor(r() * 24);
+    return {
+      id: hex(r), st: s, u: 'u' + (uid += 1 + Math.floor(r() * 4)), kind, pod, old, tpl: old ? OLD[kind] : TPL[kind],
+      synced: s === 'pause' ? true : s === 'nosync' ? false : null,
+      act: s === 'use' ? (1 + Math.floor(r() * 9)) + ' 分钟前' : s === 'idle' ? (10 + Math.floor(r() * 19)) + ' 分钟前' : (pausedDays ? pausedDays + ' 天前' : ph + ' 小时前'),
+      paused: s === 'pause' || s === 'nosync' ? (pausedDays ? pausedDays + ' 天前' : ph + ' 小时前') : '',
+      left: s === 'pause' ? (6 - pausedDays) + ' 天 ' + (23 - ph) + ' 小时' : s === 'nosync' ? '已过保留期 · 未删' : '',
+    };
+  };
+  const pods = [];
+  for (let p = 0; p < 42; p++) {
+    const name = 'sandbox-agent-pod-sg-gsdb-runtime-0-' + String(p).padStart(3, '0');
+    pods.push({ name, short: 'pod-' + String(p).padStart(3, '0'), sbx: st.slice(p * 10, p * 10 + 10).map((s) => mkS(s, 'runtime', name)) });
+  }
+  uid = 107;
+  const ipods = [0, 1].map((p) => {
+    const name = 'sandbox-agent-pod-sg-gsdb-import-0-' + String(p).padStart(3, '0');
+    const s = p === 0 ? ['use', 'pause', 'free', 'free'] : ['pause', 'free', 'free', 'free'];
+    return { name, short: 'pod-' + String(p).padStart(3, '0'), sbx: s.map((x) => { const b = mkS(x, 'kb-import', name); if (b) { b.u = 'u0' + (uid += 54); b.old = false; b.tpl = TPL['kb-import']; } return b; }) };
+  });
+  return {
+    key: 'prod', title: '生产规模(示意)', ns: 'gaussdb-agent', version: 'agent-v1.5.0', age: '12 天', metrics: true,
+    nodes: { n: 6, cpu: 960, mem: 6 * 512 * GI, cpuModel: '鲲鹏 920 · 每台 160 核 / 512 GiB', os: '麒麟 V10 · 4.19 内核 · 64K 页' },
+    policy: { idle: 1800, retain: 7, pause: true }, templates: TPL, oldTemplates: OLD, queue: { wait: 0, full24: 0 },
+    groups: [
+      { id: 'grp:main', short: '诊断', name: 'sg-gsdb-runtime', label: '诊断沙箱组', kinds: ['runtime'], podMin: 20, podMax: 60, perPod: 10, req: { cpu: 0.5, mem: 2 * GI }, lim: { cpu: 2, mem: 4 * GI }, vm: '2 vCPU / 4 GiB', pods },
+      { id: 'grp:imp', short: '导入', name: 'sg-gsdb-import', label: '导入沙箱组', kinds: ['kb-import'], podMin: 1, podMax: 2, perPod: 4, req: { cpu: 1, mem: 4 * GI }, lim: { cpu: 2, mem: 4 * GI }, vm: '2 vCPU / 4 GiB', pods: ipods },
+    ],
+    others: [],
+    k8s: {
+      gw: { n: '智能网关', kind: 'Deployment ×2', reps: [{ n: 'gateway-6f8d…-k2x8q', cpu: 0.05, mem: 112 }, { n: 'gateway-6f8d…-p5m1w', cpu: 0.04, mem: 104 }], ...SVC(0.1, 128, 1, 512) },
+      fe: { n: '前端', kind: 'Deployment ×1', reps: [{ n: 'frontend-5bb…-zpcpp', cpu: 0.002, mem: 9 }], ...SVC(0.05, 64, 0.2, 128) },
+      st: { n: '状态服务', kind: 'Deployment ×1 · Recreate', reps: [{ n: 'statesvc-7f5b…-tpbk2', cpu: 0.31, mem: 420 }], ...SVC(0.5, 512, 4, 4 * GI) },
+      cp: { n: '凭据代理', kind: 'Deployment ×3', reps: [{ n: 'credproxy-fd6f…-99dms', cpu: 0.12, mem: 188 }, { n: 'credproxy-fd6f…-kd64f', cpu: 0.1, mem: 176 }, { n: 'credproxy-fd6f…-x7q2c', cpu: 0.11, mem: 181 }], ...SVC(0.2, 256, 2, GI) },
+    },
+    kbstd: { job: 'kbstd-install-v1-5-0', st: 'Completed', docs: '官方文档集已装进 NAS kb/docsets;模板内也内置一份' },
+    cfg: { cm: 4, np: 8, role: 2, pvc: 1, npNote: '默认拒绝' },
+    nas: { kind: 'PVC · RWX', cap: 2048, used: 412, unit: 'GiB', dirs: [{ n: 'users/', v: '1,286 个工号', s: '396 GiB' }, { n: 'admins/', v: '3 个管理员', s: '3.4 GiB' }, { n: 'kb/', v: '知识库 + 索引', s: '12.6 GiB' }] },
+    ext: { llm: ['大模型服务', 'OpenAI 兼容 · 经凭据代理'], mw: ['安全中间件', '白名单脚本 · 签名鉴权 · 按人令牌'], db: ['GaussDB 实例群', '被诊断对象 · 只读访问'] },
+    reg: ['镜像仓库 / 离线包', 'K8s 组件镜像 · 模板 OCI 包'],
+    platform: platform(), platVer: 'openFuyao 沙箱 · OpenSandbox + Flux + E2B',
+  };
+}
+function makeTest() {
+  const TPL = { runtime: 'gsdb-runtime-fuyao-dev2', 'kb-import': 'gsdb-import-fuyao-dev2' };
+  const pod = 'sandbox-agent-pod-sg-gaussdb-poc-0-000';
+  return {
+    key: 'test', title: '鲲鹏测试环境(实测 11-18 15:00)', ns: 'gaussdb-agent-fy', version: 'feat/fuyao · 网关 fuyao-dev1 · 模板 dev2', age: '19 小时', metrics: false,
+    nodes: { n: 1, cpu: 160, mem: 509 * GI, cpuModel: '鲲鹏 920 7280Z · 2 路 × 80 核 · 约 509 GiB', os: '麒麟 V10 · 4.19 内核 · 64K 页 · /dev/kvm' },
+    policy: { idle: 1800, retain: 7, pause: true }, templates: TPL, oldTemplates: null, queue: { wait: null, full24: null },
+    groups: [
+      { id: 'grp:main', name: 'sg-gaussdb-poc', label: '沙箱组(诊断与导入共用,PoC)', kinds: ['runtime', 'kb-import'], podMin: 1, podMax: 1, perPod: 2, req: { cpu: 2, mem: 4 * GI }, lim: { cpu: 2, mem: 4 * GI }, vm: '2 vCPU / 4 GiB(构建脚本默认)', short: 'PoC 共用组',
+        pods: [{ name: pod, short: 'pod-0-000', sbx: [
+          { id: 'fc29d420', st: 'pause', u: 'kp0001', kind: 'runtime', pod, old: false, tpl: TPL.runtime, synced: true, act: '11-17 20:28', paused: '11-17 20:58', left: '6 天 5 小时' },
+          { id: 'c64594ec', st: 'pause', u: 'kp2001', kind: 'kb-import', pod, old: false, tpl: TPL['kb-import'], synced: true, act: '11-17 20:21', paused: '11-17 20:51', left: '6 天 5 小时' },
+        ] }] },
+    ],
+    others: [{ name: 'sg-1u1g', cap: 5, pods: 1, note: '平台上其他用途的沙箱组,不属于本智能体' }],
+    k8s: {
+      gw: { n: '智能网关', kind: 'Deployment ×2', reps: [{ n: 'gateway-5c75…-5pgr6' }, { n: 'gateway-5c75…-j7zqz' }], ...SVC(0.1, 128, 1, 512) },
+      fe: { n: '前端', kind: 'Deployment ×1', reps: [{ n: 'frontend-5cdb…-ns72r' }], ...SVC(0.05, 64, 0.2, 128) },
+      st: { n: '状态服务', kind: 'Deployment ×1 · Recreate', reps: [{ n: 'statesvc-7f5b…-tpbk2' }], ...SVC(0.5, 512, 4, 4 * GI) },
+      cp: { n: '凭据代理', kind: 'Deployment ×2', reps: [{ n: 'credproxy-fd6f…-99dms' }, { n: 'credproxy-fd6f…-kd64f' }], ...SVC(0.2, 256, 2, GI) },
+    },
+    kbstd: { job: 'kbstd-install-v1-4-14', st: 'Completed', docs: '官方文档集(G25132C)装进 NAS kb/docsets' },
+    cfg: { cm: 4, np: 8, role: 2, pvc: 1, npNote: 'Flannel 不执行' },
+    nas: { kind: 'PV · hostPath(宿主机目录)', cap: 1740, used: 0.46, unit: 'GiB', capNote: '宿主机根盘 1.7 TiB 共用', dirs: [{ n: 'users/', v: '1 个工号', s: '15 MiB' }, { n: 'admins/', v: '1 个管理员', s: '1.1 MiB' }, { n: 'kb/', v: '知识库 + 索引', s: '450 MiB' }] },
+    ext: { llm: ['大模型服务', 'OpenAI 兼容 · 测试用 Key'], mw: ['GRMP 模拟中间件', 'grmp-mock · 白名单与交付一致'], db: ['og7 实验库', 'openGauss 7.0.0 · 宿主机 systemd'] },
+    reg: ['离线镜像包', 'Mac 构建 → ctr 导入 containerd'],
+    platform: platform(), platVer: 'openFuyao 沙箱 · OpenSandbox of-dev-v0.2.1 · flux-sandbox 26.9.0',
+  };
+}
+const DATA = { prod: makeProd(), test: makeTest() };
+let D = DATA.prod;
+
+// ============================================================ 工具
+const $ = (s) => document.querySelector(s);
+const fmtMem = (mi) => (mi == null ? '—' : mi >= 1024 ? (mi / 1024).toFixed(mi >= 10240 ? 0 : 1) + ' GiB' : Math.round(mi) + ' MiB');
+const fmtCpu = (c) => (c == null ? '—' : c >= 1 ? (+c.toFixed(c >= 10 ? 0 : 1)) + ' 核' : Math.round(c * 1000) + 'm');
+const pct = (a, b) => (b ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
+const src = (t, k = '') => `<span class="src ${k}">${t}</span>`;
+const KIND = { runtime: '诊断', 'kb-import': '导入' };
+const STN = { use: '运行·在用', idle: '运行·闲置', pause: '暂停', nosync: '暂停·没回写成', free: '空余' };
+const STC = { use: 'use', idle: 'idle2', pause: 'pause', nosync: 'nosync' };
+function bar(label, req, lim, used, fmt) {
+  const u = used == null ? '' : `<i class="u" style="width:${pct(used, lim)}%"></i>`;
+  const tt = `${used == null ? '' : '实际 ' + fmt(used) + ' · '}预留 ${fmt(req)} · 上限 ${fmt(lim)}`;
+  return `<div class="rl" title="${tt}"><span>${label}</span><div class="rb"><i class="q" style="width:${pct(req, lim)}%"></i>${u}<i class="lim"></i></div><span class="rv">${used == null ? '预留 ' + fmt(req) : fmt(used) + ' / ' + fmt(req)}</span></div>`;
+}
+function grpTotals(g) {
+  const all = g.pods.flatMap((p) => p.sbx), cap = g.pods.length * g.perPod, c = { use: 0, idle: 0, pause: 0, nosync: 0, free: 0, old: 0 };
+  all.forEach((s) => { if (!s) c.free++; else { c[s.st]++; if (s.old) c.old++; } });
+  const per = { cpu: g.perPod * g.req.cpu + AGENT.cpu, mem: g.perPod * g.req.mem + AGENT.mem };
+  return { ...c, cap, capMax: g.podMax * g.perPod, run: c.use + c.idle, paused: c.pause + c.nosync, reqCpu: g.pods.length * per.cpu, reqMem: g.pods.length * per.mem, per };
+}
+function k8sTotals() {
+  const t = { reqCpu: 0, reqMem: 0, limCpu: 0, limMem: 0, useCpu: 0, useMem: 0 };
+  Object.values(D.k8s).forEach((c) => { const n = c.reps.length; t.reqCpu += c.req.cpu * n; t.reqMem += c.req.mem * n; t.limCpu += c.lim.cpu * n; t.limMem += c.lim.mem * n; if (D.metrics) c.reps.forEach((r) => { t.useCpu += r.cpu; t.useMem += r.mem; }); });
+  return t;
+}
+function totals() {
+  const gs = D.groups.map(grpTotals), k = k8sTotals();
+  const sum = (f) => gs.reduce((a, g) => a + f(g), 0);
+  const plat = D.platform.reduce((a, p) => { if (p.req) { a.cpu += p.req.cpu * p.reps; a.mem += p.req.mem * p.reps; } return a; }, { cpu: 0, mem: 0 });
+  return {
+    gs, k, plat, cap: sum((g) => g.cap), capMax: sum((g) => g.capMax), use: sum((g) => g.use), idle: sum((g) => g.idle), pause: sum((g) => g.pause),
+    nosync: sum((g) => g.nosync), free: sum((g) => g.free), old: sum((g) => g.old), run: sum((g) => g.run), paused: sum((g) => g.paused),
+    oursCpu: k.reqCpu + sum((g) => g.reqCpu), oursMem: k.reqMem + sum((g) => g.reqMem), pods: D.groups.reduce((a, g) => a + g.pods.length, 0),
+  };
+}
+const allSbx = () => D.groups.flatMap((g) => g.pods.flatMap((p) => p.sbx.filter(Boolean)));
+
+// ============================================================ 页头与主视觉
+function renderHead() {
+  const t = totals(), main = t.gs[0], g0 = D.groups[0];
+  $('#modePill').textContent = `Fuyao 沙箱 · ${D.groups.map((g, i) => `${g.short} ${t.gs[i].cap} 台`).join(' + ')}`;
+  $('#meta').innerHTML = [
+    ['版本', D.version], ['网关', `${D.k8s.gw.reps.length}/${D.k8s.gw.reps.length} 就绪`], ['节点', `${D.nodes.n} 台 · ${D.nodes.cpu} 核 · ${fmtMem(D.nodes.mem)}`],
+    ['平台', D.platVer], ['实际用量', D.metrics ? 'metrics-server · 30 秒前' : '<span style="color:var(--notice)">未装 metrics-server,只显示配额</span>'],
+    ['已运行', D.age], ['可见范围', '仅运维管理员'],
+  ].map(([k, v]) => `<span>${k}:<b>${v}</b></span>`).join('');
+  const cpuNs = pct(t.oursCpu, D.nodes.cpu), memNs = pct(t.oursMem, D.nodes.mem), occ = t.run + t.paused;
+  const nasUsed = D.nas.used, nasPct = pct(nasUsed, D.nas.cap);
+  const insight = D.key === 'prod' ? `
+      <h3>${t.cap} 台容量已占 ${occ} 台:运行 ${t.run}、暂停 ${t.paused},还能再进 ${t.free} 人;诊断组可从 ${g0.pods.length} 个承载 Pod 扩到 ${g0.podMax} 个(${main.cap} → ${main.capMax} 台)</h3>
+      <ul>
+        <li><b>暂停的沙箱占了容量的 ${Math.round(pct(t.paused, t.cap))}%</b>:保留期 ${D.policy.retain} 天内本人回来直接恢复,代价是容量要按「${D.policy.retain} 天内用过的人数」规划,而不是在线人数。</li>
+        <li><b>${t.idle} 台运行·闲置</b>,闲置满 ${D.policy.idle / 60} 分钟会先收尾回写再暂停;<b>${t.old} 台仍是旧版模板</b>(${D.oldTemplates.runtime} → ${D.templates.runtime}),闲置后自动换新,在用的不打断。</li>
+        <li><b>${t.nosync} 台暂停前没回写成</b>,已过保留期也不自动删除(删了会丢最后一次成功同步之后的改动),需运维先恢复再删除,或确认可丢后强制删除。</li>
+        <li>智能体占节点预留 <b>CPU ${cpuNs.toFixed(0)}% · 内存 ${memNs.toFixed(0)}%</b>(K8s 组件 + 平台为沙箱预留的资源),平台组件另占 ${fmtCpu(t.plat.cpu)};每台沙箱的实际用量要平台提供。</li>
+      </ul>` : `
+      <h3>容量 2 台已满:kp0001、kp2001 的沙箱都已闲置自动暂停,第三个人进来会看到等待页</h3>
+      <ul>
+        <li><b>两台都在 11-17 20:5x 闲置 30 分钟后自动暂停</b>,暂停前已收尾回写(gsdb-synced=1),保留剩余 6 天 5 小时;本人再来会恢复原沙箱,会话都在。</li>
+        <li><b>暂停的沙箱仍占沙箱组容量</b>:sg-gaussdb-poc 是 1 个承载 Pod × 每 Pod 2 台 = 容量 2,最大值也是 1 个 Pod,平台不会再扩;新工号要等有人的沙箱被删除(保留期满或换版)才进得来。多人测试前请平台调大承载 Pod 上限,或另建沙箱组。</li>
+        <li>诊断与导入共用一个 PoC 沙箱组;生产应分成诊断组和导入组,各自核算容量。</li>
+        <li>集群未装 metrics-server,平台也未提供虚拟机用量:大盘只显示配额。智能体占节点预留 <b>CPU ${cpuNs.toFixed(0)}% · 内存 ${memNs.toFixed(0)}%</b>;三项安全前提未落实,只用测试数据。</li>
+      </ul>`;
+  const chips = D.key === 'prod' ? ['扩到 2000 人要多少承载 Pod 和节点', '那 2 台没回写成的怎么处理', '保留期改成 3 天能腾出多少容量'] : ['容量满了新用户看到什么', '暂停的沙箱什么时候删除', '生产的沙箱组要配多大'];
+  $('#hero').innerHTML = `
+    <div class="glass">
+      <div class="gt"><svg width="15" height="15"><use href="#i-vm"/></svg>沙箱容量<span class="r">${D.groups.map((g, i) => `${g.short} ${g.pods.length} 个承载 Pod × ${g.perPod} = ${t.gs[i].cap}`).join(' · ')} ${src('沙箱组 CRD', 'need')}</span></div>
+      <div class="capw">
+        <div>
+          <div class="big num">${occ}<small>台沙箱 · 容量 ${t.cap}${t.free === 0 ? ' 已满' : ''}</small></div>
+          <div class="split">
+            <span><i style="background:var(--s-use)"></i>在用<b class="num">${t.use}</b></span>
+            <span><i style="background:var(--s-idle)"></i>闲置<b class="num">${t.idle}</b></span>
+            <span><i style="background:var(--s-keep)"></i>暂停<b class="num">${t.pause}</b></span>
+            ${t.nosync ? `<span><i style="background:var(--s-bad)"></i>没回写成<b class="num">${t.nosync}</b></span>` : ''}
+            <span><i style="background:rgba(255,255,255,.22)"></i>空余<b class="num">${t.free}</b></span>
+            <span>排队<b class="num">${D.queue.wait == null ? '—' : D.queue.wait}</b></span>
+          </div>
+          <div class="split" style="margin-top:6px">${src('/admin/fuyao')}${src('排队数:需新增', 'need')}</div>
+        </div>
+        ${ringSvg(t)}
+      </div>
+      <div class="mini">
+        <div><div class="l">CPU · 智能体预留 / 节点</div><div class="v num">${fmtCpu(t.oursCpu)}<small> / ${D.nodes.cpu} 核</small></div><div class="hbar"><i class="rq" style="width:${cpuNs}%"></i></div></div>
+        <div><div class="l">内存 · 智能体预留 / 节点</div><div class="v num">${fmtMem(t.oursMem)}<small> / ${fmtMem(D.nodes.mem)}</small></div><div class="hbar"><i class="rq" style="width:${memNs}%"></i></div></div>
+        <div><div class="l">共享存储 · 已用 / ${D.nas.capNote ? '可用' : '容量'}</div><div class="v num">${nasUsed < 1 ? Math.round(nasUsed * 1024) + ' MiB' : nasUsed + ' GiB'}<small> / ${D.nas.cap >= 1024 ? (D.nas.cap / 1024).toFixed(1) + ' TiB' : D.nas.cap + ' GiB'}</small></div><div class="hbar"><i class="us" style="width:${Math.max(nasPct, 0.6)}%;background:linear-gradient(90deg,#50d2e1,#7aa2ff)"></i></div></div>
+      </div>
+      ${D.key === 'prod' ? trendSvg(t) : `<div class="trend"><div class="l"><span>近 24 小时沙箱数趋势</span><span>${src('需新增:网关每分钟记一次摘要', 'need')}</span></div><div style="font-size:12.5px;color:var(--h-t2);margin-top:6px;line-height:1.6">测试环境只有两个测试工号,趋势意义不大;生产上用来看峰值和容量余量。</div></div>`}
+    </div>
+    <div class="glass insight">
+      <div class="gt"><span class="ai-ic"><svg width="12" height="12"><use href="#i-spark"/></svg></span>智能体解读<span class="r">依据 /admin/fuyao + 沙箱组 + 配额 · 刚刚</span></div>
+      ${insight}
+      <div class="chips">${chips.map((c) => `<span class="chip">✦ ${c}</span>`).join('')}</div>
+      <div class="qbox">问资源大盘,比如:按现在的暂停比例,保留期设几天合适?<span class="go"><svg width="14" height="14" style="color:#fff"><use href="#i-spark"/></svg></span></div>
+    </div>`;
+}
+function trendSvg(t) {
+  const n = 48, r = rng(11), NOW = 14.5;
+  const dayf = (h) => Math.exp(-((h - 10) ** 2) / 6) + 0.85 * Math.exp(-((h - 15.5) ** 2) / 7) + 0.12 * Math.exp(-((h - 21) ** 2) / 3);
+  const peak = t.run / dayf(NOW), run = [], pau = [];
+  for (let i = 0; i < n; i++) {
+    const h = ((NOW - 23.5 + i / 2) % 24 + 24) % 24, v = Math.max(0, Math.round(peak * dayf(h) + (r() - 0.5) * peak * 0.05));
+    run.push(v); pau.push(Math.max(0, Math.min(t.cap - v, Math.round(t.paused + (t.run - v) * 0.55))));
+  }
+  run[n - 1] = t.run; pau[n - 1] = t.paused;
+  const max = t.cap, W = 520, H = 60, xy = (a) => a.map((v, i) => [(i / (n - 1)) * W, H - 4 - (v / max) * (H - 10)]);
+  const lr = xy(run).map((p) => p.join(',')).join(' L'), lp = xy(pau).map((p) => p.join(',')).join(' L');
+  const mi = run.indexOf(Math.max(...run));
+  return `<div class="trend"><div class="l"><span>近 24 小时:运行(面积)与暂停(虚线)台数 · 上沿 = 容量 ${t.cap}</span><span>运行峰值 <b style="color:var(--h-t1)" class="num">${run[mi]}</b> · 满员 ${D.queue.full24} 次 ${src('需新增', 'need')}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><defs><linearGradient id="tg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7aa2ff" stop-opacity=".45"/><stop offset="1" stop-color="#7aa2ff" stop-opacity="0"/></linearGradient></defs>
+    <path d="M0,${H} L${lr} L${W},${H} z" fill="url(#tg)"/><path d="M${lr}" fill="none" stroke="#a9c3ff" stroke-width="1.6"/>
+    <path d="M${lp}" fill="none" stroke="#f0b43c" stroke-width="1.4" stroke-dasharray="4 4"/></svg></div>`;
+}
+function ringSvg(t) {
+  const R = 54, C = 2 * Math.PI * R, seg = (n) => (n / t.cap) * C;
+  const a = seg(t.use), b = seg(t.idle), c = seg(t.pause), d = seg(t.nosync);
+  const arc = (len, off, color, cap = '') => `<circle cx="75" cy="75" r="${R}" fill="none" stroke="${color}" stroke-width="12" stroke-dasharray="${len} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 75 75)" ${cap}/>`;
+  return `<svg viewBox="0 0 150 150" width="150" height="150">
+    <defs><linearGradient id="rg" x1="0" x2="1"><stop offset="0" stop-color="#7aa2ff"/><stop offset="1" stop-color="#a088ff"/></linearGradient></defs>
+    <circle cx="75" cy="75" r="${R}" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="12"/>
+    ${arc(a, 0, 'url(#rg)')}${arc(b, a, '#9db8f5')}${arc(c, a + b, '#f0b43c')}${arc(d, a + b + c, '#f26b63')}
+    <text x="75" y="72" text-anchor="middle" fill="#fff" style="font:600 24px var(--mono)">${Math.round(((t.run + t.paused) / t.cap) * 100)}%</text>
+    <text x="75" y="93" text-anchor="middle" fill="#b6c2d9" style="font:12px var(--sans)">容量占用</text></svg>`;
+}
+
+// ============================================================ 架构大盘
+function node(id, icon, title, kind, desc, body = '', cls = '') {
+  return `<div class="node ${cls}" data-id="${id}"><h4><svg><use href="#i-${icon}"/></svg>${title}${kind ? `<span class="kind">${kind}</span>` : ''}</h4>${desc ? `<p>${desc}</p>` : ''}${body}</div>`;
+}
+function serve(n, label, extra = '') { return `<div class="serve">服务 <b class="num">${n}</b> ${label}<span class="x">${extra}</span></div>`; }
+function compNode(id, icon, c, desc, extra, cls) {
+  const n = c.reps.length, use = (k) => (D.metrics ? c.reps.reduce((a, r) => a + r[k], 0) : null);
+  const reps = `<div class="reps">${c.reps.map((r) => `<div class="rep"><b>${r.n}</b>${D.metrics ? `${fmtCpu(r.cpu)} · ${fmtMem(r.mem)}` : 'Running'}</div>`).join('')}</div>`;
+  return node(id, icon, c.n, c.kind, desc, reps + `<div class="res">${bar('CPU', c.req.cpu * n, c.lim.cpu * n, use('cpu'), fmtCpu)}${bar('内存', c.req.mem * n, c.lim.mem * n, use('mem'), fmtMem)}</div>` + (extra || ''), cls);
+}
+const ORDER = ['use', 'idle', 'pause', 'nosync'];
+const SHORTK = { runtime: '诊断', 'kb-import': '导入' };
+function podCell(g, p, s, k, big) {
+  if (!s) return `<i class="slot free${big ? ' big' : ''}" data-g="${g.id}" data-pod="${p.name}" data-k="${k}">${big ? '空余' : ''}</i>`;
+  return `<i class="slot ${s.st}${s.old ? ' old' : ''}${big ? ' big' : ''}" data-g="${g.id}" data-s="${s.id}">${big ? `${s.u}<br><em>${SHORTK[s.kind]}</em>` : ''}</i>`;
+}
+function groupCard(g, gt) {
+  const big = g.perPod <= 4, occ = gt.run + gt.paused;
+  const segs = ORDER.map((k) => (gt[k] ? `<i class="${k}" style="width:${pct(gt[k], gt.cap)}%" title="${STN[k]} ${gt[k]} 台"></i>` : '')).join('');
+  const pods = g.pods.map((p) => {
+    const run = p.sbx.filter((s) => s && (s.st === 'use' || s.st === 'idle')).length, pau = p.sbx.filter((s) => s && (s.st === 'pause' || s.st === 'nosync')).length;
+    const free = p.sbx.filter((s) => !s).length;
+    return `<div class="pod" data-id="pod:${g.id}:${p.name}"><div class="pn" title="${p.name}">${p.short}<span class="st" title="就绪"></span></div>
+      <div class="slots" style="--k:${big ? g.perPod : 5}">${p.sbx.map((s, k) => podCell(g, p, s, k, big)).join('')}</div>
+      <div class="pu"><span>运行 <b>${run}</b> · 暂停 <b>${pau}</b></span>${big ? `<span>空余 <b>${free}</b></span>` : ''}</div></div>`;
+  }).join('');
+  const more = g.podMax - g.pods.length;
+  const extra = more > 0
+    ? `<div class="pod podmore" data-id="${g.id}"><b>+${more} 个承载 Pod 可扩</b><span>平台按需伸缩 · 再加 ${more * g.perPod} 台</span><span>最大 ${g.podMax} 个 · 容量上限 ${g.podMax * g.perPod}</span></div>`
+    : `<div class="pod podmore full" data-id="${g.id}"><b>已到上限</b><span>最大 ${g.podMax} 个承载 Pod · 平台不会再扩</span><span>要多人测试请平台调大上限</span></div>`;
+  const pc = big ? (g.pods.length === 1 ? 2 : 3) : 7;
+  return `<div class="node pool ${D.others.length ? 'span9' : 'span12'}" data-id="${g.id}"><div class="ph2"><h4><svg><use href="#i-vm"/></svg>${g.label} ${g.name}<span class="kind">SandboxGroup · 承载 Pod ${g.pods.length}/${g.podMax} × 每 Pod ${g.perPod} 台</span></h4></div>
+    <div class="caplbl" style="margin-top:8px"><span>已占 <b>${occ}</b> / 容量 <b>${gt.cap}</b></span><span>在用 <b>${gt.use}</b></span><span>闲置 <b>${gt.idle}</b></span><span>暂停 <b>${gt.pause}</b></span>${gt.nosync ? `<span>没回写成 <b style="color:var(--crit)">${gt.nosync}</b></span>` : ''}<span>空余 <b>${gt.free}</b></span>${gt.old ? `<span>旧版模板 <b style="color:var(--warn)">${gt.old}</b></span>` : ''}<span class="r">${src('容量:沙箱组 CRD · 需授权只读', 'need')} ${src('沙箱:/admin/fuyao')}</span></div>
+    <div class="capbar">${segs}</div>
+    <div class="podcap"><b>承载 Pod(平台管理)</b><span>${g.pods.length} 个 × 每 Pod ${g.perPod} 台 = 容量 ${gt.cap}${g.podMax > g.pods.length ? ` · 可扩到 ${g.podMax} 个 Pod(${gt.capMax} 台)` : ` · 最大 ${g.podMax} 个,已到上限`}</span>
+      <em>与原固定池化不同:每格是一台独立虚拟机(独立内核),不在用户之间复用,删除即销毁;Pod 由平台在最小值 ${g.podMin} 与最大值 ${g.podMax} 个之间伸缩。</em></div>
+    <div class="pods${big ? '' : ' dense'}" style="--pc:${pc}">${pods}${extra}</div>
+    <div class="grp-note"><span>暂停的沙箱也占容量</span><span>每台 request <b>${fmtCpu(g.req.cpu)} / ${fmtMem(g.req.mem)}</b> · limit <b>${fmtCpu(g.lim.cpu)} / ${fmtMem(g.lim.mem)}</b> · 每个 Pod 预留 <b>${fmtCpu(gt.per.cpu)} / ${fmtMem(gt.per.mem)}</b></span><span>虚拟机规格由模板决定:<b>${g.vm}</b></span><span>模板:<b class="num">${g.kinds.map((k) => D.templates[k]).join(' · ')}</b></span></div></div>`;
+}
+function renderTopo() {
+  const t = totals(), k = D.k8s;
+  $('#topoSub').textContent = `${D.ns} · 点组件、承载 Pod 或沙箱看详情`;
+  const gw = compNode('gw', 'gw', k.gw, '认身份 · 按工号找 / 建 / 恢复沙箱 · 反向代理 · 清扫器(闲置暂停、换版、保留期)', serve(t.run + t.paused, '个工号的沙箱', '全体共用'), 'span5');
+  const fe = compNode('fe', 'fe', k.fe, '大盘静态页面;数据经网关取', '', 'span3');
+  const rbac = node('rbac', 'key', '服务账号', 'RBAC', '网关的权限只在本命名空间;读沙箱组要另授 flux-system 只读',
+    `<div class="users"><span class="u">deployments</span><span class="u">pods</span><span class="u">configmaps</span><span class="u">secrets · 无 list</span><span class="u" style="color:var(--notice)">sandboxgroups · 待授权</span></div>`, 'span4');
+  const nasUsed = D.nas.used < 1 ? Math.round(D.nas.used * 1024) + ' MiB' : D.nas.used + ' GiB';
+  const nas = `<div class="node store span6" data-id="nas" style="grid-template-columns:1fr;gap:10px"><div><h4><svg><use href="#i-nas"/></svg>共享存储<span class="kind">${D.nas.kind}</span></h4><p>只有状态服务读写;沙箱挂不了 NAS,用本地盘 + 回写。已用 <b class="num" style="color:var(--t1)">${nasUsed}</b>${D.nas.capNote ? ' · ' + D.nas.capNote : ' / ' + D.nas.cap + ' GiB'} ${src('状态服务上报 · 需新增', 'need')}</p></div>
+    <div class="dirs" style="grid-template-columns:repeat(3,1fr)">${D.nas.dirs.map((d) => `<div class="dir"><b>${d.n}</b>${d.v}<br><span class="num" style="color:var(--t2)">${d.s}</span></div>`).join('')}</div></div>`;
+  const kbstd = node('kbstd', 'job', '标准知识库', 'Job', `${D.kbstd.job} · <b style="color:var(--ok)">${D.kbstd.st}</b><br>${D.kbstd.docs}`, '', 'span3');
+  const cfg = `<div class="cfg4 span3">${[
+    node('cm', 'cfg', '配置', 'ConfigMap', `<b class="num" style="font-size:16px;color:var(--t1)">${D.cfg.cm}</b> 份`),
+    node('np', 'np', '网络策略', 'NetPol', `<b class="num" style="font-size:16px;color:var(--t1)">${D.cfg.np}</b> 条 · ${D.cfg.npNote}`),
+    node('role', 'key', '角色', 'Role', `<b class="num" style="font-size:16px;color:var(--t1)">${D.cfg.role}</b> 个`),
+    node('pvc', 'nas', '存储声明', 'PVC', `<b class="num" style="font-size:16px;color:var(--t1)">${D.cfg.pvc}</b> 个`),
+  ].join('')}</div>`;
+  const st = compNode('st', 'sync', k.st, '独家读写 NAS:按沙箱令牌只放行本人目录;载入、每 60 秒增量回写、每 5 秒报到(记沙箱新地址)、知识库清单与发布', serve(t.run, '台运行中的沙箱在同步', `暂停 ${t.paused} 台不同步`), 'span6');
+  const cp = compNode('cp', 'key', k.cp, '持有中间件令牌、SM2 私钥、模型密钥;按令牌里的工号代办,工号头强制改写', serve(t.run, '台沙箱可调用', '密钥不进沙箱'), 'span6');
+  $('#cluster').innerHTML = `<div class="gl"><svg width="14" height="14"><use href="#i-reg"/></svg>Kubernetes · 智能体 <span class="ns">namespace: ${D.ns}</span>${src('K8s API')}</div>` + gw + fe + rbac + nas + kbstd + cfg + st + cp;
+
+  const groups = D.groups.map((g, i) => groupCard(g, t.gs[i])).join('');
+  const others = D.others.map((o) => node('other', 'vm', o.name, `容量 ${o.cap}`, o.note, '', 'faded span3')).join('');
+  const P = D.platform, osb = P.find((p) => p.n === 'OpenSandbox Server');
+  const sumOf = (id) => P.filter((p) => p.id === id && p.req).reduce((a, p) => ({ cpu: a.cpu + p.req.cpu * p.reps, mem: a.mem + p.req.mem * p.reps }), { cpu: 0, mem: 0 });
+  const fx = sumOf('flux'), eb = sumOf('e2b');
+  const plat = [
+    node('osb', 'ctl', 'OpenSandbox Server', 'API', '建 / 列举 / 暂停 / 恢复 / 删沙箱;网关只调它',
+      `<div class="tags"><span class="tag bad">未开认证</span><span class="tag">预留 ${fmtCpu(osb.req.cpu)} / ${fmtMem(osb.req.mem)}</span></div>`, 'span3'),
+    node('flux', 'ctl', 'Flux', 'Controller · Scheduler ×3', '另有 Watcher;按沙箱组把沙箱调度到承载 Pod,承载 Pod 由平台在最小值和最大值之间伸缩',
+      `<div class="tags"><span class="tag">预留 ${fmtCpu(fx.cpu)} / ${fmtMem(fx.mem)}</span></div>`, 'span3'),
+    node('e2b', 'reg', 'E2B 服务', 'API · Edge · PG · Redis', '沙箱元数据、节点调度与访问入口;平台方运维',
+      `<div class="tags"><span class="tag">预留 ${fmtCpu(eb.cpu)} / ${fmtMem(eb.mem)}</span><span class="tag">不计入智能体</span></div>`, 'span3'),
+    node('tpl', 'tpl', '模板', 'Template Manager', '诊断、导入各一份,随版本发布;虚拟机规格由模板决定',
+      `<div class="tplv">${Object.entries(D.templates).map(([kk, v]) => `<div><span>${KIND[kk]}</span><b>${v}</b></div>`).join('')}${D.oldTemplates ? `<div class="old"><span>旧版</span><b>${D.oldTemplates.runtime}</b></div>` : ''}</div>`, 'span3'),
+  ].join('');
+  $('#plat').innerHTML = `<div class="gl"><svg width="14" height="14"><use href="#i-vm"/></svg>openFuyao 沙箱平台 <span class="ns">flux-system · e2b · 平台方管理,智能体只调用接口</span>${src('/admin/fuyao + 平台 CRD')}</div>` + groups + others + plat;
+
+  $('#host').innerHTML = `<div class="gl"><svg width="14" height="14"><use href="#i-host"/></svg>宿主机 ×${D.nodes.n} <span class="ns">${D.nodes.cpuModel} · ${D.nodes.os}</span></div>
+    <div class="chain" style="grid-column:span 4"><div class="t">普通 Pod(网关、状态服务、凭据代理、前端)</div><span class="c">kubelet</span><span class="a">→</span><span class="c">containerd</span><span class="a">→</span><span class="c">容器</span></div>
+    <div class="chain" style="grid-column:span 5"><div class="t">沙箱(每人一台微型虚拟机)</div><span class="c">承载 Pod(平台)</span><span class="a">→</span><span class="c">CRI multiplex</span><span class="a">→</span><span class="c">E2B Orchestrator</span><span class="a">→</span><span class="c vm">Firecracker 虚拟机</span></div>
+    <div class="chain" data-id="build" style="grid-column:span 3"><div class="t">模板构建(构建主机上跑脚本)</div><span class="c">镜像压成一层</span><span class="a">→</span><span class="c">本机临时仓库</span><span class="a">→</span><span class="c">注册模板</span></div>`;
+
+  $('#band').innerHTML = node('user', 'user', '浏览器', '', '对话 · 大盘 · 知识库导入', '', 'ext') + node('sso', 'sso', '统一身份认证', '', '认人 · 加工号头与信任凭据', '', 'ext') + '<div class="sp"></div>' + node('reg', 'reg', D.reg[0], '', D.reg[1], '', 'ext');
+  $('#colR').innerHTML = node('llm', 'llm', D.ext.llm[0], '', D.ext.llm[1], '', 'ext') + node('mw', 'mw', D.ext.mw[0], '', D.ext.mw[1], '', 'ext') + node('db', 'db', D.ext.db[0], '', D.ext.db[1], '', 'ext');
+  requestAnimationFrame(() => {
+    const top = $('#topo').getBoundingClientRect(), cp2 = $('[data-id=cp]').getBoundingClientRect(), band = $('#band').getBoundingClientRect();
+    $('#colR').style.paddingTop = Math.max(0, cp2.top - top.top - (band.bottom - top.top) - 150) + 'px';
+    drawLinks();
+  });
+}
+function drawLinks() {
+  const topo = $('#topo'), svg = $('#links'), base = topo.getBoundingClientRect();
+  const box = (sel) => { const el = topo.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height }; };
+  const P = {}; ['user', 'sso', 'reg', 'gw', 'fe', 'st', 'cp', 'nas', 'kbstd', 'osb', 'flux', 'tpl', 'build', 'grp:main', 'grp:imp', 'mw', 'db', 'llm'].forEach((k) => (P[k] = box(`[data-id="${k}"]`)));
+  P.cl = box('#cluster'); P.pl = box('#plat');
+  const G = P['grp:main'], GL = P['grp:imp'] || G;
+  const R = (b, f = 0.5) => [b.x + b.w, b.y + b.h * f], L = (b, f = 0.5) => [b.x, b.y + b.h * f], T = (b, f = 0.5) => [b.x + b.w * f, b.y], B = (b, f = 0.5) => [b.x + b.w * f, b.y + b.h];
+  const cv = ([x1, y1], [x2, y2], v) => v ? `M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}` : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+  const orth = (pts) => { let d = `M${pts[0][0]},${pts[0][1]}`; for (let i = 1; i < pts.length; i++) { const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]; if (i < pts.length - 1) { const [x2, y2] = pts[i + 1]; const r = 10, dx1 = Math.sign(x1 - x0), dy1 = Math.sign(y1 - y0), dx2 = Math.sign(x2 - x1), dy2 = Math.sign(y2 - y1); d += ` L${x1 - dx1 * r},${y1 - dy1 * r} Q${x1},${y1} ${x1 + dx2 * r},${y1 + dy2 * r}`; } else d += ` L${x1},${y1}`; } return d; };
+  const C = { gray: '#86909c', blue: '#2462e8', vio: '#7c5cff', org: '#e2621f', teal: '#16b4c8', green: '#1f9d63' };
+  const inX = P.cl.x + 8, outX = P.cl.x - 11;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const gTop = (f) => T(G, f), stB = B(P.st, 0.5), cpB = B(P.cp, 0.5);
+  const L1 = [
+    { d: cv(R(P.user), L(P.sso), false), c: C.gray, label: '登录', at: mid(R(P.user), L(P.sso)) },
+    { d: cv(B(P.sso), T(P.gw, 0.4), true), c: C.blue, label: '工号 + 信任凭据', at: mid(B(P.sso), T(P.gw, 0.4)) },
+    { d: cv(B(P.reg), [P.reg.x + P.reg.w / 2, P.cl.y], true), c: C.gray, label: '镜像', at: mid(B(P.reg), [P.reg.x + P.reg.w / 2, P.cl.y]), flow: 0 },
+    { d: cv(R(P.gw, 0.3), L(P.fe, 0.3), false), c: C.blue },
+    { d: orth([L(P.gw, 0.35), [outX, P.gw.y + P.gw.h * 0.35], [outX, P.osb.y + P.osb.h / 2], L(P.osb)]), c: C.vio, label: '建 / 暂停 / 恢复 / 删', at: [outX, (P.cl.y + P.cl.h + P.pl.y) / 2 + 2] },
+    { d: orth([L(P.gw, 0.7), [inX, P.gw.y + P.gw.h * 0.7], [inX, G.y + 26], [G.x, G.y + 26]]), c: C.blue, label: '按工号转发 · envd 启动收尾', at: [inX + 96, (P.gw.y + P.gw.h + P.nas.y) / 2] },
+    { d: cv(gTop(0.3), stB, true), c: C.green, label: '沙箱令牌 · 载入 / 回写 / 报到', at: mid(gTop(0.3), stB) },
+    { d: cv(gTop(0.72), cpB, true), c: C.org, label: '沙箱令牌 · 模型 / 中间件代办', at: mid(gTop(0.72), cpB) },
+    { d: cv(T(P.st, 0.3), B(P.nas, 0.3), true), c: C.green, label: '独家读写', at: mid(T(P.st, 0.3), B(P.nas, 0.3)) },
+    { d: cv(L(P.kbstd), R(P.nas), false), c: C.green },
+    { d: cv(R(P.cp, 0.3), L(P.llm), false), c: C.teal, label: '推理', at: mid(R(P.cp, 0.3), L(P.llm)) },
+    { d: cv(R(P.cp, 0.6), L(P.mw), false), c: C.org, label: '加令牌 · SM2 签名', at: mid(R(P.cp, 0.6), L(P.mw)) },
+    { d: cv(B(P.mw), T(P.db), true), c: C.org, label: '白名单只读', at: mid(B(P.mw), T(P.db)) },
+    { d: cv(R(P.osb), L(P.flux), false), c: C.gray },
+    { d: cv(T(P.flux, 0.5), [P.flux.x + P.flux.w / 2, GL.y + GL.h], true), c: C.gray, label: '调度到承载 Pod', at: mid(T(P.flux, 0.5), [P.flux.x + P.flux.w / 2, GL.y + GL.h]) },
+    { d: cv(T(P.build, 0.5), B(P.tpl, 0.5), true), c: C.gray, label: '注册模板', at: mid(T(P.build, 0.5), B(P.tpl, 0.5)), flow: 0 },
+  ];
+  if (P['grp:imp']) L1.push({ d: orth([[inX, G.y + 26], [inX, P['grp:imp'].y + 26], [P['grp:imp'].x, P['grp:imp'].y + 26]]), c: C.blue });
+  svg.setAttribute('viewBox', `0 0 ${base.width} ${base.height}`);
+  const cols = Object.values(C);
+  svg.innerHTML = `<defs>${cols.map((c, i) => `<marker id="ar${i}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="${c}"/></marker>`).join('')}</defs>` +
+    L1.map((l) => `<path d="${l.d}" stroke="${l.c}" stroke-opacity=".8" class="${l.flow === 0 ? '' : 'flow'}" marker-end="url(#ar${cols.indexOf(l.c)})"/>`).join('') +
+    L1.filter((l) => l.label).map((l) => { const tw = [...l.label].reduce((a, ch) => a + (ch.charCodeAt(0) > 255 ? 12 : 6.5), 0) + 16; return `<g transform="translate(${l.at[0] - tw / 2},${l.at[1] - 10})"><rect width="${tw}" height="20" rx="10" fill="var(--panel)" stroke="${l.c}" stroke-opacity=".4"/><text x="${tw / 2}" y="14" text-anchor="middle">${l.label}</text></g>`; }).join('');
+}
+
+// ============================================================ 表
+function renderTables() {
+  const t = totals(), k = D.k8s;
+  const act = (c) => (D.metrics ? { cpu: c.reps.reduce((a, r) => a + r.cpu, 0), mem: c.reps.reduce((a, r) => a + r.mem, 0) } : null);
+  const rows = [
+    ['智能体 · K8s', null],
+    ...['gw', 'fe', 'st', 'cp'].map((id) => { const c = k[id], n = c.reps.length, a = act(c); return [c.n, c.kind, c.req.cpu * n, c.lim.cpu * n, a && a.cpu, c.req.mem * n, c.lim.mem * n, a && a.mem, 'K8s API']; }),
+    ['标准知识库安装', `Job · ${D.kbstd.st}`, 0, 0, null, 0, 0, null, '完成后不占资源'],
+    ['智能体 · 沙箱', null],
+    ...D.groups.map((g, i) => { const x = t.gs[i]; return [`${g.short === 'PoC 共用组' ? g.short : g.label} · 承载 Pod 预留`, `${g.pods.length} 个承载 Pod × (${g.perPod} 台 + 平台代理)`, x.reqCpu, x.reqCpu, 'vm', x.reqMem, x.reqMem, 'vm', '沙箱组 CRD · 需授权只读']; }),
+    ['平台组件(参考,不归智能体)', null],
+    ...D.platform.map((p) => [p.n, `${p.ns} · ${p.kind}`, p.req ? p.req.cpu * p.reps : null, p.lim ? p.lim.cpu * p.reps : null, 'plat', p.req ? p.req.mem * p.reps : null, p.lim ? p.lim.mem * p.reps : null, 'plat', 'K8s API · 需授权只读']),
+  ];
+  const v = (x, f) => (x == null ? '<span style="color:var(--t4)">未声明</span>' : x === 0 ? '—' : f(x));
+  const pair = (a, b, f) => (a === 0 && b === 0 ? '—' : `${v(a, f)} <span style="color:var(--t4)">/</span> ${v(b, f)}`);
+  const real = (r) => {
+    if (r[2] === 0) return '—';
+    if (r[4] === 'vm') return src('需平台提供(E2B 侧)', 'miss');
+    if (r[4] === 'plat') return '<span style="color:var(--t4)">—</span>';
+    if (r[4] == null) return D.metrics ? '—' : src('未装 metrics-server', 'miss');
+    return `${fmtCpu(r[4])} · ${fmtMem(r[7])}<span class="cell-bar"><i style="width:${pct(r[7], r[5])}%"></i></span>`;
+  };
+  $('#resTable').innerHTML = `<tr><th>组件</th><th>形态</th><th class="r">CPU 预留 / 上限</th><th class="r">内存 预留 / 上限</th><th>实际 CPU · 内存</th><th>来源</th></tr>` +
+    rows.map((r) => r[1] === null ? `<tr><td colspan="6" style="color:var(--t3);font-size:12px;background:var(--fill)">${r[0]}</td></tr>` :
+      `<tr><td><b style="font-weight:500">${r[0]}</b></td><td style="color:var(--t3)">${r[1]}</td><td class="r num">${pair(r[2], r[3], fmtCpu)}</td><td class="r num">${pair(r[5], r[6], fmtMem)}</td><td class="num">${real(r)}</td><td>${src(r[8], /需授权/.test(r[8]) ? 'need' : '')}</td></tr>`).join('') +
+    `<tr><td><b>智能体合计</b></td><td style="color:var(--t3)">占节点 CPU ${pct(t.oursCpu, D.nodes.cpu).toFixed(0)}% · 内存 ${pct(t.oursMem, D.nodes.mem).toFixed(0)}%</td><td class="r num"><b>${fmtCpu(t.oursCpu)}</b></td><td class="r num"><b>${fmtMem(t.oursMem)}</b></td><td colspan="2" style="color:var(--t3)">平台组件另占 ${fmtCpu(t.plat.cpu)} / ${fmtMem(t.plat.mem)}(预留)</td></tr>`;
+  renderUsers();
+  renderSec();
+  renderSrc();
+  $('#foot').innerHTML = `<span>沙箱:网关 /admin/fuyao</span><span>容量:SandboxGroup(flux-system,需授权只读)</span><span>配额:K8s API</span><span>实际用量:${D.metrics ? 'metrics-server(K8s 组件);虚拟机用量需平台提供' : '未装 metrics-server;虚拟机用量需平台提供'}</span><span>每 15 秒刷新</span>`;
+}
+function renderUsers() {
+  const q = ($('#find').value || '').trim().toLowerCase();
+  const order = { use: 0, idle: 1, nosync: 2, pause: 3 };
+  const list = allSbx().filter((s) => !q || s.u.includes(q) || s.id.includes(q) || s.pod.includes(q)).sort((a, b) => order[a.st] - order[b.st] || (b.old - a.old) || a.u.localeCompare(b.u));
+  const n = allSbx().length;
+  $('#userSub').textContent = `${n} 个工号有沙箱(每人每种环境一台)· 保留期 ${D.policy.retain} 天 · 闲置 ${D.policy.idle / 60} 分钟自动暂停`;
+  $('#userTable').innerHTML = `<tr><th>工号</th><th>环境</th><th>沙箱</th><th>状态</th><th>模板</th><th>最后活动</th><th>暂停于 / 保留剩余</th><th>暂停前回写</th><th>所在承载 Pod</th></tr>` +
+    list.slice(0, 400).map((s) => `<tr><td class="num">${s.u}${s.kind === 'kb-import' ? ' <span class="tag">管理员</span>' : ''}</td><td>${KIND[s.kind]}</td><td class="num" style="color:var(--t2)">${s.id}</td>
+      <td><span class="state ${STC[s.st]}"><i></i>${STN[s.st]}</span></td><td class="num" style="color:var(--t2)">${s.tpl}${s.old ? ' <span class="tag warn">旧版</span>' : ''}</td><td style="color:var(--t3)">${s.act}</td>
+      <td style="color:var(--t3)">${s.paused ? `${s.paused} · <span style="color:${s.st === 'nosync' ? 'var(--crit)' : 'var(--t2)'}">${s.left}</span>` : '—'}</td>
+      <td>${s.synced === true ? '<span style="color:var(--ok)">✓</span>' : s.synced === false ? '<span style="color:var(--crit)">✗ 不自动删</span>' : '<span style="color:var(--t4)">运行中</span>'}</td><td class="num" style="color:var(--t3)">${s.pod.replace(/^sandbox-agent-pod-/, '')}</td></tr>`).join('');
+}
+function renderSec() {
+  const must = [
+    ['envd 无认证', '能连到虚拟机网段的一方可以 root 身份在任一沙箱执行命令,包括别人的沙箱。', '平台给 envd 开认证;我方网关下发启动 / 收尾时带令牌,约半天。'],
+    ['沙箱出网不受限', '模型生成的命令可把数据发到任意地址、探测集群与内网;K8s 网络策略管不到虚拟机。', '宿主机侧只放行状态服务 8090、凭据代理 8091 与平台自身地址。'],
+    ['OpenSandbox 未开认证', '集群内任何 Pod 都能建、删沙箱。', '我方已支持 API Key(Secret fuyao-api),平台开启后不用改代码。'],
+  ];
+  const done = [
+    ['恢复后接口返回旧地址', '状态服务记录沙箱来源地址,本人口令探活'],
+    ['模板构建不处理 whiteout', '模板镜像压成一层'],
+    ['寿命到点直接删、不能续期', '默认不设寿命,由清扫器管理'],
+    ['单台查询不带 metadata', '一律走列举再过滤'],
+    ['env、volumes 不传入虚拟机', 'envd 下发配置;状态服务承接 NAS'],
+    ['模板磁盘大小参数不生效', '模板内放占位文件,首次启动删除'],
+    ['构建服务没有根证书', '本机临时仓库注册模板'],
+  ];
+  const ours = [['沙箱令牌没有有效期', '我方待办:加有效期并定期续发'], ['模板服务重启后补建网络槽位,宿主机负载冲高', '建议平台优化;避开高峰构建']];
+  $('#sec').innerHTML = `<div class="secg"><h5><svg width="14" height="14" style="color:var(--crit)"><use href="#i-shield"/></svg>上线前必须由平台落实 · 不影响功能测试</h5>
+      ${must.map(([h, a, b]) => `<div class="si crit"><h6>${h}<span class="tag bad">待平台落实</span></h6><p><span>影响:</span>${a}</p><p><span>处理:</span>${b}</p></div>`).join('')}</div>
+    <div class="secg"><h5>平台行为 · 我方已绕开(平台修复后可撤掉绕法)</h5>
+      <ul class="mini-list">${done.map(([a, b]) => `<li>${a}<span>${b}</span></li>`).join('')}</ul>
+      <h5 style="margin-top:14px">其他</h5><ul class="mini-list">${ours.map(([a, b]) => `<li>${a}<span>${b}</span></li>`).join('')}</ul></div>`;
+}
+function renderSrc() {
+  const rows = [
+    ['沙箱列表:工号、环境、状态、模板、旧版台数', '网关 /admin/fuyao(OpenSandbox 列举 + 沙箱 metadata)', '已有', ''],
+    ['暂停前回写(synced_before_pause)、过保留期没删的台数', '网关 /admin/fuyao', '已有(11-18 起)', ''],
+    ['闲置时长、保留期、是否暂停', '网关 /admin/fuyao 的 policy', '已有', ''],
+    ['组件副本就绪、request / limit', 'K8s API(本命名空间)', '已有', ''],
+    ['沙箱组容量:承载 Pod 数与上下限、每 Pod 台数', '平台 CRD sandboxgroups(flux-system)', '需授权只读', 'need'],
+    ['每台沙箱所在的承载 Pod、承载 Pod 就绪状态', '平台 CRD sandboxes.sandbox.flux.io · K8s API(flux-system)', '需授权只读', 'need'],
+    ['平台组件就绪与配额', 'K8s API(flux-system、e2b)', '需授权只读', 'need'],
+    ['K8s 组件实际 CPU / 内存', 'metrics.k8s.io(metrics-server)', D.metrics ? '已有' : '缺:测试集群未装', D.metrics ? '' : 'miss'],
+    ['每台沙箱(虚拟机)实际 CPU / 内存', '平台 E2B 侧指标', '缺:待平台确认能否提供', 'miss'],
+    ['NAS 各目录用量', '状态服务上报', '需新增', 'need'],
+    ['排队人数、满员次数、按工号的请求次数', '网关计数', '需新增', 'need'],
+    ['token 用量', '交互耗时报告汇总(common/timing)', '需新增汇总', 'need'],
+    ['近 24 小时趋势', '网关每分钟记一次 /admin/fuyao 摘要', '需新增', 'need'],
+  ];
+  $('#srcTable').innerHTML = `<tr><th>内容</th><th>来源</th><th>现状</th></tr>` + rows.map((r) => `<tr><td class="wrap">${r[0]}</td><td class="wrap" style="color:var(--t2)">${r[1]}</td><td>${src(r[2], r[3])}</td></tr>`).join('');
+}
+
+// ============================================================ 交互:提示、抽屉
+const tip = $('#tip');
+const findSbx = (el) => { const g = D.groups.find((x) => x.id === el.dataset.g); const s = g.pods.flatMap((p) => p.sbx).find((x) => x && x.id === el.dataset.s); return { g, s }; };
+document.addEventListener('mousemove', (e) => {
+  const el = e.target.closest('.slot, .tile');
+  if (!el) { tip.classList.remove('on'); return; }
+  if (!el.dataset.s) {
+    const g = D.groups.find((x) => x.id === el.dataset.g), p = g.pods.find((x) => x.name === el.dataset.pod);
+    tip.innerHTML = `<h5>${p.short} · 第 ${+el.dataset.k + 1} 格 · 空余</h5><div class="row">沙箱组<b>${g.name}</b></div><div class="row">平台已为它预留<b>${fmtCpu(g.req.cpu)} / ${fmtMem(g.req.mem)}</b></div>`;
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 320) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; tip.classList.add('on'); return;
+  }
+  const { s } = findSbx(el);
+  tip.innerHTML = `<h5>${s.u} · ${KIND[s.kind]}沙箱 ${s.id}</h5><div class="row">状态<b>${STN[s.st]}</b></div><div class="row">最后活动<b>${s.act}</b></div><div class="row">模板<b>${s.tpl}${s.old ? '(旧版)' : ''}</b></div>${s.paused ? `<div class="row">暂停于<b>${s.paused}</b></div><div class="row">保留剩余<b>${s.left}</b></div><div class="row">暂停前回写<b>${s.synced ? '✓' : '✗'}</b></div>` : ''}<div class="row">承载 Pod<b>${s.pod.replace(/^sandbox-agent-pod-/, '')}</b></div>`;
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - 320) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; tip.classList.add('on');
+});
+const OPS = [
+  ['stop', '只做收尾回写,不停服务'],
+  ['pause', '收尾回写后暂停,记下回写是否成功(gsdb-synced)'],
+  ['resume', '恢复;清掉暂停与回写标记'],
+  ['delete', '在跑的先收尾回写并放开独占,成功才删;暂停的看暂停前回写成没成;否则回 <b>409</b> 不删。确认可丢最后一次成功同步之后的改动,才带 <b>{"force": true}</b>'],
+];
+function sbxDrawer(g, s) {
+  const procs = [
+    ['gsdb-agent', 'agent', s.kind === 'kb-import' ? '4096 对话 · 4097 报告 · 4095 剪藏' : '4096 对话 · 4097 报告', 'opencode 与技能;环境里没有任何密钥'],
+    ['gsdb-credrelay', 'root', '4099 · credproxy.sock', '带沙箱令牌把模型、中间件请求转给凭据代理'],
+    ['gsdb-statesync', 'root', '—', '每 60 秒增量回写、每 5 秒报到、知识库拉取' + (s.kind === 'kb-import' ? ' / 发布' : '')],
+    ['envd(平台)', 'root', '49983', '网关下发启动、收尾命令;当前无认证'],
+  ];
+  return `<div class="dh"><div class="k">${g.name} · ${KIND[s.kind]}沙箱 · Firecracker 微型虚拟机</div><h3>${s.u} · ${s.id}</h3><div class="meta" style="margin:0"><span>状态:<b>${STN[s.st]}</b></span><span>环境:<b>${KIND[s.kind]}</b></span></div><button class="x" onclick="closeDrawer()">×</button></div>
+    <div class="db"><h6>概况 ${src('/admin/fuyao')}</h6><div class="kv">
+      <span>模板</span><div class="num">${s.tpl}${s.old ? ` <span class="tag warn">旧版 · 闲置后换新</span>` : ''}</div>
+      <span>最后活动</span><div>${s.act}</div>
+      <span>暂停于</span><div>${s.paused || '—(运行中)'}</div>
+      <span>保留剩余</span><div>${s.left || '—'}</div>
+      <span>暂停前回写</span><div>${s.synced === true ? '<span style="color:var(--ok)">✓ 已回写 NAS</span>' : s.synced === false ? '<span style="color:var(--crit)">✗ 没回写成 · 清扫器不自动删除</span>' : '运行中 · 每 60 秒回写'}</div>
+      <span>虚拟机规格</span><div>${g.vm}</div>
+      <span>承载 Pod</span><div><span class="num">${s.pod}</span><br><span style="color:var(--t3);font-size:12px">平台管理,与原固定池化无关</span> ${src('assignedSandboxAgentPod · 需授权只读', 'need')}</div></div>
+      <h6>沙箱内部 ${src('沙箱里的 systemd 单元')}</h6>
+      <table class="proc"><tr><th>单元</th><th>用户</th><th>端口</th><th>作用</th></tr>${procs.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>
+      <h6>运维动作 ${src('POST /admin/fuyao/<动作>')}</h6><div class="ops">${OPS.map(([v, d]) => `<div class="op"><b>${v}</b>${d}</div>`).join('')}</div>
+      <div class="note">实际 CPU / 内存:${src('需平台提供', 'miss')} 虚拟机进程不在任何 K8s 容器的 cgroup 里,metrics-server 看不到。</div></div>`;
+}
+function openDrawer(id, el) {
+  let html = '';
+  if (el && el.dataset.s) {
+    const { g, s } = findSbx(el);
+    html = sbxDrawer(g, s);
+  } else if (id.startsWith('pod:')) {
+    const [, gid, pname] = id.match(/^pod:([^:]+:[^:]+):(.*)$/), g = D.groups.find((x) => x.id === gid), p = g.pods.find((x) => x.name === pname), gt = grpTotals(g);
+    const used = p.sbx.filter(Boolean).length;
+    html = `<div class="dh"><div class="k">承载 Pod(平台管理)· ${g.name}</div><h3>${p.name}</h3><div class="meta" style="margin:0"><span>状态:<b style="color:var(--ok)">● 就绪(Running)</b></span><span>沙箱:<b>${used} / ${g.perPod} 台</b></span></div><button class="x" onclick="closeDrawer()">×</button></div>
+      <div class="db"><h6>上面的沙箱 ${src('sandboxes CRD · assignedSandboxAgentPod · 需授权只读', 'need')}</h6>
+      ${p.sbx.map((s, k) => `<div class="ct"${s ? ` data-s="${s.id}" data-g="${g.id}" style="cursor:pointer"` : ''}><div class="cn"><span>第 ${k + 1} 格${s ? ' · ' + s.u + ' · ' + KIND[s.kind] + ' · ' + s.id : ''}</span><span class="state ${s ? STC[s.st] : 'idle'}"><i></i>${s ? STN[s.st] + (s.old ? ' · 旧版' : '') : '空余'}</span></div></div>`).join('')}
+      <h6>预留构成 ${src('K8s API · flux-system · 需授权只读', 'need')}</h6>
+      <div class="ct"><div class="cn"><span>resource-reserve(资源占位)</span><span class="num">${fmtCpu(g.perPod * g.req.cpu)} / ${fmtMem(g.perPod * g.req.mem)}</span></div><p style="margin:6px 0 0;color:var(--t3);font-size:12px">= 每 Pod ${g.perPod} 台 × 每台 request ${fmtCpu(g.req.cpu)} / ${fmtMem(g.req.mem)};只用于调度记账</p></div>
+      <div class="ct"><div class="cn"><span>sandbox-agent(平台代理)</span><span class="num">${fmtCpu(AGENT.cpu)} / ${fmtMem(AGENT.mem)}</span></div><p style="margin:6px 0 0;color:var(--t3);font-size:12px">经 CRI multiplex 调本节点 E2B 运行时起停虚拟机</p></div>
+      <div class="note">合计预留 ${fmtCpu(gt.per.cpu)} / ${fmtMem(gt.per.mem)}。每格是一台独立 Firecracker 虚拟机(独立内核),不在用户之间复用,删除即销毁;虚拟机的实际占用由 E2B Orchestrator 管,不在本 Pod 的 cgroup 里。
+      这个 Pod 由平台在最小值 ${g.podMin} 与最大值 ${g.podMax} 个之间伸缩,与原固定池化的 agent-pool 无关。<b>Pod 故障对其上沙箱的影响尚未实测。</b></div></div>`;
+  } else {
+    const t = totals(), k = D.k8s, g = D.groups.find((x) => x.id === id);
+    const kv = (rows) => `<div class="kv">${rows.map(([a, b]) => `<span>${a}</span><div>${b}</div>`).join('')}</div>`;
+    const comp = (c, rows) => [c.kind, c.n, [['request / limit', `${fmtCpu(c.req.cpu)} / ${fmtMem(c.req.mem)} · ${fmtCpu(c.lim.cpu)} / ${fmtMem(c.lim.mem)}(每副本)`], ...rows]];
+    const info = {
+      gw: comp(k.gw, [['镜像', 'gaussdb-agent-gateway'], ['运行模式', 'RUNTIME_MODE=fuyao'], ['职责', '认身份;按工号找 / 建 / 恢复沙箱;反向代理对话、报告、剪藏;清扫器每 30 秒一轮'], ['运维接口', '/admin/fuyao(摘要)· /admin/fuyao/{stop,pause,resume,delete}']]),
+      fe: comp(k.fe, [['镜像', 'gaussdb-agent-frontend'], ['职责', '大盘静态页面;不读任何人的数据']]),
+      st: comp(k.st, [['入口', 'podctl serve-statesvc · :8090'], ['职责', '独家读写 NAS;按沙箱令牌只放行本人目录(users/<工号>、admins/<工号>);独占 30 秒续一次、90 秒过期'], ['地址发现', '记录沙箱请求的来源地址,恢复后网关先问这里']]),
+      cp: comp(k.cp, [['入口', 'podctl serve-credproxy-net · :8091'], ['职责', '持有中间件令牌、SM2 私钥、模型密钥;验沙箱令牌后按工号读 Secret grmp-token-<工号> 代办'], ['权限', 'Role 只有 secrets get,没有 list']]),
+      nas: [D.nas.kind, '共享存储', [['已用', D.nas.used < 1 ? Math.round(D.nas.used * 1024) + ' MiB' : D.nas.used + ' GiB'], ['容量', D.nas.capNote || D.nas.cap + ' GiB'], ['内容', 'users/(会话、报告、备份)· admins/ · kb/(知识库、索引、官方文档集)'], ['谁读写', '只有状态服务;沙箱不挂 NAS']]],
+      osb: ['flux-system · Deployment', 'OpenSandbox Server', [['作用', '沙箱的建、列举、暂停、恢复、删除;metadata 记工号、环境、模板、回写标记'], ['认证', '<span style="color:var(--crit)">未开启</span>;开启后把 Key 放进 Secret fuyao-api'], ['已知行为', '恢复后 /endpoints 回旧地址;单台查询不带 metadata;env、volumes 不传入虚拟机']]],
+      flux: ['flux-system', 'Flux', [['组成', 'Controller ×1 · Scheduler ×3 · Watcher(DaemonSet)'], ['作用', '按沙箱组把沙箱调度到平台的承载 Pod;承载 Pod 数在沙箱组的最小值、最大值之间伸缩'], ['容量', '见各沙箱组详情']]],
+      e2b: ['e2b · 平台组件', 'E2B 服务', [['组成', 'API · Edge · PostgreSQL · Redis'], ['预留', D.platform.filter((p) => p.id === 'e2b').map((p) => `${p.n} ${fmtCpu(p.req.cpu)} / ${fmtMem(p.req.mem)}`).join('<br>')], ['说明', '平台方运维,不计入智能体资源']]],
+      tpl: ['e2b · Template Manager', '模板', [['当前', Object.entries(D.templates).map(([a, b]) => `${KIND[a]}:${b}`).join('<br>')], ['构建', '构建主机上 scripts/build-e2b-template.py:镜像压成一层 → 本机临时仓库 → 注册;也可用离线包里的模板 OCI 包'], ['换版', '发版改模板名;旧版沙箱闲置后收尾删除,下次登录按新模板建']]],
+      kbstd: ['Job', '标准知识库', [['任务', D.kbstd.job + ' · ' + D.kbstd.st], ['说明', D.kbstd.docs]]],
+    }[id];
+    if (g) {
+      const x = t.gs[D.groups.indexOf(g)];
+      const hp = g.pods.map((p) => `<div class="hp"><b title="${p.name}">${p.name}</b><span class="ok">● 就绪</span><span>${p.sbx.filter(Boolean).length} / ${g.perPod} 台</span></div>`).join('');
+      html = `<div class="dh"><div class="k">SandboxGroup · flux-system</div><h3>${g.label} ${g.name}</h3><button class="x" onclick="closeDrawer()">×</button></div><div class="db"><h6>容量与占用 ${src('sandboxgroups CRD · 需授权只读', 'need')}</h6>${kv([
+        ['容量', `${x.cap} 台(最多 ${x.capMax} 台)`], ['占用', `在用 ${x.use} · 闲置 ${x.idle} · 暂停 ${x.pause + x.nosync} · 空余 ${x.free}`],
+        ['每台资源', `request ${fmtCpu(g.req.cpu)} / ${fmtMem(g.req.mem)} · limit ${fmtCpu(g.lim.cpu)} / ${fmtMem(g.lim.mem)}`], ['虚拟机规格', g.vm + '(由模板决定;request 小于模板规格即超卖)'],
+        ['谁维护', '平台管理员 apply;智能体只引用组名(FUYAO_*_GROUP)']])}
+        <h6>平台承载 Pod(${g.pods.length} 个)${src('K8s API · flux-system · 需授权只读', 'need')}</h6><div class="hps">${hp}</div>
+        <div class="note">容量 = 承载 Pod 数 × 每 Pod 台数 = ${g.pods.length} × ${g.perPod} = ${x.cap};由平台在最小值 ${g.podMin} 个、最大值 ${g.podMax} 个承载 Pod 之间伸缩(agentPodMin / agentPodMax / maxSandboxesPerPod)。
+        每个承载 Pod 预留 ${fmtCpu(x.per.cpu)} / ${fmtMem(x.per.mem)}(资源占位 ${fmtCpu(g.perPod * g.req.cpu)} / ${fmtMem(g.perPod * g.req.mem)} + 平台代理 ${fmtCpu(AGENT.cpu)} / ${fmtMem(AGENT.mem)}),只用于调度记账,虚拟机实际占用由 E2B Orchestrator 管。
+        这些 Pod 由平台管理,与原固定池化无关;<b>承载 Pod 故障对其上沙箱的影响尚未实测</b>。</div>
+        <div class="note">暂停的沙箱也占容量。容量满时新工号看到「当前使用人数已满」的等待页,有沙箱被删除后自动进入。</div></div>`;
+    } else if (info) {
+      html = `<div class="dh"><div class="k">${info[0]}</div><h3>${info[1]}</h3><button class="x" onclick="closeDrawer()">×</button></div><div class="db"><h6>概况</h6>${kv(info[2])}</div>`;
+    } else return;
+  }
+  $('#drawer').innerHTML = html; $('#dw').classList.add('open');
+}
+function closeDrawer() { $('#dw').classList.remove('open'); document.querySelectorAll('.sel').forEach((e) => e.classList.remove('sel')); }
+$('#mask').onclick = closeDrawer;
+document.addEventListener('click', (e) => {
+  const cell = e.target.closest('[data-s]');
+  if (cell && !cell.closest('#drawer .dh')) { openDrawer('', cell); return; }
+  const el = e.target.closest('.pod, .node[data-id]');
+  if (!el || el.closest('#drawer')) return;
+  const id = el.dataset.id;
+  if (['user', 'sso', 'reg', 'mw', 'db', 'llm', 'rbac', 'cm', 'np', 'role', 'pvc', 'other'].includes(id)) return;
+  document.querySelectorAll('.sel').forEach((x) => x.classList.remove('sel')); el.classList.add('sel'); openDrawer(id, el);
+});
+// ============================================================ 切换
+function renderAll() { renderHead(); renderTopo(); renderTables(); }
+$('#scen').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; D = DATA[b.dataset.s]; [...$('#scen').children].forEach((x) => x.classList.toggle('on', x === b)); renderAll(); };
+$('#theme').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; document.documentElement.dataset.theme = b.dataset.t; [...$('#theme').children].forEach((x) => x.classList.toggle('on', x === b)); requestAnimationFrame(drawLinks); };
+$('#find').oninput = renderUsers;
+$('#refresh').onclick = renderAll;
+addEventListener('resize', () => requestAnimationFrame(drawLinks));
+const qs = new URLSearchParams(location.search);
+if (qs.get('s') === 'test') { D = DATA.test; [...$('#scen').children].forEach((x) => x.classList.toggle('on', x.dataset.s === 'test')); }
+if (qs.get('t') === 'dark') { document.documentElement.dataset.theme = 'dark'; [...$('#theme').children].forEach((x) => x.classList.toggle('on', x.dataset.t === 'dark')); }
+renderAll();
+document.fonts && document.fonts.ready.then(() => requestAnimationFrame(drawLinks));
+// 评审用:?d=grp 打开第一个沙箱组详情,?d=pod 打开第一个承载 Pod,?d=sbx 打开第一台沙箱详情
+if (qs.get('d') === 'grp') openDrawer('grp:main');
+if (qs.get('d') === 'sbx') openDrawer('', document.querySelector('.slot[data-s]'));
+if (qs.get('d') === 'pod') openDrawer(document.querySelector('.pod[data-id^="pod:"]').dataset.id);
+</script>
+</body>
+</html>

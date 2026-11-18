@@ -15,7 +15,9 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -104,3 +106,65 @@ def bearer(header: Optional[str]) -> str:
     """从 Authorization 头里取 Bearer 令牌;没有返回空串。"""
     h = (header or "").strip()
     return h[7:].strip() if h[:7].lower() == "bearer " else ""
+
+
+# -- 网关专用的运维请求签名(2026-11-18,资源大盘) ------------------------------------------------------
+# 状态服务的统计接口(请求计数、沙箱台数、NAS 用量)只许网关调,沙箱不能调。沙箱手里只有沙箱令牌,这里用控制密钥
+# 派生的**另一把**子密钥签名,签的是「方法 + 路径 + 时刻 + 随机数 + 请求体摘要」:沙箱令牌不管真假都过不了这道校验
+# (子密钥不同、格式也不同),截获的签名换个接口或改了请求体就失效,时刻窗口之外也失效;
+# 窗口内的重放由校验方记住见过的签名挡掉(OpsReplay)。控制密钥从不进沙箱。
+
+OPS_HEADER = "X-Gsdb-Gateway-Sig"
+OPS_PREFIX = "go1."
+OPS_WINDOW_S = 120
+
+
+def _ops_subkey(key: bytes) -> bytes:
+    return hmac.new(key, b"gateway-ops\n", hashlib.sha256).digest()
+
+
+def _ops_mac(key: bytes, method: str, path: str, t: int, nonce: str, body: bytes) -> str:
+    msg = "%s\n%s\n%d\n%s\n%s" % (method.upper(), path, t, nonce, hashlib.sha256(body or b"").hexdigest())
+    return hmac.new(_ops_subkey(key), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def ops_sign(key: bytes, method: str, path: str, body: bytes = b"", now: Optional[float] = None) -> str:
+    """带随机数:两个网关副本同一秒对同一路径签名也各不相同(防重放按整个签名记)。"""
+    if len(key) < 16:
+        raise ValueError("控制密钥至少 16 字节")
+    t = int(time.time() if now is None else now)
+    nonce = os.urandom(8).hex()
+    return "%s%d.%s.%s" % (OPS_PREFIX, t, nonce, _ops_mac(key, method, path, t, nonce, body))
+
+
+def ops_verify(key: bytes, header: object, method: str, path: str, body: bytes = b"",
+               now: Optional[float] = None, window: int = OPS_WINDOW_S) -> bool:
+    """签名对、时刻在窗口内返回 True;否则 False(不说原因)。"""
+    if not isinstance(header, str) or not header.startswith(OPS_PREFIX) or len(header) > 200:
+        return False
+    parts = header[len(OPS_PREFIX):].split(".")
+    if len(parts) != 3 or not parts[0].isdigit() or not re.match(r"^[0-9a-f]{16}$", parts[1]) or not parts[2]:
+        return False
+    t = int(parts[0])
+    if abs((time.time() if now is None else now) - t) > window:
+        return False
+    return hmac.compare_digest(_ops_mac(key, method, path, t, parts[1], body), parts[2])
+
+
+class OpsReplay:
+    """记住窗口内见过的签名:同一个签名只认一次(两个网关副本各签各的,不会撞)。"""
+
+    def __init__(self, window: int = OPS_WINDOW_S):
+        self.window = window
+        self._seen: dict = {}
+        self._lock = threading.Lock()
+
+    def first(self, header: str, now: Optional[float] = None) -> bool:
+        now = time.time() if now is None else now
+        with self._lock:
+            if len(self._seen) > 4096:
+                self._seen = {k: v for k, v in self._seen.items() if now - v <= 2 * self.window}
+            if header in self._seen and now - self._seen[header] <= 2 * self.window:
+                return False
+            self._seen[header] = now
+            return True

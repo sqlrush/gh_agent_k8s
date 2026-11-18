@@ -22,6 +22,11 @@
   POST /v1/kb/publish         导入环境发布(请求头 X-Gsdb-Kb-Base 带手上那份的版本;tar 含 .gsdb-meta/publish.json:keep)
   POST /v1/hello              报到:只记本沙箱的来源地址,不碰 NAS(沙箱每 5 秒一次)
   GET  /v1/where              这台沙箱最近一次请求的来源地址与距今秒数(网关恢复沙箱后用它找新地址)
+
+运维统计(资源大盘,2026-11-18;**只认网关的运维签名**,请求头 X-Gsdb-Gateway-Sig,沙箱令牌调不通,见 opsstats.py):
+  POST /v1/ops/requests       {"items": [{"u": 工号, "k": 环境, "n": 次数}]}  网关各副本每 30 秒报一次增量
+  POST /v1/ops/fleet          {"running": n, "paused": n}                     清扫器每轮报一次沙箱台数
+  GET  /v1/ops/stats          今天各工号请求次数、24 小时趋势(半小时一点)、NAS 用量
 用法: statesvc.py --nas /nas [--listen 0.0.0.0:8090];控制密钥从环境变量 GSDB_CONTROL_KEY 读。
 """
 from __future__ import annotations
@@ -38,6 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Dict, Optional, Tuple
 
 import fdtree
+import opsstats
 import sbxtoken
 import statesync
 import treetar
@@ -100,6 +106,8 @@ class Service:
         self._guard = threading.Lock()
         self._kb_lock = threading.Lock()
         self._where: Dict[str, Tuple[str, float]] = {}       # 沙箱 → (最近一次请求的来源地址, 时刻)
+        self.ops = opsstats.OpsStats(self.nas_fd, log=log, clock=clock)
+        self.replay = sbxtoken.OpsReplay()
 
     # -- 沙箱现在在哪 ---------------------------------------------------------------------------------
     # 平台恢复暂停的沙箱后虚拟机换了地址,而 /endpoints 仍回旧地址(端到端实测)。沙箱里的后台同步每 30 秒续一次独占,
@@ -353,6 +361,33 @@ def handler(svc: Service):
             self.end_headers()
             self.wfile.write(data)
 
+        # -- 运维统计:只认网关签名(控制密钥派生的另一把子密钥),沙箱令牌在这里无效 --------------------------
+
+        def _ops_ok(self, body: bytes) -> bool:
+            sig = self.headers.get(sbxtoken.OPS_HEADER) or ""
+            if sbxtoken.ops_verify(svc.key, sig, self.command, self.path, body) and svc.replay.first(sig):
+                return True
+            self._json(401, {"error": "只接受网关签名的请求"})
+            return False
+
+        def _ops(self) -> None:
+            if self.command == "GET" and self.path == "/v1/ops/stats":
+                if self._ops_ok(b""):
+                    self._json(200, svc.ops.snapshot())
+                return
+            if self.command == "POST" and self.path in ("/v1/ops/requests", "/v1/ops/fleet"):
+                r = self._body(1 << 20)
+                if r is None:
+                    return
+                raw = r.read()
+                if not self._ops_ok(raw):
+                    return
+                d = _jsonload(raw)
+                if self.path == "/v1/ops/requests":
+                    return self._json(*svc.ops.add_requests(d.get("items")))
+                return self._json(*svc.ops.set_fleet(d.get("running"), d.get("paused")))
+            self._json(404, {"error": "没有这个接口"})
+
         def _claims(self) -> Optional[sbxtoken.Claims]:
             c = sbxtoken.verify(svc.key, sbxtoken.bearer(self.headers.get("Authorization")))
             if c is None:
@@ -388,6 +423,8 @@ def handler(svc: Service):
         def do_GET(self):
             if self.path == "/healthz":
                 return self._json(200, {"ok": True})
+            if self.path.startswith("/v1/ops/"):
+                return self._ops()
             c = self._claims()
             if c is None:
                 return
@@ -410,6 +447,8 @@ def handler(svc: Service):
                 pass
 
         def do_POST(self):
+            if self.path.startswith("/v1/ops/"):
+                return self._ops()
             c = self._claims()
             if c is None:
                 return
@@ -485,6 +524,7 @@ def main(argv=None) -> int:
         print("缺 GSDB_CONTROL_KEY(Secret sandbox-control 的 KEY,与网关同一把),或不足 16 个字符", file=sys.stderr)
         return 2
     svc = Service(a.nas, key, log=lambda m: print(m, flush=True))
+    svc.ops.start()
     host, port = a.listen.rsplit(":", 1)
     srv = ThreadingHTTPServer((host, int(port)), handler(svc))
     srv.daemon_threads = True

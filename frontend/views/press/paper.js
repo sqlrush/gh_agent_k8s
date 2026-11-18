@@ -104,6 +104,6 @@ export async function render(root, ctx) {
   root.innerHTML = `<section class="front"><div class="front-main">${lead(hm)}</div><aside class="front-side">${numbers(hm, tm, wm, km)}${dimsBox(hm)}</aside></section>
     <div class="fold"><span>折线以下</span></div>
     <section class="below">${storyWdr(wm)}${storyTop(tm)}${storyKb(km)}</section>${sections(hm, tm, wm, km)}
-    <footer class="colophon"><b>GaussDB智能体日报</b>　由 GaussDB 智能体依据巡检、WDR、Top SQL 与知识库报告自动编排。级别由巡检脚本按阈值判定，模型不改；文中数字均取自报告。</footer>`;
+    <footer class="colophon"><b>${esc((ctx && ctx.product) || 'GaussDB 智能体')}日报</b>　由 ${esc((ctx && ctx.product) || 'GaussDB 智能体')}依据巡检、WDR、Top SQL 与知识库报告自动编排。级别由巡检脚本按阈值判定，模型不改；文中数字均取自报告。</footer>`;
   masthead(hm, ctx);
 }

@@ -12,7 +12,9 @@ import { toast } from './overlay.js';
 // opencode Web 的项目路由 = base64url(工作目录);容器里工作目录固定是 /data/state/workspace
 const WORKSPACE = '/data/state/workspace';
 const b64url = (s) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-export const CHAT_HOME = '/' + b64url(WORKSPACE);
+export let CHAT_HOME = '/' + b64url(WORKSPACE);
+/** 网关在 /dash/api/me 里给出本运行模式下对话页的落地路径(Fuyao 沙箱的工作目录不同);形状不对就不用。 */
+export function setChatHome(p) { if (typeof p === 'string' && /^\/[A-Za-z0-9_-]+$/.test(p)) CHAT_HOME = p; }
 
 // 当前大盘的实例(targets.json 里的一项)。三个诊断大盘按实例分开,而深挖开的新会话还没登录:
 // 首句不说是哪个库,模型只能反过来问用户。login 由存档时写入(如「登录 10.0.0.9 的 postgres 库」),

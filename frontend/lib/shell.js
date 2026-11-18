@@ -3,8 +3,8 @@
 //
 // 页面在 /dash/ 下端出:/dash/health、/dash/topsql、/dash/wdr、/dash/kb(nginx try_files 都落到 index.html)。
 
-import { fetchWhoami, fetchTargets, fetchIndex } from './data.js';
-import { setDigTarget, openDig, installDig, CHAT_HOME } from './dig.js';
+import { fetchWhoami, fetchTargets, fetchIndex, fetchMe } from './data.js';
+import { setDigTarget, openDig, installDig, CHAT_HOME, setChatHome } from './dig.js';
 import { esc, stamp } from './fmt.js';
 import { I } from './ui.js';
 import { currentStyle, saveStyle, applyStyle, styleSwitch } from './style.js';
@@ -25,9 +25,18 @@ const PAGES = [
   { name: 'topsql', label: 'Top SQL', icon: 'list', skill: 'topsql', sec: 'sec-topsql' },
   { name: 'wdr', label: 'WDR 分析', icon: 'clock', skill: 'wdr', sec: 'sec-wdr' },
   { name: 'kb', label: '知识库', icon: 'book', skill: null, sec: 'sec-kb' },   // 全体共享,不分实例
+  { name: 'resources', label: '资源大盘', icon: 'grid', skill: null, sec: null, ops: true },   // 只给运维管理员(导航按 /dash/api/me 显示)
 ];
+export const DEFAULT_PRODUCT = 'GaussDB 智能体';
 const KEY_STORE = 'dash.instance';
-const S = { run: {}, ctx: null, targets: [], whoami: '' };
+const S = { run: {}, ctx: null, targets: [], whoami: '', me: null };
+const product = () => (S.me && S.me.product_name) || DEFAULT_PRODUCT;
+const isOps = () => !!(S.me && S.me.ops_admin);
+/** 报头:「GaussDB 智能体」→「GaussDB」+「智能体日报」;没有拉丁前缀的整个名字放进中文那一段。 */
+export function mastTitle(name) {
+  const mm = /^([A-Za-z0-9][A-Za-z0-9 .-]*?)\s*([^A-Za-z0-9 .-].*)$/.exec(name || '');
+  return mm ? `${esc(mm[1])}<span class="cjk">${esc(mm[2])}日报</span>` : `<span class="cjk">${esc(name || '')}日报</span>`;
+}
 // 首次进入时地址里的 ?run=<文件> / ?by=<维度> / ?from=&to=:技能存档后打印的「已存入大盘」直达链接
 // (reports.dash_link)与带时间段的链接。只在第一次装页面时读一次 —— 之后以页面上的选择为准。
 let booted = false;
@@ -77,15 +86,16 @@ const instBtn = (t, has) => (has ? `<button class="inst" id="inst"><span class="
 
 function chromeNormal(page, style, ctx) {
   const nav = PAGES.map((p) => `<a href="/dash/${p.name}" data-go="${p.name}" class="${p.name === page.name ? 'on' : ''}">${I[p.icon]}${esc(p.label)}</a>`);
+  const ops = isOps() ? `<div class="grp">运维</div>${nav[4]}` : '';
   return `<header class="topbar">
-      <div class="logo"><span class="mark">${I.db}</span><b>GaussDB 智能体</b></div>
+      <div class="logo"><span class="mark">${I.db}</span><b>${esc(product())}</b></div>
       ${page.skill ? instBtn(ctx.target, ctx.targets.length) : ''}${page.skill && ctx.targets.length ? rangeBtn(ctx.range) : ''}
       <button class="cmdk-trigger" id="cmdk-btn">${I.search}搜索页面、SQL、维度、案例…<span class="kbd"><kbd>⌘</kbd><kbd>K</kbd></span></button>
-      <div class="right">${styleSwitch(style)}<button class="ask-btn" id="ask-btn"><span class="spark">${I.spark}</span>问智能体<span class="kbd"><kbd>⌘</kbd><kbd>J</kbd></span></button>
+      <div class="right">${page.ops ? '' : styleSwitch(style)}<button class="ask-btn" id="ask-btn"><span class="spark">${I.spark}</span>问智能体<span class="kbd"><kbd>⌘</kbd><kbd>J</kbd></span></button>
         <div class="user"><span class="av">${esc((ctx.whoami || '?').slice(0, 1).toUpperCase())}</span><span>${esc(ctx.whoami || '—')}</span></div></div>
     </header>
     <div class="shell"><nav class="side" id="nav">
-      <div class="grp">诊断大盘</div>${nav.slice(0, 3).join('')}<div class="grp">知识</div>${nav[3]}
+      <div class="grp">诊断大盘</div>${nav.slice(0, 3).join('')}<div class="grp">知识</div>${nav[3]}${ops}
       <div class="grp">对话</div><a href="${CHAT_HOME}" target="_blank" rel="noopener">${I.plus}新对话<span class="ext">${I.ext}</span></a><a href="${CHAT_HOME}" target="_blank" rel="noopener">${I.chat}最近对话<span class="ext">${I.ext}</span></a>
       <div class="side-ai"><b>随时问智能体</b><p>它带着你当前打开的报告去回答，在新标签页里开会话。</p><span class="kbd"><kbd>⌘</kbd><kbd>J</kbd></span><span class="t3">打开侧栏</span></div>
     </nav><main class="content" id="main"><div class="empty-state">加载中…</div></main></div>`;
@@ -95,8 +105,8 @@ function chromePress(page, style, ctx) {
     .map(([p, l, jump]) => (jump ? `<a href="#" data-jump="${jump}">${esc(l)}</a>` : `<a href="/dash/${p}" data-go="${p}" data-p="${p}" class="${p === page.name ? 'on' : ''}">${esc(l)}</a>`)).join('');
   return `<header class="mast"><div class="mast-top"><span id="issue-date"></span><span class="dot">·</span><span id="issue-no"></span><span class="dot">·</span><span>实例版</span>${instBtn(ctx.target, ctx.targets.length)}${ctx.targets.length ? rangeBtn(ctx.range) : ''}
       <span class="r">${styleSwitch(style)}<button class="mt-btn" id="cmdk-btn">检索<kbd>⌘K</kbd></button><button class="mt-btn" id="ask-btn">问智能体<kbd>⌘J</kbd></button><span class="sub">订阅者 <b>${esc(ctx.whoami || '—')}</b></span></span></div>
-      <h1 class="title">GaussDB<span class="cjk">智能体日报</span></h1><div class="mast-sub">每日巡检与诊断　·　由智能体编写，级别由巡检脚本判定</div></header>
-    <nav class="secnav" id="nav">${nav}<a class="proto" href="${CHAT_HOME}" target="_blank" rel="noopener">新对话 ↗</a></nav>
+      <h1 class="title">${mastTitle(product())}</h1><div class="mast-sub">每日巡检与诊断　·　由智能体编写，级别由巡检脚本判定</div></header>
+    <nav class="secnav" id="nav">${nav}${isOps() ? '<a href="/dash/resources" data-go="resources">运维 · 资源大盘</a>' : ''}<a class="proto" href="${CHAT_HOME}" target="_blank" rel="noopener">新对话 ↗</a></nav>
     <main class="paper" id="main"><div class="sheet-empty">加载中…</div></main>`;
 }
 
@@ -107,10 +117,13 @@ function scrollToSection(id, smooth) {
 
 /** 装页面:取工号与实例 → 按风格搭框架 → 画当前路由。切风格、切实例、切报告都走这里(原地重画,不刷新)。 */
 export async function mount() {
-  const style = currentStyle();
-  applyStyle(style);
   const page = PAGES.find((p) => p.name === pageName());
-  if (!S.whoami) { const who = await fetchWhoami(); S.whoami = who.ok ? who.data.user_id : ''; }
+  const style = page.ops ? 'normal' : currentStyle();        // 资源大盘只有普通风格
+  applyStyle(style);
+  await loadMe();
+  // 工号优先取网关答的 /dash/api/me:不经用户的环境(/reports/whoami.json 会把暂停的沙箱拉起来)
+  if (!S.whoami) { const who = S.me && S.me.user_id ? { ok: true, data: S.me } : await fetchWhoami(); S.whoami = who.ok ? who.data.user_id : ''; }
+  document.title = page.ops ? `${page.label} · ${product()}` : `${product()} · 大盘`;
   const boot = booted ? null : new URLSearchParams(location.search);
   booted = true;
   if (boot) { const r = fromQuery(boot); if (r) saveRange(r); }        // 链接里带了时间段
@@ -118,7 +131,7 @@ export async function mount() {
   const key = style === 'press' || page.skill ? pickKey(targets) : '';
   if (boot) await useBootParams(boot, page, key);
   const ctx = { page: page.name, key, targets, whoami: S.whoami, target: targets.find((t) => t.key === key) || null, run: S.run, style,
-    range: readRange() };
+    range: readRange(), product: product(), me: S.me };
   S.ctx = ctx;
   setDigTarget(ctx.target);          // 深挖首句带上「先登录哪个库」;没有实例时传 null
   clearModels(); closeDrawer(); closeMenu(); resetRise();
@@ -150,9 +163,10 @@ async function useBootParams(boot, page, key) {
 }
 
 function goPage(p) {
+  const target = PAGES.find((x) => x.name === p), from = PAGES.find((x) => x.name === pageName());
   if (p === pageName() && currentStyle() !== 'press') return;
   history.pushState(null, '', `/dash/${p}`);
-  if (currentStyle() === 'press') {                      // 同一份报纸:翻到那一版即可,不重取
+  if (currentStyle() === 'press' && !(target && target.ops) && !(from && from.ops)) {   // 同一份报纸:翻到那一版即可,不重取
     const page = PAGES.find((x) => x.name === p);
     document.querySelectorAll('#nav a[data-p]').forEach((a) => a.classList.toggle('on', a.dataset.p === p));
     scrollToSection(p === 'health' ? null : page.sec, true);
@@ -203,9 +217,18 @@ function onClick(ev) {
   if (t.id === 'ask-btn') return assist.toggle();
 }
 
-export function start() {
+/** /dash/api/me 只取一次:取不到(旧网关没有这个接口)就用默认产品名、不显示运维入口。 */
+async function loadMe() {
+  if (S.me) return;
+  const r = await fetchMe();
+  S.me = r.ok && r.data && typeof r.data === 'object' && r.data.user_id ? r.data : { product_name: DEFAULT_PRODUCT, ops_admin: false };
+  setChatHome(S.me.chat_home);
+}
+
+export async function start() {
   installDig(); installTips();
-  cmdk.install({ pages: PAGES.map((p) => [p.name, p.label, p.icon]), page: () => S.ctx && S.ctx.page, key: () => S.ctx && S.ctx.key,
+  await loadMe();
+  cmdk.install({ pages: PAGES.filter((p) => !p.ops || isOps()).map((p) => [p.name, p.label, p.icon]), page: () => S.ctx && S.ctx.page, key: () => S.ctx && S.ctx.key,
     instances: () => (S.ctx ? S.ctx.targets : []), goPage, switchInstance: (k) => { writeKey(k); S.run = {}; mount(); },
     openAssist: () => assist.open(), askPrefix, chatHome: CHAT_HOME });
   assist.install({ context: assistContext, askPrefix, who: () => S.whoami });

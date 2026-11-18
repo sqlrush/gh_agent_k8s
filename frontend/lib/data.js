@@ -41,6 +41,9 @@ export async function fetchJsonl(path) {
 }
 
 export const fetchWhoami = () => fetchJson('/reports/whoami.json');
+// 网关自己答的两个接口(不经用户的环境,不会唤醒沙箱):我是谁 / 产品名;资源大盘(只给运维管理员)
+export const fetchMe = () => fetchJson('/dash/api/me');
+export const fetchResources = () => fetchJson('/dash/api/resources');
 export const fetchTargets = (skill) => fetchJson(`/reports/${skill}/targets.json`);
 export const fetchLatest = (skill, key) => fetchJson(`/reports/${skill}/${key}/latest.json`);
 export const fetchIndex = (skill, key) => fetchJson(`/reports/${skill}/${key}/index.json`);

@@ -158,3 +158,4 @@
 .rs-cluster > .gl svg, .rs-host > .gl svg, .rs-cap .title svg { width: 14px; height: 14px; flex: none; }
 .rs-tags .rs-u.tpl { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs .tbl .rs-src { cursor: help; }
+.rs-pz { margin-top: 5px; font-size: 10.5px; color: var(--notice); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help; }

@@ -90,7 +90,10 @@ kubectl -n gaussdb-agent create secret generic sandbox-control --from-literal=KE
 
 ### 3.2 沙箱组
 
-按 `k8s/fuyao/sandboxgroups.yaml` 改容量（`agentPodMax × maxSandboxesPerPod` = 最多同时多少台沙箱，含暂停的），
+按 `k8s/fuyao/sandboxgroups.yaml` 改容量：承载 Pod 数 × `maxSandboxesPerPod` = 最多**同时运行**多少台沙箱，**暂停的不占名额**
+（2026-11-18 鲲鹏实测），所以按同时在用的人数定。**实测平台不会按需自动扩到 `agentPodMax`**（调 max 没有新起承载 Pod，
+调 `agentPodMin` 才会多起），要多少个承载 Pod 就把 `agentPodMin` 设成多少。满员时新工号看到等待页、自动重试
+（平台满员时建沙箱会回 500，网关同样按满员处理）。
 交平台管理员在平台命名空间 apply。组名填进 `FUYAO_RUNTIME_GROUP` / `FUYAO_IMPORT_GROUP`。
 
 ### 3.3 模板
@@ -191,14 +194,14 @@ curl -X POST -H "X-Admin-Token: $T" -d '{"sandbox": "<沙箱 ID>", "force": true
 确认可以丢掉最后一次成功同步之后的改动，才带 `"force": true`，回执里 `forced: true`。发版台冒烟前删冒烟工号的旧版沙箱时固定带 `force`（只有测试数据）。
 
 摘要里每台暂停的沙箱有 `synced_before_pause`；`unsynced_over_retention` 是「暂停已过保留期、但暂停前没回写成，所以没删」的台数，
-不为 0 时按上面的办法逐台处理（它们占着沙箱组容量）。
+不为 0 时按上面的办法逐台处理（暂停的沙箱不占运行名额，但不处理就一直留着）。
 
 ### 7.1a 资源大盘（运维管理员，大盘「运维 · 资源大盘」）
 
 - **谁能看**：角色头里带 `OPS_ADMIN_ROLES`（gateway-config，默认 `ops-admin`）之一，或工号登记在 ConfigMap `agent-roles` 的 `ops-admins` 里（每行一个，默认空）。别人看不到导航入口，直接访问回无权限。
 - **数据**：网关自己答 `/dash/api/resources`（缓存 20 秒，页面 30 秒刷新），不建、不唤醒沙箱。每一块各自降级，读不到的块写明原因、不显示数字：
   - 沙箱、状态、模板、暂停前回写：网关清扫器（与 `/admin/fuyao` 同一份）；
-  - 容量、承载 Pod、每台在哪个承载 Pod：平台的 `sandbox.flux.io`，要平台管理员 apply `k8s/fuyao/platform-read.yaml`（只读 ClusterRole，只给 sandboxgroups / subsandboxgroups / sandboxes 的 get / list；overlay 已包含）；
+  - 容量（只算同时运行的沙箱，暂停的不占）、承载 Pod、每台在哪个承载 Pod：平台的 `sandbox.flux.io`，要平台管理员 apply `k8s/fuyao/platform-read.yaml`（只读 ClusterRole，只给 sandboxgroups / subsandboxgroups / sandboxes 的 get / list；overlay 已包含）；
   - 今天各工号请求次数、24 小时趋势、NAS 用量：状态服务（网关每 30 秒报请求计数、清扫器每轮报台数；状态服务每 5 分钟算一次 NAS 用量，计数落在 NAS 的 `.ops/usage.json`）。这几个接口只认网关用控制密钥派生子密钥签的请求，沙箱令牌调不通；
   - 实际 CPU / 内存：metrics-server，没装就标「未装 metrics-server」；节点容量与 token 用量这一版不取。
 - **产品名**：gateway-config 的 `PRODUCT_NAME`（默认「GaussDB 智能体」），大盘标题、logo 与日报报头都用它。

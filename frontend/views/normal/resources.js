@@ -6,7 +6,7 @@ import { I, tipAttr, glyph } from '../../lib/ui.js';
 import { rise } from '../../lib/motion.js';
 import { drawer } from '../../lib/overlay.js';
 import { insightCard } from './common.js';
-import { REFRESH_MS, KIND, STATE, BUSY_S, shortPod } from '../../pages/resources.js';
+import { REFRESH_MS, KIND, STATE, BUSY_S, shortPod, RUNNING, SCALE_NOTE } from '../../pages/resources.js';
 
 const ORDER = ['use', 'idle', 'pause', 'nosync', 'other'];
 const SW = { use: 'var(--s-use)', idle: 'var(--s-idle)', pause: 'var(--s-keep)', nosync: 'var(--s-bad)', other: 'var(--s-other)' };
@@ -50,7 +50,7 @@ function ring(t) {
   if (!t.cap) return '';
   const R = 54, C = 2 * Math.PI * R, seg = (n) => (n / t.cap) * C;
   let off = 0;
-  const arcs = ORDER.map((k) => { const len = seg(t[k]); const a = len ? `<circle cx="75" cy="75" r="${R}" fill="none" stroke="${{ use: 'url(#rs-rg)', idle: '#9db8f5', pause: '#f0b43c', nosync: '#f26b63', other: '#c9cdd4' }[k]}" stroke-width="12" stroke-dasharray="${len} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 75 75)"/>` : ''; off += len; return a; }).join('');
+  const arcs = RUNNING.map((k) => { const len = seg(t[k]); const a = len ? `<circle cx="75" cy="75" r="${R}" fill="none" stroke="${{ use: 'url(#rs-rg)', idle: '#9db8f5', pause: '#f0b43c', nosync: '#f26b63', other: '#c9cdd4' }[k]}" stroke-width="12" stroke-dasharray="${len} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 75 75)"/>` : ''; off += len; return a; }).join('');
   return `<svg viewBox="0 0 150 150" width="150" height="150"><defs><linearGradient id="rs-rg" x1="0" x2="1"><stop offset="0" stop-color="#7aa2ff"/><stop offset="1" stop-color="#a088ff"/></linearGradient></defs>
     <circle cx="75" cy="75" r="${R}" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="12"/>${arcs}
     <text x="75" y="72" text-anchor="middle" fill="#fff" style="font:600 24px var(--mono)">${Math.round((t.occupied / t.cap) * 100)}%</text>
@@ -81,9 +81,10 @@ function hero(m) {
   const cap = `<div class="glass rs-cap rise"${rise()}>
       <div class="title">${I.grid}沙箱容量<span class="r">${esc(groupsLine)} ${m.groups ? src('沙箱组 CRD') : na(d.platform)}</span></div>
       <div class="rs-capw"><div>
-        <div class="rs-big num">${t.occupied}<small>台沙箱${t.cap !== null ? ` · 容量 ${t.cap}${t.free === 0 && t.cap ? ' 已满' : ''}` : ''}</small></div>
-        <div class="rs-split">${ORDER.filter((k) => k !== 'other' || t.other).map((k) => `<span><i style="background:${SW[k]}"></i>${esc(k === 'nosync' ? '没回写成' : STATE[k].replace('运行·', ''))}<b class="num">${t[k]}</b></span>`).join('')}
+        <div class="rs-big num">${t.run}<small>台运行中${t.cap !== null ? ` · 容量 ${t.cap}${t.free === 0 && t.cap ? ' 已满' : ''}` : ''}</small></div>
+        <div class="rs-split">${RUNNING.filter((k) => k !== 'other' || t.other).map((k) => `<span><i style="background:${SW[k]}"></i>${esc(STATE[k].replace('运行·', ''))}<b class="num">${t[k]}</b></span>`).join('')}
           ${t.free !== null ? `<span><i style="background:rgba(255,255,255,.22)"></i>空余<b class="num">${t.free}</b></span>` : ''}</div>
+        <div class="rs-split"><span><i style="background:${SW.pause}"></i>暂停<b class="num">${t.paused}</b>${t.nosync ? `(没回写成 ${t.nosync})` : ''} · 不占容量</span></div>
         <div class="rs-split" style="margin-top:6px">${ok(m.fy) ? src('/dash/api/resources') : na(m.fy)}</div></div>${ring(t)}</div>
       <div class="rs-mini">
         <div><div class="l">CPU · 智能体预留</div><div class="v num">${m.reserve.known ? fmtCpu(m.reserve.cpu) : '—'}</div><div class="n">节点容量未取(要集群级只读)</div></div>
@@ -120,28 +121,29 @@ let m0 = null;                          // 当前这一份模型(格子提示里
 function groupCard(m, g) {
   if (g.missing) return `<div class="rs-node rs-pool rs-s12"><h4>${I.grid}${esc(g.name)}</h4><div class="rs-unk" style="margin-top:8px">${esc(g.reason)}</div></div>`;
   const big = g.per_pod <= 4, c = g.counts;
-  const segs = ORDER.map((k) => (c[k] ? `<i class="${k}" style="width:${pct(c[k], g.capacity)}%"${tipAttr(`${esc(STATE[k])} ${c[k]} 台`)}></i>` : '')).join('');
+  const segs = RUNNING.map((k) => (c[k] ? `<i class="${k}" style="width:${pct(c[k], g.capacity)}%"${tipAttr(`${esc(STATE[k])} ${c[k]} 台`)}></i>` : '')).join('');
   const pods = g.pods.map((p, i) => {
-    const run = p.sbx.filter((s) => s.view === 'use' || s.view === 'idle').length, pau = p.sbx.filter((s) => s.view === 'pause' || s.view === 'nosync').length;
+    const run = p.sbx.length, pau = p.paused.length;
     const cells = Array.from({ length: g.per_pod }, (_, k) => cell(g, p.sbx[k], k, big)).join('');
+    const pz = pau ? `<div class="rs-pz"${tipAttr(`<b>暂停(不占名额)</b><div class="d">${p.paused.map((s) => esc(`${s.user} · ${KIND[s.kind] || ''}${s.view === 'nosync' ? ' · 没回写成' : ''}`)).join('<br>')}</div>`)}>暂停 ${pau}${big ? `:${p.paused.map((s) => esc(s.user)).join('、')}` : ''}</div>` : '';
     return `<div class="rs-pod${p.name ? '' : ' anon'}"${p.name ? ` data-rs="pod:${esc(g.name)}:${esc(p.name)}"` : ''}${p.name ? '' : tipAttr('这个承载 Pod 上现在没有本智能体的沙箱(平台只报总数,不报名字)')}>
       <div class="pn" title="${esc(p.name)}">${esc(p.short || `#${i + 1}`)}<span class="st${g.ready_agent_pods >= g.agent_pods ? '' : ' unk'}"></span></div>
       <div class="rs-slots" style="--k:${big ? g.per_pod : 5}">${cells}</div>
-      <div class="pu"><span>运行 <b>${run}</b> · 暂停 <b>${pau}</b></span>${big ? `<span>空余 <b>${g.per_pod - p.sbx.length}</b></span>` : ''}</div></div>`;
+      <div class="pu"><span>运行 <b>${run}</b>${big ? '' : ` · 暂停 <b>${pau}</b>`}</span>${big ? `<span>空余 <b>${g.per_pod - p.sbx.length}</b></span>` : ''}</div>${big ? pz : ''}</div>`;
   }).join('');
-  const more = g.pod_max - g.agent_pods;
-  const extra = more > 0 ? `<div class="rs-more"><b>+${more} 个承载 Pod 可扩</b><span>平台按需伸缩 · 再加 ${more * g.per_pod} 台</span><span>最大 ${g.pod_max} 个 · 容量上限 ${g.capacity_max}</span></div>`
-    : `<div class="rs-more full"><b>已到上限</b><span>最大 ${g.pod_max} 个承载 Pod · 平台不会再扩</span><span>要扩请平台调大上限</span></div>`;
+  const extra = g.agent_pods < g.pod_max
+    ? `<div class="rs-more"><b>当前 ${g.agent_pods} / 最大 ${g.pod_max} 个承载 Pod</b><span>最小 ${g.pod_min} · 实测平台不按需自动扩到最大值</span><span>扩容:请平台把最小值调到需要的个数</span></div>`
+    : `<div class="rs-more full"><b>已到最大 ${g.pod_max} 个承载 Pod</b><span>再扩要平台调大最大值和最小值</span></div>`;
   const unplaced = g.unplaced.length ? `<div class="rs-note"><b>还没分到承载 Pod:</b>${g.unplaced.map((s) => `<span class="rs-u" data-rs="sbx:${esc(s.id)}" style="cursor:pointer">${esc(s.user)} · ${esc(STATE[s.view])}</span>`).join('')}</div>` : '';
   const req = g.per_sandbox.requests, lim = g.per_sandbox.limits;
   return `<div class="rs-node rs-pool rs-s12" data-rs="grp:${esc(g.name)}" data-rid="grp:${esc(g.name)}">
     <h4>${I.grid}${esc(g.kinds.map((k) => KIND[k]).join('与'))}沙箱组 ${esc(g.name)}<span class="rs-kind">SandboxGroup · 承载 Pod ${g.agent_pods}/${g.pod_max} × 每 Pod ${g.per_pod} 台</span></h4>
-    <div class="rs-caplbl"><span>已占 <b>${g.occupied}</b> / 容量 <b>${g.capacity}</b></span>${ORDER.filter((k) => c[k]).map((k) => `<span>${esc(STATE[k])} <b>${c[k]}</b></span>`).join('')}<span>空余 <b>${g.free}</b></span>${c.old ? `<span>旧版模板 <b style="color:var(--warn)">${c.old}</b></span>` : ''}<span class="r">${src('容量:沙箱组 CRD')} ${src('沙箱:网关清扫器')}</span></div>
+    <div class="rs-caplbl"><span>运行 <b>${g.occupied}</b> / 容量 <b>${g.capacity}</b></span>${RUNNING.filter((k) => c[k]).map((k) => `<span>${esc(STATE[k])} <b>${c[k]}</b></span>`).join('')}<span>空余 <b>${g.free}</b></span><span>暂停 <b>${g.paused}</b>(不占容量)</span>${c.old ? `<span>旧版模板 <b style="color:var(--warn)">${c.old}</b></span>` : ''}<span class="r">${src('容量:沙箱组 CRD')} ${src('沙箱:网关清扫器')}</span></div>
     <div class="rs-capbar">${segs}</div>
-    <div class="rs-podcap"><b>承载 Pod(平台管理)</b><span>${g.agent_pods} 个 × 每 Pod ${g.per_pod} 台 = 容量 ${g.capacity}${more > 0 ? ` · 可扩到 ${g.pod_max} 个 Pod(${g.capacity_max} 台)` : ` · 最大 ${g.pod_max} 个,已到上限`} · 就绪 ${g.ready_agent_pods}/${g.desired_agent_pods || g.agent_pods}</span>
-      <em>与原固定池化不同:每格是一台独立虚拟机(独立内核),不在用户之间复用,删除即销毁;Pod 由平台在最小值 ${g.pod_min} 与最大值 ${g.pod_max} 个之间伸缩。</em></div>
+    <div class="rs-podcap"><b>承载 Pod(平台管理)</b><span>${g.agent_pods} 个 × 每 Pod ${g.per_pod} 台 = 同时运行的容量 ${g.capacity} · 最小 ${g.pod_min} / 最大 ${g.pod_max} · 就绪 ${g.ready_agent_pods}/${g.desired_agent_pods || g.agent_pods}</span>
+      <em>与原固定池化不同:每格是一台独立虚拟机(独立内核),不在用户之间复用,删除即销毁。格子只放运行中的沙箱,暂停的不占名额(2026-11-18 实测);${esc(SCALE_NOTE)}。</em></div>
     <div class="rs-pods${big ? '' : ' dense'}" style="--pc:${big ? (g.pods.length === 1 ? 2 : 3) : 7}">${pods}${extra}</div>${unplaced}
-    <div class="rs-note"><span>暂停的沙箱也占容量</span><span>每台 request <b>${fmtCpu(req.cpu)} / ${fmtMem(req.mem)}</b> · limit <b>${fmtCpu(lim.cpu)} / ${fmtMem(lim.mem)}</b></span>${g.agent_reserve ? `<span>每个 Pod 预留 <b>${fmtCpu(g.agent_reserve.requests.cpu + 0.1)} / ${fmtMem(g.agent_reserve.requests.mem + 128)}</b></span>` : ''}<span>虚拟机规格由模板决定</span></div></div>`;
+    <div class="rs-note"><span>暂停的沙箱不占名额</span><span>每台 request <b>${fmtCpu(req.cpu)} / ${fmtMem(req.mem)}</b> · limit <b>${fmtCpu(lim.cpu)} / ${fmtMem(lim.mem)}</b></span>${g.agent_reserve ? `<span>每个 Pod 预留 <b>${fmtCpu(g.agent_reserve.requests.cpu + 0.1)} / ${fmtMem(g.agent_reserve.requests.mem + 128)}</b></span>` : ''}<span>虚拟机规格由模板决定</span></div></div>`;
 }
 
 /** 平台读不到(没授权)时:沙箱照样按状态列出来(来自网关自己的摘要),容量与承载 Pod 那部分写明读不到。 */
@@ -177,7 +179,7 @@ function topo(m) {
     const tpl = ok(m.fy) ? m.fy.templates || {} : {};
     const pnodes = [
       node('osb', I.grid, 'OpenSandbox Server', 'API', '建 / 列举 / 暂停 / 恢复 / 删沙箱;网关只调它', '', 'rs-s3'),
-      node('', I.grid, 'Flux', 'Controller · Scheduler', '按沙箱组把沙箱调度到承载 Pod,承载 Pod 由平台在最小值和最大值之间伸缩', '', 'rs-s3'),
+      node('', I.grid, 'Flux', 'Controller · Scheduler', '按沙箱组把运行中的沙箱调度到承载 Pod;承载 Pod 数跟着最小值走,实测不按需自动扩到最大值', '', 'rs-s3'),
       node('', I.grid, 'E2B 服务', 'API · Edge · PG · Redis', '沙箱元数据、节点调度与访问入口;平台方运维,不计入智能体', '', 'rs-s3'),
       node('tpl', I.book, '模板', 'Template Manager', '诊断、导入各一份,随版本发布;虚拟机规格由模板决定',
         `<div class="rs-tags">${Object.entries(tpl).map(([k, v]) => `<span class="rs-u tpl" title="${esc(v)}">${KIND[k] || esc(k)} · ${esc(v)}</span>`).join('')}${m.totals.old ? `<span class="rs-u warn">旧版沙箱 ${m.totals.old} 台</span>` : ''}</div>`, 'rs-s3'),
@@ -192,7 +194,7 @@ function topo(m) {
     + node('', I.info, '统一身份认证', '', '认人 · 加工号头与信任凭据', '', 'ext').replace('class="rs-node ext"', 'class="rs-node ext" data-rid="sso"');
   const col = [['llm', '大模型服务', 'OpenAI 兼容 · 经凭据代理'], ['mw', '安全中间件', '白名单脚本 · 签名鉴权 · 按人令牌'], ['db', '数据库实例', '被诊断对象 · 只读访问']]
     .map(([id, t, dsc]) => node('', id === 'db' ? I.db : I.grid, t, '', dsc, '', 'ext').replace('class="rs-node ext"', `class="rs-node ext" data-rid="${id}"`)).join('');
-  const legend = `<div class="rs-legend">${ORDER.map((k) => `<span><i class="rs-sw ${k}"></i>${esc(STATE[k])}</span>`).join('')}<span><i class="rs-sw free"></i>空余</span><span><i class="rs-sw old"></i>旧版模板</span></div>`;
+  const legend = `<div class="rs-legend">${RUNNING.map((k) => `<span><i class="rs-sw ${k}"></i>${esc(STATE[k])}</span>`).join('')}<span><i class="rs-sw free"></i>空余</span><span><i class="rs-sw old"></i>旧版模板</span><span class="t3">暂停的不占格子,列在各承载 Pod 下方</span></div>`;
   return `<section class="tile b12 rise"${rise()}><div class="tile-h"><h3>${fy ? 'Fuyao 架构大盘' : '组件'}</h3><span class="desc">${esc(m.d.namespace)} · 点组件、承载 Pod 或沙箱看详情 · 在用 = ${BUSY_S / 60} 分钟内有交互</span><div class="tools">${fy ? legend : ''}</div></div>
     <div class="tile-b"><div class="rs-topo" id="rs-topo"><svg class="rs-links" id="rs-links"></svg><div class="rs-band">${band}</div>
       <div class="rs-lanes">${cluster}${plat}</div><div class="rs-col" id="rs-col">${fy ? col : ''}</div></div></div></section>`;
@@ -312,24 +314,25 @@ function podDrawer(m, gname, pname) {
   if (!p) return;
   drawer(esc(pname), '<span class="tag gray">承载 Pod · 平台管理</span>',
     `${kv([['沙箱组', esc(g.name)], ['就绪', `子组上报 ${g.ready_agent_pods}/${g.desired_agent_pods || g.agent_pods} 个承载 Pod 就绪 ${src('subsandboxgroups')}<br><span class="t3" style="font-size:12px">逐个 Pod 的状态要读平台命名空间的 Pod(没有申请这项权限)</span>`],
-      ['沙箱', `${p.sbx.length} / ${g.per_pod} 台`]])}
-    <h4 class="t3" style="font-size:12px;font-weight:500;margin:16px 0 8px">上面的沙箱 ${src('assignedSandboxAgentPod')}</h4>${Array.from({ length: g.per_pod }, (_, k) => { const s = p.sbx[k]; return `<div class="rs-ct"${s ? ` data-rs="sbx:${esc(s.id)}" style="cursor:pointer"` : ''}><div class="cn"><span>第 ${k + 1} 格${s ? ` · ${esc(s.user)} · ${KIND[s.kind] || ''}` : ''}</span><span class="rs-st ${s ? s.view : 'other'}"><i></i>${s ? esc(STATE[s.view]) + (s.outdated ? ' · 旧版' : '') : '空余'}</span></div></div>`; }).join('')}
+      ['沙箱', `运行 ${p.sbx.length} / ${g.per_pod} 台 · 暂停 ${p.paused.length} 台(不占名额)`]])}
+    <h4 class="t3" style="font-size:12px;font-weight:500;margin:16px 0 8px">运行中的沙箱 ${src('assignedSandboxAgentPod')}</h4>${Array.from({ length: g.per_pod }, (_, k) => { const s = p.sbx[k]; return `<div class="rs-ct"${s ? ` data-rs="sbx:${esc(s.id)}" style="cursor:pointer"` : ''}><div class="cn"><span>第 ${k + 1} 格${s ? ` · ${esc(s.user)} · ${KIND[s.kind] || ''}` : ''}</span><span class="rs-st ${s ? s.view : 'other'}"><i></i>${s ? esc(STATE[s.view]) + (s.outdated ? ' · 旧版' : '') : '空余'}</span></div></div>`; }).join('')}
+    ${p.paused.length ? `<h4 class="t3" style="font-size:12px;font-weight:500;margin:16px 0 8px">暂停的沙箱(不占名额)</h4>${p.paused.map((s) => `<div class="rs-ct" data-rs="sbx:${esc(s.id)}" style="cursor:pointer"><div class="cn"><span>${esc(s.user)} · ${KIND[s.kind] || ''}</span><span class="rs-st ${s.view}"><i></i>${esc(STATE[s.view])}</span></div></div>`).join('')}` : ''}
     <h4 class="t3" style="font-size:12px;font-weight:500;margin:16px 0 8px">预留构成</h4>
     <div class="rs-ct"><div class="cn"><span>resource-reserve(资源占位)</span><span>${g.agent_reserve ? `${fmtCpu(g.agent_reserve.requests.cpu)} / ${fmtMem(g.agent_reserve.requests.mem)}` : '—'}</span></div><p>= 每 Pod ${g.per_pod} 台 × 每台 request,只用于调度记账</p></div>
     <div class="rs-ct"><div class="cn"><span>sandbox-agent(平台代理)</span><span>100m / 128 MiB</span></div><p>经 CRI multiplex 调本节点 E2B 运行时起停虚拟机(实测值)</p></div>
-    <div class="rs-dnote">每格是一台独立 Firecracker 虚拟机(独立内核),不在用户之间复用,删除即销毁;虚拟机的实际占用由 E2B Orchestrator 管,不在本 Pod 的 cgroup 里。这个 Pod 由平台在最小值 ${g.pod_min} 与最大值 ${g.pod_max} 个之间伸缩,与原固定池化无关。<b>Pod 故障对其上沙箱的影响尚未实测。</b></div>`);
+    <div class="rs-dnote">每格是一台独立 Firecracker 虚拟机(独立内核),不在用户之间复用,删除即销毁;虚拟机的实际占用由 E2B Orchestrator 管,不在本 Pod 的 cgroup 里。承载 Pod 由平台管理(沙箱组最小 ${g.pod_min}、最大 ${g.pod_max} 个;${esc(SCALE_NOTE)}),与原固定池化无关。<b>Pod 故障对其上沙箱的影响尚未实测。</b></div>`);
 }
 
 function groupDrawer(m, gname) {
   const g = (m.groups || []).find((x) => x.name === gname);
   if (!g) return;
   drawer(esc(g.name), '<span class="tag gray">SandboxGroup · 平台管理</span>',
-    `${kv([['环境', esc(g.kinds.map((k) => KIND[k]).join('、'))], ['容量', `${g.capacity} 台(最多 ${g.capacity_max} 台)`], ['承载 Pod', `${g.agent_pods} 个(最少 ${g.pod_min}、最多 ${g.pod_max})× 每 Pod ${g.per_pod} 台 · 就绪 ${g.ready_agent_pods}`],
-      ['占用', ORDER.filter((k) => g.counts[k]).map((k) => `${esc(STATE[k])} ${g.counts[k]}`).join(' · ') + ` · 空余 ${g.free}`],
+    `${kv([['环境', esc(g.kinds.map((k) => KIND[k]).join('、'))], ['容量', `同时运行 ${g.capacity} 台(暂停的不占)`], ['承载 Pod', `当前 ${g.agent_pods} 个(最小 ${g.pod_min}、最大 ${g.pod_max})× 每 Pod ${g.per_pod} 台 · 就绪 ${g.ready_agent_pods}`],
+      ['运行', RUNNING.filter((k) => g.counts[k]).map((k) => `${esc(STATE[k])} ${g.counts[k]}`).join(' · ') + ` · 空余 ${g.free}`], ['暂停', `${g.paused} 台(不占容量)`],
       ['每台资源', `request ${fmtCpu(g.per_sandbox.requests.cpu)} / ${fmtMem(g.per_sandbox.requests.mem)} · limit ${fmtCpu(g.per_sandbox.limits.cpu)} / ${fmtMem(g.per_sandbox.limits.mem)}`],
       ['阶段', esc(g.phase)], ['谁维护', '平台管理员 apply;智能体只引用组名(FUYAO_*_GROUP)']])}
     <h4 class="t3" style="font-size:12px;font-weight:500;margin:16px 0 8px">平台承载 Pod(有本智能体沙箱的)</h4>${g.pods.filter((p) => p.name).map((p) => `<div class="rs-ct" data-rs="pod:${esc(g.name)}:${esc(p.name)}" style="cursor:pointer"><div class="cn"><span>${esc(p.name)}</span><span>${p.sbx.length} / ${g.per_pod} 台</span></div></div>`).join('') || '<div class="t3">没有</div>'}
-    <div class="rs-dnote">容量 = 承载 Pod 数 × 每 Pod 台数;由平台在最小值与最大值之间伸缩。暂停的沙箱也占容量,容量满时新工号看到「当前使用人数已满」的等待页,有沙箱被删除后自动进入。<b>承载 Pod 故障对其上沙箱的影响尚未实测。</b></div>`);
+    <div class="rs-dnote">容量 = 承载 Pod 数 × 每 Pod 台数,只算同时运行的沙箱;暂停的不占名额(2026-11-18 实测),所以容量按同时在用的人数规划。${esc(SCALE_NOTE)}。容量满时新工号看到等待页、自动重试,有人闲置暂停后空出名额就进得去;平台满员时建沙箱可能回 500,网关同样按满员处理。<b>承载 Pod 故障对其上沙箱的影响尚未实测。</b></div>`);
 }
 
 function compDrawer(m, name) {

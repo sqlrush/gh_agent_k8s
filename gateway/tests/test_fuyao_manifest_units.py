@@ -6,6 +6,8 @@
 import pathlib
 import re
 
+import pytest
+
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 _FY = _ROOT / "k8s" / "fuyao"
 

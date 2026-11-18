@@ -25,8 +25,8 @@ import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import opensandbox as osb
-from .fuyaorouter import (APP, MD_ACTIVE, MD_APP, MD_PAUSED, MD_SYNCED, MD_TEMPLATE, FuyaoRouter, busy, expires_at,
-                          outdated, owner, synced_before_pause)
+from .fuyaorouter import (APP, MD_ACTIVE, MD_APP, MD_PAUSED, MD_SYNCED, MD_TEMPLATE, AddressUnknown, FuyaoRouter, busy,
+                          expires_at, outdated, owner, synced_before_pause)
 
 ACTIONS = ("stop", "pause", "resume", "delete")
 
@@ -43,6 +43,8 @@ def last_active(s: osb.Sandbox) -> float:
 
 
 FORCE_HINT = "确认可以丢再带 {\"force\": true} 重发"
+UNLOCATED = ("沙箱恢复后还没向状态服务报到,地址未知,先不动它(平台给的是暂停前的旧地址,可能已分给别人的沙箱);"
+             "等它报到后再试")
 
 
 def _refusal(s: osb.Sandbox, synced: Optional[bool]) -> str:
@@ -65,6 +67,7 @@ class FuyaoSweeper:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._warned: set = set()                   # 已提醒过「过了保留期但没回写成」的沙箱,同一台只提醒一次
+        self._unlocated: set = set()                # 已提醒过「恢复后还没报到」的沙箱,同一台只提醒一次
 
     # -- 一轮 ---------------------------------------------------------------------------------------
 
@@ -111,6 +114,12 @@ class FuyaoSweeper:
                     elif now - paused_at >= self.policy.retain_s:
                         counts["kept"] += 1
                         self._warn_unsynced(s, user)
+            except AddressUnknown:
+                counts["failed"] += 1                # 恢复后还没报到:收尾 / 探忙都不能往平台给的旧地址发,下一轮再看
+                if s.id not in self._unlocated:
+                    self._unlocated.add(s.id)
+                    self.log("Fuyao 清扫:%s 的沙箱 %s 恢复后还没报到(地址未知),这一轮不收尾、不暂停;"
+                             "一直这样要查沙箱里的后台同步" % (user, s.id))
             except osb.OpenSandboxError as exc:
                 counts["failed"] += 1
                 self.log("Fuyao 清扫:处理沙箱 %s(%s)失败:%s" % (s.id, user, exc))
@@ -135,7 +144,8 @@ class FuyaoSweeper:
     def retire(self, s: osb.Sandbox, now: float) -> str:
         """闲置:收尾同步 → 暂停(或删除)。旧版沙箱收尾成功就删除(换版)。返回 retired / upgraded / busy / failed。"""
         user, _kind = owner(s)
-        host = self.router.address(s)
+        host = self.router.address(s)               # 恢复后没报到会抛 AddressUnknown,由 sweep 记一轮失败
+        self._unlocated.discard(s.id)
         if user and self.busy_check(host, self.router.password_for(user)):
             return "busy"
         old = outdated(s, self.policy)
@@ -161,6 +171,7 @@ class FuyaoSweeper:
         self.os.delete(s.id)
         self.router.forget_sandbox(s.id)
         self._warned.discard(s.id)
+        self._unlocated.discard(s.id)
         self.log("Fuyao:删除 %s 的沙箱 %s(%s)" % (owner(s)[0], s.id, why))
 
     def _warn_unsynced(self, s: osb.Sandbox, user: str) -> None:
@@ -225,16 +236,24 @@ class FuyaoSweeper:
             return 404, {"error": "没有这台沙箱(或不是本智能体的)"}
         now = self.clock()
         if verb == "resume":
-            self.os.resume(s.id)
-            self.os.patch_metadata(s.id, {MD_PAUSED: None, MD_SYNCED: None, MD_ACTIVE: str(int(now))})
+            self.router.resume(s.id)                 # 先打恢复标记再恢复(见 FuyaoRouter.resume)
             return 200, {"sandbox": s.id, "resumed": True}
-        if verb == "stop":
-            if not s.running:
-                return 409, {"error": "沙箱不在运行(%s)" % s.state}
-            return 200, {"sandbox": s.id, "synced": self.router.stop(s.id, self.router.address(s))}
-        synced: Optional[bool] = None
+        if verb == "stop" and not s.running:
+            return 409, {"error": "沙箱不在运行(%s)" % s.state}
+        host: Optional[str] = None
         if s.running:
-            synced = self.router.stop(s.id, self.router.address(s), release=verb == "delete")
+            try:
+                host = self.router.address(s)
+            except AddressUnknown:
+                if not (verb == "delete" and force):
+                    return 409, {"sandbox": s.id, "error": UNLOCATED + ";" + FORCE_HINT}
+        if verb == "stop":
+            return 200, {"sandbox": s.id, "synced": self.router.stop(s.id, host)}
+        synced: Optional[bool] = None
+        if host is not None:
+            synced = self.router.stop(s.id, host, release=verb == "delete")
+        elif s.running:
+            synced = False                           # 强删、地址未知:收尾做不了,如实算没回写
         if verb == "pause":
             if not s.running:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}

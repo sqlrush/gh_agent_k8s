@@ -83,7 +83,8 @@ LOCATE_FRESH_S = 30                 # 沙箱每 5 秒报到一次(fuyao-syncloop
 
 
 def state_locator(state_url: str, key: bytes, timeout: float = 3.0):
-    """问状态服务:这台沙箱最近一次请求从哪个地址来(恢复后平台回的地址会过期)。只认 LOCATE_FRESH_S 内的。"""
+    """问状态服务:这台沙箱最近一次请求从哪个地址来(恢复后平台回的地址会过期)。只认 LOCATE_FRESH_S 内的,
+    返回 (地址, 距今秒数) 或 None —— 路由器要用距今秒数判断这条记录是不是恢复之后才报上来的。"""
     import http.client
     import json
     from urllib.parse import urlsplit
@@ -102,7 +103,8 @@ def state_locator(state_url: str, key: bytes, timeout: float = 3.0):
         if r.status != 200:
             return None
         got = json.loads(body or b"{}")
-        return got.get("address") if float(got.get("age", 1e9)) <= LOCATE_FRESH_S else None
+        age = float(got.get("age", 1e9))
+        return (got["address"], age) if got.get("address") and age <= LOCATE_FRESH_S else None
     return locate
 
 

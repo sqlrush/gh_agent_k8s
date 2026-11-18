@@ -29,7 +29,8 @@ def test_the_locator_returns_a_fresh_address_and_ignores_stale_or_unknown_ones(t
         locate = gwmain.state_locator(url, KEY)
         assert locate("sbx-1", "u1001", "runtime") is None, "没见过"
         rs.lease(rs.Client(url, sbxtoken.issue(KEY, "sbx-1", "u1001", "runtime")), "acquire")
-        assert locate("sbx-1", "u1001", "runtime") == "127.0.0.1"
+        addr, age = locate("sbx-1", "u1001", "runtime")
+        assert addr == "127.0.0.1" and 0 <= age < 2, "连距今秒数一起给:路由器据此判断是不是恢复后才报上来的"
         clock["t"] += gwmain.LOCATE_FRESH_S + 1
         assert locate("sbx-1", "u1001", "runtime") is None, "太久没见到:不信,退回平台给的地址"
     finally:

@@ -27,6 +27,7 @@ import urllib.request
 from typing import Dict, List, Mapping, Optional
 
 import remotesync as rs
+import sbxtoken
 
 DATA = "/data"
 ME, KB = DATA + "/me", DATA + "/kb"                 # 按需模式的 $NAS_ME / $NAS_KB 在沙箱里的替身(本地盘)
@@ -170,12 +171,27 @@ def _journal(name: str, n: int = 8) -> str:
 
 # -- 启动 ---------------------------------------------------------------------------------------------
 
+def _owner_sandbox() -> Optional[str]:
+    """这台虚拟机已经属于哪台沙箱(第一次启动时写下的令牌);还没启动过返回 None。"""
+    try:
+        text = pathlib.Path(TOKEN_FILE).read_text().strip()
+    except FileNotFoundError:
+        return None
+    return sbxtoken.sandbox_of(text) or "(令牌损坏)"
+
+
 def start(env: Mapping[str, str] = os.environ) -> int:
     need = [k for k in ("GSDB_USER_ID", "GSDB_KIND", "GSDB_SANDBOX_TOKEN", "GSDB_STATE_URL", "GSDB_CREDPROXY_URL",
                         "OPENCODE_SERVER_PASSWORD") if not env.get(k)]
     if need:
         log("缺环境变量:%s(网关经 envd 下发)" % "、".join(need))
         return 2
+    mine = _owner_sandbox()
+    asked = sbxtoken.sandbox_of(env["GSDB_SANDBOX_TOKEN"])
+    if mine is not None and mine != asked:
+        # 第二道防线:网关认错了地址(恢复后平台回旧地址、旧地址已分给别人),不能把别人的令牌和口令写进来
+        log("这台虚拟机属于沙箱 %s,拒绝以沙箱 %s 的身份启动(网关把地址认错了),什么都不改" % (mine, asked))
+        return 6
     kind, password = env["GSDB_KIND"], env["OPENCODE_SERVER_PASSWORD"]
     uid, gid = _ids(env)
     if active(UNIT_AGENT) and healthy(password):

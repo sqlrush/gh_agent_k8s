@@ -109,6 +109,29 @@ def test_missing_launch_settings_or_a_busy_lease_do_not_start(box, monkeypatch):
     assert fuyao.start(env) == 3 and not units, "上一台沙箱还持有独占:不启动、不碰状态"
 
 
+def test_a_vm_that_already_belongs_to_another_sandbox_refuses_to_start(box, capsys):
+    """第二道防线(2026-11-18):网关万一把地址认错(恢复后平台回旧地址,旧地址已分给别人的沙箱),
+    在别人的虚拟机里调了本人的启动器 —— 这台虚拟机里已有另一台沙箱的令牌,拒绝启动,不写入本人令牌和口令。"""
+    env, nas, _d, units, state = box
+    assert fuyao.start(env) == 0 and len(units) == 3                       # 这台虚拟机属于 sbx-1(u1001)
+    before = pathlib.Path(fuyao.TOKEN_FILE).read_text()
+    state["up"] = False                                                    # 让「已在运行」那条短路不生效
+    intruder = dict(env, GSDB_USER_ID="u2002", GSDB_SANDBOX_ID="sbx-2", OPENCODE_SERVER_PASSWORD="pw-2",
+                    GSDB_SANDBOX_TOKEN=sbxtoken.issue(KEY, "sbx-2", "u2002", "runtime"))
+    assert fuyao.start(intruder) == 6 and len(units) == 3, "不重启服务"
+    assert pathlib.Path(fuyao.TOKEN_FILE).read_text() == before, "不覆盖原令牌"
+    assert "pw-2" not in pathlib.Path(fuyao.AGENT_ENV).read_text(), "不写入别人的口令"
+    assert not (nas / "users" / "u2002").exists(), "不去拿别人的独占、不载入别人的状态"
+    assert "sbx-1" in capsys.readouterr().out
+    assert fuyao.start(dict(env)) == 0, "同一台沙箱重启动照常(启动器幂等)"
+
+
+def test_the_launcher_reads_the_sandbox_of_a_token_without_the_key():
+    assert sbxtoken.sandbox_of(sbxtoken.issue(KEY, "sbx-9", "u1001", "runtime")) == "sbx-9"
+    for bad in ("", "st1.", "st1.!!!.x", "abc", None):
+        assert sbxtoken.sandbox_of(bad) is None
+
+
 def test_syncloop_writes_back_and_stop_finishes_and_releases(box, monkeypatch):
     env, nas, data, _units, _s = box
     assert fuyao.start(env) == 0

@@ -80,6 +80,21 @@ def verify(key: bytes, token: object) -> Optional[Claims]:
     return c
 
 
+def sandbox_of(token: object) -> Optional[str]:
+    """**不验签**读出令牌声明里的沙箱 ID。只用于比对:沙箱里的启动器没有密钥,用它发现「被叫到了别的沙箱的
+    虚拟机里」(2026-11-18)。不能用来授权 —— 授权一律走 verify。"""
+    if not isinstance(token, str) or not token.startswith(PREFIX) or len(token) > MAX_LEN:
+        return None
+    rest = token[len(PREFIX):]
+    if rest.count(".") != 1:
+        return None
+    try:
+        sid = str(json.loads(_unb64(rest.split(".")[0]))["s"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    return sid if _ID.match(sid) else None
+
+
 def reports_token(key: bytes, sandbox_id: str) -> str:
     """报告端口(4097)的令牌:按沙箱派生,网关两个副本算出来一样,不用存。"""
     return hmac.new(_subkey(key), ("reports\n" + sandbox_id).encode("utf-8"), hashlib.sha256).hexdigest()[:48]

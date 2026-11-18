@@ -5,7 +5,9 @@
 2. 在跑的沙箱闲置超过 `idle_s`、且没有会话在跑:先收尾同步(`podctl fuyao-stop`),再暂停(平台不支持暂停时
    `pause=False`,改为删除)。**收尾同步失败时不删除**(删除会丢最后一个同步周期),下一轮再试;
    暂停不丢数据(内存快照完整),所以收尾失败也照样暂停。
-3. 暂停超过 `retain_s` 的删除(数据早已在收尾时写回 NAS)。
+3. 暂停超过 `retain_s` 的:暂停前收尾回写成功(`gsdb-synced=1`)的删除;没回写成(或没记结果)的**不删**——
+   删了会丢最后一次成功同步之后的改动。只记一次日志,`summary()` 里 `unsynced_over_retention` 计数,交运维处理
+   (resume 后等闲置收尾再暂停,或确认可丢后 `/admin/fuyao/delete` 带 `force`)。
 4. 平台寿命(只在 `sandbox_timeout_s > 0` 时有):平台到点直接删、不能续期、虚拟机收不到信号(实测),
    所以离到期不到 `expire_margin_s` 就收尾、放开独占后删除,下次请求按新沙箱重建。有会话在跑的等到最后三分之一再动;
    暂停的若暂停前已回写就直接删,没回写成的只能记日志(恢复后地址拿不准,收尾做不了)。
@@ -40,6 +42,19 @@ def last_active(s: osb.Sandbox) -> float:
     return max(_num(s.metadata.get(MD_ACTIVE)), s.created_at)
 
 
+FORCE_HINT = "确认可以丢再带 {\"force\": true} 重发"
+
+
+def _refusal(s: osb.Sandbox, synced: Optional[bool]) -> str:
+    """delete 不删时给运维的原因与下一步(删了会丢最后一次成功同步之后的改动)。"""
+    if s.running:
+        return "收尾回写没成功,没有删除(删了会丢最后一次成功同步之后的改动)。可以稍后重试;" + FORCE_HINT
+    if s.paused:
+        return ("这台沙箱暂停前没回写成(gsdb-synced=%s),没有删除。先 resume,再 delete(在跑的会先收尾回写);"
+                % (s.metadata.get(MD_SYNCED) or "未记")) + FORCE_HINT
+    return "沙箱状态是 %s,没法收尾回写,没有删除;" % s.state + FORCE_HINT
+
+
 class FuyaoSweeper:
     def __init__(self, router: FuyaoRouter, sweep_s: int = 30,
                  busy_check: Callable[[str, str], bool] = busy, log: Callable[[str], None] = print,
@@ -49,12 +64,14 @@ class FuyaoSweeper:
         self.log, self.clock = log, clock
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._warned: set = set()                   # 已提醒过「过了保留期但没回写成」的沙箱,同一台只提醒一次
 
     # -- 一轮 ---------------------------------------------------------------------------------------
 
     def sweep(self, now: Optional[float] = None) -> Dict[str, int]:
         now = self.clock() if now is None else now
-        counts = {"active": 0, "retired": 0, "deleted": 0, "expired": 0, "busy": 0, "failed": 0, "upgraded": 0}
+        counts = {"active": 0, "retired": 0, "deleted": 0, "expired": 0, "busy": 0, "failed": 0, "upgraded": 0,
+                  "kept": 0}
         acts = self.router.drain_activity()
         try:
             boxes = self.os.list({MD_APP: APP})
@@ -81,8 +98,8 @@ class FuyaoSweeper:
                     if outdated(s, self.policy) and synced_before_pause(s):
                         self._delete(s, "模板已更新,暂停前已收尾回写")
                         counts["upgraded"] += 1
-                    elif now - paused_at >= self.policy.retain_s:
-                        self._delete(s, "暂停超过保留期")
+                    elif now - paused_at >= self.policy.retain_s and synced_before_pause(s):
+                        self._delete(s, "暂停超过保留期,暂停前已收尾回写")
                         counts["deleted"] += 1
                     elif left is not None and synced_before_pause(s):
                         self._delete(s, "快到平台寿命上限,暂停前已收尾回写")
@@ -91,6 +108,9 @@ class FuyaoSweeper:
                         counts["failed"] += 1
                         self.log("Fuyao 清扫:%s 的沙箱 %s 还有 %d 秒到平台寿命上限,暂停前没回写成,到期会丢最后一个同步周期"
                                  % (user, s.id, int(left)))
+                    elif now - paused_at >= self.policy.retain_s:
+                        counts["kept"] += 1
+                        self._warn_unsynced(s, user)
             except osb.OpenSandboxError as exc:
                 counts["failed"] += 1
                 self.log("Fuyao 清扫:处理沙箱 %s(%s)失败:%s" % (s.id, user, exc))
@@ -140,7 +160,16 @@ class FuyaoSweeper:
     def _delete(self, s: osb.Sandbox, why: str) -> None:
         self.os.delete(s.id)
         self.router.forget_sandbox(s.id)
+        self._warned.discard(s.id)
         self.log("Fuyao:删除 %s 的沙箱 %s(%s)" % (owner(s)[0], s.id, why))
+
+    def _warn_unsynced(self, s: osb.Sandbox, user: str) -> None:
+        if s.id in self._warned:
+            return
+        self._warned.add(s.id)
+        self.log("Fuyao 清扫:%s 的沙箱 %s 暂停已超过保留期,但暂停前没回写成(gsdb-synced=%s),不自动删除——"
+                 "删了会丢最后一次成功同步之后的改动。处理:resume 后等闲置收尾,或确认可丢后 delete 带 force"
+                 % (user, s.id, s.metadata.get(MD_SYNCED) or "未记"))
 
     def _left(self, s: osb.Sandbox, now: float) -> Optional[float]:
         """离平台寿命上限还剩几秒;不到 expire_margin_s 才返回,否则 None(没有寿命也是 None)。"""
@@ -164,22 +193,30 @@ class FuyaoSweeper:
 
     def summary(self) -> dict:
         boxes = self.os.list({MD_APP: APP})
-        items = []
+        items, stuck = [], 0
+        now = self.clock()
         for s in boxes:
             user, kind = owner(s)
+            paused_at = _num(s.metadata.get(MD_PAUSED)) or None
+            synced = synced_before_pause(s) if s.paused else None
+            if s.paused and not synced and now - (paused_at or last_active(s)) >= self.policy.retain_s:
+                stuck += 1
             items.append({"sandbox": s.id, "user_id": user, "kind": kind, "state": s.state,
                           "template": s.metadata.get(MD_TEMPLATE, ""), "outdated": outdated(s, self.policy),
-                          "last_active": last_active(s), "paused_at": _num(s.metadata.get(MD_PAUSED)) or None,
-                          "expires_at": expires_at(s) or None})
+                          "last_active": last_active(s), "paused_at": paused_at,
+                          "synced_before_pause": synced, "expires_at": expires_at(s) or None})
         states: Dict[str, int] = {}
         for it in items:
             states[it["state"]] = states.get(it["state"], 0) + 1
         return {"mode": "fuyao", "sandboxes": items, "states": states,
                 "templates": dict(self.policy.templates), "outdated": sum(1 for it in items if it["outdated"]),
+                "unsynced_over_retention": stuck,
                 "policy": {"idle_seconds": self.policy.idle_s, "retain_seconds": self.policy.retain_s,
                            "pause": self.policy.pause}}
 
-    def act(self, verb: str, sandbox_id: str) -> Tuple[int, dict]:
+    def act(self, verb: str, sandbox_id: str, force: bool = False) -> Tuple[int, dict]:
+        """运维动作。delete 默认只删「最后的状态已回写 NAS」的沙箱(在跑的先收尾成功;暂停的看暂停前回写结果),
+        否则回 409 不删;force=True 才强删,回执如实说明丢了什么。"""
         if verb not in ACTIONS:
             return 404, {"error": "没有这个动作,只能是 %s" % " / ".join(ACTIONS)}
         # 不用单台查询:平台的 GET /v1/sandboxes/{id} 不带业务 metadata(实测),只能从列举里认是不是本智能体的
@@ -195,7 +232,7 @@ class FuyaoSweeper:
             if not s.running:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}
             return 200, {"sandbox": s.id, "synced": self.router.stop(s.id, self.router.address(s))}
-        synced = None
+        synced: Optional[bool] = None
         if s.running:
             synced = self.router.stop(s.id, self.router.address(s), release=verb == "delete")
         if verb == "pause":
@@ -203,9 +240,21 @@ class FuyaoSweeper:
                 return 409, {"error": "沙箱不在运行(%s)" % s.state}
             self.pause(s, now, synced)
             return 200, {"sandbox": s.id, "paused": True, "synced": synced}
-        self._delete(s, "运维手动删除")
-        return 200, {"sandbox": s.id, "deleted": True, "synced": synced,
-                     "note": "用户数据在 NAS 上(收尾同步把最后的状态写回),下次登录重新载入"}
+        return self._admin_delete(s, synced, force)
+
+    def _admin_delete(self, s: osb.Sandbox, synced: Optional[bool], force: bool) -> Tuple[int, dict]:
+        if s.paused:
+            synced = synced_before_pause(s)          # 暂停的连不上、不收尾:暂停后内容不再变,看暂停前回写成没成
+        if not synced and not force:
+            return 409, {"sandbox": s.id, "deleted": False, "synced": synced, "error": _refusal(s, synced)}
+        if synced:
+            self._delete(s, "运维手动删除")
+            note = "%s,用户数据在 NAS 上,下次登录重新载入" % ("暂停前已收尾回写" if s.paused else "收尾回写成功")
+        else:
+            self._delete(s, "运维强制删除,收尾回写没成功")
+            note = ("强制删除:收尾回写没成功,NAS 上只有最后一次成功同步时的状态,之后的改动已丢失;"
+                    "本人目录的独占若没放开,新沙箱要等它过期后才能载入")
+        return 200, {"sandbox": s.id, "deleted": True, "synced": synced, "forced": not synced, "note": note}
 
     # -- 线程 ---------------------------------------------------------------------------------------
 

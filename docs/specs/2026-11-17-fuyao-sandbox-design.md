@@ -90,7 +90,8 @@ Fuyao 路由器实现与固定池化路由器相同的接口（`target()` / `not
 | 闲置超过 `FUYAO_IDLE_SECONDS` | `fuyao-stop` → 暂停，metadata 记回写是否成功（`gsdb-synced`） |
 | 闲置超过 `FUYAO_IDLE_SECONDS`、是旧模板 | `fuyao-stop --release` → 成功则删除（下次登录按新模板建）；失败则照旧暂停（`gsdb-synced=0`） |
 | 暂停中、是旧模板、暂停前已回写 | 清扫器直接删除 |
-| 暂停超过 `FUYAO_RETAIN_DAYS` | 删除（暂停前已收尾回写） |
+| 暂停超过 `FUYAO_RETAIN_DAYS` | 暂停前已收尾回写（`gsdb-synced=1`）的删除；没回写成（或没记结果）的不删，记一次日志、`/admin/fuyao` 的 `unsynced_over_retention` 计数，交运维 |
+| 运维 `/admin/fuyao/delete` | 在跑的先 `fuyao-stop --release`，成功才删；暂停的看 `gsdb-synced`；否则 409 不删，带 `force: true` 才强删（发版台冒烟工号固定带） |
 | 设了 `FUYAO_SANDBOX_TIMEOUT`、离到期不到 15 分钟 | 在跑：`fuyao-stop --release` → 删除（有会话在跑的等到最后 5 分钟）；暂停中：暂停前已回写的删除，没回写成的记日志 |
 | 转发连接失败 | 重新查询并重试一次；仍失败则按「沙箱不可用」重建 |
 

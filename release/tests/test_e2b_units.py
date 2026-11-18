@@ -272,13 +272,59 @@ def test_the_smoke_user_gets_a_new_template_sandbox_and_nobody_else_is_touched()
 
     def admin(a):
         if a["action"]:
-            deleted.append((a["action"], a["sandbox"]))
+            deleted.append((a["action"], a["sandbox"], a.get("force")))
             return {"code": 200, "body": {"sandbox": a["sandbox"], "deleted": True, "synced": True}}
         return _summary({"runtime": RT, "kb-import": IMP}, OLD_BOXES)
     logs = []
     gone = e2b.refresh_smoke_user(GwKube(admin=admin), "u9500", lambda m, lv: logs.append(m), sleep=lambda _s: None)
-    assert gone == ["sbx-2"] and deleted == [("delete", "sbx-2")], "只动冒烟工号自己的旧版诊断沙箱(导入沙箱、别人的都不动)"
+    assert gone == ["sbx-2"] and deleted == [("delete", "sbx-2", True)], \
+        "只动冒烟工号自己的旧版诊断沙箱(导入沙箱、别人的都不动);冒烟工号只有测试数据,回写没成也删(显式 force)"
     assert "u9500" in logs[0] and "sbx-2" in logs[0]
+
+
+def test_admin_script_sends_force_only_when_asked(tmp_path):
+    seen = []
+
+    def admin(a):
+        seen.append(a)
+        return {"code": 409, "body": {"error": "收尾回写没成功,没有删除"}} if a["action"] else {"code": 200, "body": {}}
+    adm = e2b.FuyaoAdmin(GwKube(admin=admin), sleep=lambda _s: None)
+    with pytest.raises(e2b.pool.PoolError, match="没有删除"):
+        adm.delete("sbx-9")
+    adm.summary()
+    assert seen[0] == {"action": "delete", "sandbox": "sbx-9"} and "force" not in seen[0], "默认不强删"
+    assert seen[1] == {"action": "", "sandbox": ""}
+
+
+@pytest.mark.parametrize("payload, posted", [
+    ({"action": "delete", "sandbox": "sbx-1"}, {"sandbox": "sbx-1"}),
+    ({"action": "delete", "sandbox": "sbx-1", "force": True}, {"sandbox": "sbx-1", "force": True}),
+])
+def test_the_admin_script_posts_force_to_the_gateway_only_when_asked(payload, posted):
+    import http.server
+    import threading
+    got = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            got.append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *_a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        env = dict(os.environ, GATEWAY_LISTEN_PORT=str(srv.server_address[1]), GATEWAY_ADMIN_TOKEN="t")
+        p = subprocess.run([sys.executable, "-c", e2b.ADMIN], input=json.dumps(payload), capture_output=True,
+                           text=True, timeout=30, env=env)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert p.returncode == 0 and json.loads(p.stdout)["code"] == 200
+    assert got == [("/admin/fuyao/delete", posted)]
 
 
 def test_probe_and_admin_scripts_keep_secrets_inside_the_gateway_container(tmp_path, platform):

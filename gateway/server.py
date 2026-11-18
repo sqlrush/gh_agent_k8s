@@ -231,10 +231,13 @@ class _Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and self.command == "POST":
                 raw = self._read_body() or b"{}"
                 try:
-                    sid = str(json.loads(raw)["sandbox"])
-                except (ValueError, KeyError, TypeError):
+                    doc = json.loads(raw)
+                    sid, force = str(doc["sandbox"]), doc.get("force", False)
+                except (ValueError, KeyError, TypeError, AttributeError):
                     return self._json(400, {"error": "请求体要是 {\"sandbox\": 沙箱 ID}"})
-                code, body = adm.act(parts[2], sid)
+                if not isinstance(force, bool):
+                    return self._json(400, {"error": "force 只能是 true 或 false"})
+                code, body = adm.act(parts[2], sid, force=force)
                 return self._json(code, body)
         except opensandbox.OpenSandboxError as exc:
             return self._json(502, {"error": str(exc)})

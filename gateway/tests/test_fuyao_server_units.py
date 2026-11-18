@@ -44,8 +44,8 @@ class Admin:
     def summary(self):
         return {"mode": "fuyao", "sandboxes": [{"sandbox": "sbx-1", "user_id": "u1234"}]}
 
-    def act(self, verb, sid):
-        self.acts.append((verb, sid))
+    def act(self, verb, sid, force=False):
+        self.acts.append((verb, sid, force))
         return 200, {"sandbox": sid, verb: True}
 
 
@@ -96,6 +96,19 @@ def test_admin_fuyao_summary_and_actions(gw):
                                headers={"X-Admin-Token": ADMIN, "Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(r, timeout=10) as resp:
         assert resp.status == 200 and json.loads(resp.read())["pause"] is True
-    assert app.fuyao_admin.acts == [("pause", "sbx-1")]
+    assert app.fuyao_admin.acts == [("pause", "sbx-1", False)], "没带 force 就是不强删"
+
+    def post(path, doc):
+        req = urllib.request.Request(base + path, data=json.dumps(doc).encode(), method="POST",
+                                     headers={"X-Admin-Token": ADMIN, "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+    assert post("/admin/fuyao/delete", {"sandbox": "sbx-1", "force": True}) == 200
+    assert app.fuyao_admin.acts[-1] == ("delete", "sbx-1", True)
+    assert post("/admin/fuyao/delete", {"sandbox": "sbx-1", "force": "yes"}) == 400, "force 只认 true/false,不猜"
+    assert len(app.fuyao_admin.acts) == 2
     code, *_ = _req(base, "/admin/pool", headers={"X-Admin-Token": ADMIN})
     assert code == 404, "不是固定池化"

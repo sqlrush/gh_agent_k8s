@@ -157,8 +157,8 @@ a = json.loads(sys.stdin.read() or "{}")
 url = "http://127.0.0.1:%s/admin/fuyao" % (os.environ.get("GATEWAY_LISTEN_PORT") or "8080")
 hdr = {"X-Admin-Token": os.environ.get("GATEWAY_ADMIN_TOKEN", ""), "Content-Type": "application/json"}
 if a.get("action"):
-    req = urllib.request.Request(url + "/" + a["action"], data=json.dumps({"sandbox": a["sandbox"]}).encode(),
-                                 headers=hdr, method="POST")
+    doc = dict({"sandbox": a["sandbox"]}, **({"force": True} if a.get("force") is True else {}))
+    req = urllib.request.Request(url + "/" + a["action"], data=json.dumps(doc).encode(), headers=hdr, method="POST")
 else:
     req = urllib.request.Request(url, headers=hdr)
 try:
@@ -179,9 +179,9 @@ class FuyaoAdmin:
     kube: object
     sleep: Callable[[float], None] = time.sleep
 
-    def _call(self, action: str = "", sandbox: str = "", timeout: float = 240) -> Tuple[int, dict]:
-        doc = pool.GatewayAdmin(self.kube, self.sleep).run_script(ADMIN, {"action": action, "sandbox": sandbox},
-                                                                  "/admin/fuyao", timeout)
+    def _call(self, action: str = "", sandbox: str = "", timeout: float = 240, force: bool = False) -> Tuple[int, dict]:
+        payload = dict({"action": action, "sandbox": sandbox}, **({"force": True} if force else {}))
+        doc = pool.GatewayAdmin(self.kube, self.sleep).run_script(ADMIN, payload, "/admin/fuyao", timeout)
         return int(doc["code"]), doc.get("body") or {}
 
     def summary(self) -> dict:
@@ -190,9 +190,10 @@ class FuyaoAdmin:
             raise pool.PoolError("/admin/fuyao 返回 %d:%s" % (code, body.get("error", "")))
         return body
 
-    def delete(self, sandbox_id: str) -> dict:
-        """网关先收尾回写(fuyao-stop --release)再删,下一次请求按当前模板新建。"""
-        code, body = self._call("delete", sandbox_id)
+    def delete(self, sandbox_id: str, force: bool = False) -> dict:
+        """网关先收尾回写(fuyao-stop --release)再删,下一次请求按当前模板新建。回写没成功网关默认不删(409),
+        force=True 才强删(会丢最后一次成功同步之后的改动)。"""
+        code, body = self._call("delete", sandbox_id, force=force)
         if code != 200:
             raise pool.PoolError("/admin/fuyao 删除 %s 返回 %d:%s" % (sandbox_id, code, body.get("error", "")))
         return body
@@ -333,13 +334,14 @@ def step_sandbox(ctx: Ctx) -> None:
 
 def refresh_smoke_user(kube, user: str, log: Callable[[str, str], None], sleep: Callable[[float], None] = time.sleep) -> List[str]:
     """冒烟工号自己的旧版诊断沙箱交给网关收尾删除,冒烟时网关按新模板新建;别人的沙箱、导入沙箱都不动。
-    返回删掉的沙箱 ID。网关的 delete 动作先收尾回写再删,回写没成功也会删(冒烟工号丢的至多是最后一个同步周期)。"""
+    返回删掉的沙箱 ID。网关的 delete 动作先收尾回写再删;冒烟工号只有测试数据,回写没成功也要删(显式带 force,
+    丢的是最后一次成功同步之后的改动),否则冒烟会跑在旧模板上。"""
     adm = FuyaoAdmin(kube, sleep)
     gone = []
     for s in adm.summary().get("sandboxes") or []:
         if s.get("user_id") != user or s.get("kind") != "runtime" or not s.get("outdated"):
             continue
-        body = adm.delete(str(s.get("sandbox")))
+        body = adm.delete(str(s.get("sandbox")), force=True)
         gone.append(str(s.get("sandbox")))
         log("冒烟工号 %s 的旧版%s沙箱 %s(模板 %s)已交网关收尾删除%s,冒烟时按新模板新建"
             % (user, KIND_NAMES.get(str(s.get("kind")), ""), s.get("sandbox"), s.get("template") or "?",

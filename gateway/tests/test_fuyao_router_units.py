@@ -343,11 +343,59 @@ def test_without_pause_a_sandbox_whose_final_sync_failed_is_not_deleted(env):
     assert envd.runs[-1][1][-2:] == ["fuyao-stop", "--release"], "删除之前放开独占,新沙箱不用等它过期"
 
 
-def test_a_sandbox_paused_beyond_the_retention_is_deleted(env):
+def test_a_sandbox_paused_beyond_the_retention_is_deleted_only_if_synced_before_pause(env):
     fake, _envd, router, clock, *_ = env
-    bid = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime",
-                    "gsdb-paused": str(int(clock.t - 86401))}, state="Paused")
-    assert _sweeper(router, clock).sweep()["deleted"] == 1 and bid not in fake.boxes
+    logs = []
+    sw = fs.FuyaoSweeper(router, sweep_s=30, busy_check=lambda h, p: False, log=logs.append, clock=clock)
+    long_ago = str(int(clock.t - 86401))
+    ok = _box(fake, "u1001", "tpl-run", **{"gsdb-paused": long_ago, "gsdb-synced": "1"})
+    bad = _box(fake, "u1002", "tpl-run", **{"gsdb-paused": long_ago, "gsdb-synced": "0"})
+    unknown = _box(fake, "u1003", "tpl-run", **{"gsdb-paused": long_ago})     # 没记回写结果:按没回写成处理
+    out = sw.sweep()
+    assert out["deleted"] == 1 and ok not in fake.boxes
+    assert out["kept"] == 2 and bad in fake.boxes and unknown in fake.boxes, "删了会丢暂停前最后一段没回写的数据"
+    warned = [m for m in logs if "没回写成" in m]
+    assert len(warned) == 2 and any(bad in m for m in warned) and any(unknown in m for m in warned)
+    assert sw.sweep()["kept"] == 2 and len([m for m in logs if "没回写成" in m]) == 2, "同一台只提醒一次,不每轮刷日志"
+    s = sw.summary()
+    assert s["unsynced_over_retention"] == 2
+    assert {x["sandbox"]: x["synced_before_pause"] for x in s["sandboxes"]} == {bad: False, unknown: False}
+
+
+def test_admin_delete_refuses_when_the_final_sync_fails_unless_forced(env):
+    fake, envd, router, clock, *_ = env
+    t = router.target("u1001")
+    sw = _sweeper(router, clock)
+    envd.fail_stop = True
+    code, body = sw.act("delete", t.pod)
+    assert code == 409 and t.pod in fake.boxes and body["synced"] is False, "回写没成功默认不删"
+    assert "force" in body["error"]
+    code, body = sw.act("delete", t.pod, force=True)
+    assert code == 200 and t.pod not in fake.boxes and body["synced"] is False and body["forced"] is True
+    assert "最后一次成功同步" in body["note"] and "收尾同步把最后的状态写回" not in body["note"], "不能说数据都在 NAS 上"
+
+
+def test_admin_delete_of_a_paused_sandbox_follows_its_sync_before_pause(env):
+    fake, envd, router, clock, *_ = env
+    now = str(int(clock.t))
+    ok = _box(fake, "u1001", "tpl-run", **{"gsdb-paused": now, "gsdb-synced": "1"})
+    bad = _box(fake, "u1002", "tpl-run", **{"gsdb-paused": now, "gsdb-synced": "0"})
+    sw = _sweeper(router, clock)
+    code, body = sw.act("delete", ok)
+    assert code == 200 and ok not in fake.boxes and body["synced"] is True and body["forced"] is False
+    code, body = sw.act("delete", bad)
+    assert code == 409 and bad in fake.boxes and body["synced"] is False
+    assert sw.act("delete", bad, force=True)[0] == 200 and bad not in fake.boxes
+    assert envd.runs == [], "暂停的沙箱连不上,不收尾,只看暂停前的回写结果"
+
+
+def test_admin_delete_of_a_sandbox_neither_running_nor_paused_needs_force(env):
+    fake, _envd, router, clock, *_ = env
+    odd = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime"}, state="Pending")
+    sw = _sweeper(router, clock)
+    code, body = sw.act("delete", odd)
+    assert code == 409 and odd in fake.boxes and body["synced"] is None and "Pending" in body["error"]
+    assert sw.act("delete", odd, force=True)[0] == 200 and odd not in fake.boxes
 
 
 def test_by_default_no_platform_lifetime_is_requested(env):

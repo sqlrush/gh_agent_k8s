@@ -339,7 +339,8 @@ def test_fuyao_smoke_refreshes_the_smoke_user_and_waits_as_long_as_the_gateway_h
     ctx = _Ctx()
     waits = steps.fuyao_smoke_waits(ctx, svc, "u9500", {"FUYAO_WAIT_SECONDS": "120"})
     assert waits == {"ready_timeout_s": 360.0, "request_timeout_s": 150.0}
-    assert {"action": "delete", "sandbox": "sbx-9"} in calls and "sbx-9" in ctx.logs[0][1]
+    assert {"action": "delete", "sandbox": "sbx-9", "force": True} in calls and "sbx-9" in ctx.logs[0][1], \
+        "冒烟工号只有测试数据:回写没成也要删(显式 force),否则冒烟跑在旧模板上"
 
     class Down(K):
         def exec(self, pod, container, argv, stdin="", timeout=60):

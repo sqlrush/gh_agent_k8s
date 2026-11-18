@@ -40,6 +40,9 @@ TARGET_COOKIE = "gsa_target"
 SWITCH_PATHS = {"/kb-import": pods.KIND_KB_IMPORT, "/runtime": pods.KIND_RUNTIME}
 # 切换后落到 opencode 的项目页:base64url("/data/state/workspace"),两个容器同一个工作目录(docker/entrypoint.sh)
 LANDING = "/L2RhdGEvc3RhdGUvd29ya3NwYWNl"
+# Fuyao 沙箱里工作区在本地盘 base64url("/data/me/workspace")(docker/fuyao.py:STATE_LOCAL 指向 ME)。
+# opencode 网页按 URL 里的目录分项目,目录不对就进到空项目、看不到会话(2026-11-18 鲲鹏现场实测)
+LANDING_FUYAO = "/L2RhdGEvbWUvd29ya3NwYWNl"
 
 
 # 固定池化:这些请求**不算交互、也不为它分配槽位** —— opencode 网页开着就每 10 秒探一次活、事件流一直挂着
@@ -498,7 +501,7 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             cookie = "%s=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0" % TARGET_COOKIE
         self.send_response(303)
-        self.send_header("Location", LANDING)
+        self.send_header("Location", self.app.landing)
         self.send_header("Set-Cookie", cookie)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
@@ -520,6 +523,12 @@ class App:
         self.fuyao_admin = None             # Fuyao 模式的运维接口(/admin/fuyao)
         self._waiters: dict = {}
         self._lock = threading.Lock()
+
+    @property
+    def landing(self) -> str:
+        """对话页落地(切换环境、剪藏后打开会话):编码本模式下 opencode 的工作目录。"""
+        from .config import RUNTIME_FUYAO
+        return LANDING_FUYAO if self.cfg.runtime_mode == RUNTIME_FUYAO else LANDING
 
     def is_kb_admin(self, who: idt.Identity) -> bool:
         """角色头里带 KB_ADMIN_ROLES 之一,**或**工号登记在 ConfigMap agent-roles 里(SSO 不传角色时用)。"""

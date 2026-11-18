@@ -23,9 +23,9 @@ from .diagnose import NotReady
 
 CLIP_PORT = 4095            # 导入容器里的剪藏接收(k8s/templates/kb-import.yaml)
 PATHS = frozenset({pages.CLIP_PATH, pages.INSTALL_PATH, pages.UPLOAD_PATH})
-# 剪藏完落到导入环境里那个新会话:opencode 网页的会话地址是 /<base64url(工作目录)>/session/<会话号>
-# (前半段就是 server.LANDING,测试核对两处一致)
-SESSION_URL = "/L2RhdGEvc3RhdGUvd29ya3NwYWNl/session/%s"
+# 剪藏完落到导入环境里那个新会话:opencode 网页的会话地址是 /<base64url(工作目录)>/session/<会话号>,
+# 前半段 = 网关的对话页落地(App.landing:K8s 是 /data/state/workspace,Fuyao 沙箱是 /data/me/workspace)
+SESSION_PATH = "/session/%s"
 TARGET_COOKIE = "gsa_target=kb-import; Path=/; HttpOnly; SameSite=Lax"
 OFF = "网页剪藏还没有开启:请平台在 agent-config 里配 KB_CLIP_ORIGINS(允许剪藏的内网网站),重启网关后再用"
 
@@ -125,7 +125,7 @@ def _upload(h, who: idt.Identity) -> None:
     else:
         h.app.mgr.touch(who.user_id, kind=pods.KIND_KB_IMPORT)
     sid = str(out.get("session") or "")
-    out["open_url"] = (SESSION_URL % sid) if sid else ""
+    out["open_url"] = (h.app.landing + SESSION_PATH % sid) if sid else ""
     h.app.log("剪藏:%s → %s(%s,%s 字节)" % (who.user_id, out.get("batch"), _origin(str(out.get("url") or "")) or "文件",
                                          out.get("bytes")))
     raw = json.dumps(out, ensure_ascii=False).encode("utf-8")

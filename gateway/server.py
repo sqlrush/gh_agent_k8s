@@ -427,6 +427,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._waiting("当前使用人数已满", "已为您排队:有人空出来就会自动进入。", exc.retry_after)
             except poolrouter.PoolWait as exc:
                 self.app.log("为 %s 分配槽位还在等(%s)" % (who.user_id, exc.reason))
+                if exc.reason == "platform_busy":            # 平台满员(建沙箱回 5xx):与 PoolFull 同一句话,别说「马上就好」
+                    return self._waiting("当前使用人数已满", "已为您排队:有人空出来就会自动进入。", exc.retry_after)
                 return self._waiting("正在为您准备环境", "马上就好。", exc.retry_after)
             except pods.PrerequisiteMissing as exc:
                 self.app.log("为 %s 准备环境失败(前置条件):%s" % (who.user_id, exc))

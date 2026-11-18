@@ -112,3 +112,14 @@ def test_admin_fuyao_summary_and_actions(gw):
     assert len(app.fuyao_admin.acts) == 2
     code, *_ = _req(base, "/admin/pool", headers={"X-Admin-Token": ADMIN})
     assert code == 404, "不是固定池化"
+
+
+def test_a_busy_platform_shows_the_full_waiting_page_not_an_error(gw):
+    """平台满员时建沙箱回 5xx → 路由器抛 PoolWait(platform_busy):用户看到「人数已满」的等待页,不是「联系管理员」。"""
+    base, router, _app, _kube = gw
+
+    def busy(user, interactive=True, kind=pods.KIND_RUNTIME):
+        raise poolrouter.PoolWait("platform_busy", 30)
+    router.target = busy
+    code, h, body = _req(base, "/session", headers={"Accept": "text/html"})
+    assert code == 503 and h.get("Retry-After") == "30" and "人数已满" in body and "联系管理员" not in body

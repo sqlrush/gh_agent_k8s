@@ -291,6 +291,14 @@ class FuyaoRouter:
             s = self.os.create(p.templates[kind], p.groups[kind], md, p.cpu, p.memory, p.sandbox_timeout_s)
         except osb.CapacityError:
             raise PoolFull(p.retry_after)
+        except osb.OpenSandboxError as exc:
+            if 500 <= exc.status < 600:
+                # 平台满员时,OpenSandbox 把调度器的 503「no available agent」包成 500(鲲鹏 2026-11-18 实测,平台缺陷):
+                # 5xx 一律按「平台暂时没有空位」让用户等、自动重试,平台原话记日志;4xx 是请求本身不对,照旧当错误
+                self.log("Fuyao:为 %s 建%s沙箱时平台回 %d,按暂时没有空位处理、让用户等待重试(平台原话:%s)"
+                         % (user, _kind_name(kind), exc.status, str(exc)[:300]))
+                raise PoolWait("platform_busy", p.retry_after)
+            raise
         self.log("Fuyao:为 %s 建%s沙箱 %s(模板 %s,沙箱组 %s)" % (user, _kind_name(kind), s.id, p.templates[kind],
                                                          p.groups[kind]))
         return s

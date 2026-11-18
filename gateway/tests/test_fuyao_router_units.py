@@ -679,3 +679,35 @@ def test_client_errors_and_parsing():
         osb.Client(fake.url, timeout_s=1).get("x")
     with pytest.raises(ValueError):
         osb.Client("opensandbox:80")
+
+
+def test_a_5xx_from_create_is_treated_as_the_platform_being_full_not_an_error(env):
+    """鲲鹏 2026-11-18:沙箱组满时 OpenSandbox 把调度器的 503「no available agent」包成 500。
+    网关按「平台暂时没有空位」让用户等待重试(等待页),平台原话记日志;不回「联系管理员」。"""
+    fake, _envd, router, _clock, logs, _p = env
+    fake.create_error = (500, {"detail": {"message": "RuntimeError: flux create_sandbox failed: 503 no available agent"}})
+    with pytest.raises(poolrouter.PoolWait) as ei:
+        router.target("u1001")
+    assert ei.value.reason == "platform_busy" and ei.value.retry_after > 0
+    assert any("平台回 500" in m and "no available agent" in m for m in logs)
+    fake.create_error = (502, {"detail": "bad gateway"})
+    with pytest.raises(poolrouter.PoolWait):
+        router.target("u1002")
+
+
+def test_a_4xx_from_create_is_still_an_error(env):
+    fake, _envd, router, *_ = env
+    fake.create_error = (400, {"detail": {"message": "template not found"}})
+    with pytest.raises(osb.OpenSandboxError) as ei:
+        router.target("u1001")
+    assert ei.value.status == 400 and not isinstance(ei.value, osb.CapacityError)
+
+
+def test_paused_sandboxes_do_not_take_platform_capacity(env):
+    """实测:每个承载 Pod 2 台、1 个承载 Pod;暂停一台后,新沙箱马上建在同一个承载 Pod 上。"""
+    fake, _envd, router, *_ = env
+    for i in range(2):
+        fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "x%d" % i, "gsdb-kind": "runtime"}, group="g-run",
+                 state="Paused")
+    fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "x9", "gsdb-kind": "runtime"}, group="g-run")
+    assert router.target("u1001").pod in fake.boxes, "容量 3,运行 1 + 暂停 2:还能建"

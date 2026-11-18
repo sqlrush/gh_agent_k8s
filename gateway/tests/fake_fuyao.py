@@ -19,6 +19,7 @@ class FakeOpenSandbox:
     def __init__(self, capacity=None):
         self.boxes = {}                  # id → dict(state, metadata, ip, old_ip, created, expires, group, template)
         self.capacity = dict(capacity or {})
+        self.create_error = None            # (状态码, 应答) —— 设了就让建沙箱直接回它(模拟平台把满员包成 500 等)
         self.requests = []               # (method, path, body)
         self.stale_after_resume = False
         self.on_create = None            # 钩子:建完之后调用 on_create(self, box_id)
@@ -152,8 +153,11 @@ class FakeOpenSandbox:
             return 422, {"detail": [{"msg": "resourceLimits is required when poolRef is not provided."}]}
         if not body.get("entrypoint"):
             return 400, {"detail": {"message": "entrypoint required"}}
+        if self.create_error is not None:
+            return self.create_error
         group = ext["sandboxGroup"]
-        used = sum(1 for b in self.boxes.values() if b["group"] == group)
+        # 容量只算运行中的:暂停的沙箱不占承载 Pod 的名额(鲲鹏 2026-11-18 实测)
+        used = sum(1 for b in self.boxes.values() if b["group"] == group and b["state"] != "Paused")
         if group in self.capacity and used >= self.capacity[group]:
             return 503, {"detail": {"message": "no available capacity in sandbox group %s" % group}}
         bid = self.add(body.get("metadata") or {}, group=group, template=(body.get("image") or {}).get("uri"),

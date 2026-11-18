@@ -34,7 +34,9 @@ FUYAO_TEMPLATE_KEYS = {"runtime": ("gateway-config", "FUYAO_RUNTIME_TEMPLATE"),
                        "kb-import": ("gateway-config", "FUYAO_IMPORT_TEMPLATE")}
 SENSITIVE = {"GRMP_PATH_PREFIX"}            # 中间件路径前缀:界面与日志只显示「已设置」
 KEEP_WHOLE = {"agent-roles"}
-NAMESPACED_REFS = (("RoleBinding", "subjects"),)
+NAMESPACED_REFS = (("RoleBinding", "subjects"), ("ClusterRoleBinding", "subjects"))
+# 集群级对象:不写 metadata.namespace(与 kubectl kustomize 一致);ClusterRoleBinding 的 subject 命名空间照样跟着改
+CLUSTER_SCOPED = ("ClusterRole", "ClusterRoleBinding", "PersistentVolume")
 
 # 资源配置字段 → (ConfigMap, 键)。只在资源配置里填了非空值时覆盖集群现值。
 CONFIG_KEYS: Dict[str, Tuple[str, str]] = {
@@ -166,8 +168,9 @@ def set_namespace(docs: List[dict], ns: str) -> None:
         if d.get("kind") == "Namespace":
             md["name"] = ns
             continue
-        md["namespace"] = ns
-        if d.get("kind") == "RoleBinding":
+        if d.get("kind") not in CLUSTER_SCOPED:
+            md["namespace"] = ns
+        if d.get("kind") in ("RoleBinding", "ClusterRoleBinding"):
             for s in d.get("subjects") or []:
                 if s.get("kind") == "ServiceAccount":
                     s["namespace"] = ns

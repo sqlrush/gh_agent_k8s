@@ -40,6 +40,13 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["list"]
+  # 资源大盘(运维管理员看):本命名空间的 Job 状态(标准知识库安装)与实际用量(装了 metrics-server 才有),都只读
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["list"]
   # **刻意不给**:pods/exec、pods/attach、pods/log —— 网关没有进用户容器、读用户输出的理由
   #(初始化容器的失败原因经 terminationMessagePolicy 写进 Pod 状态,读状态就够)
 ---
@@ -104,6 +111,9 @@ spec:
             - {name: GATEWAY_USER_HEADER, valueFrom: {configMapKeyRef: {name: gateway-config, key: USER_HEADER, optional: true}}}
             - {name: GATEWAY_ROLES_HEADER, valueFrom: {configMapKeyRef: {name: gateway-config, key: ROLES_HEADER, optional: true}}}
             - {name: GATEWAY_KB_ADMIN_ROLES, valueFrom: {configMapKeyRef: {name: gateway-config, key: KB_ADMIN_ROLES, optional: true}}}
+            # 资源大盘(2026-11-18):运维管理员的角色值;产品名(大盘标题、logo、日报报头)
+            - {name: GATEWAY_OPS_ADMIN_ROLES, valueFrom: {configMapKeyRef: {name: gateway-config, key: OPS_ADMIN_ROLES, optional: true}}}
+            - {name: GATEWAY_PRODUCT_NAME, valueFrom: {configMapKeyRef: {name: gateway-config, key: PRODUCT_NAME, optional: true}}}
             - {name: GATEWAY_REAP_MODE, valueFrom: {configMapKeyRef: {name: gateway-config, key: REAP_MODE, optional: true}}}
             - {name: GATEWAY_IDLE_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: IDLE_SECONDS, optional: true}}}
             - {name: GATEWAY_TRUST_CIDRS, valueFrom: {configMapKeyRef: {name: gateway-config, key: TRUST_CIDRS, optional: true}}}

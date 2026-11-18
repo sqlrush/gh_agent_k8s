@@ -17,6 +17,8 @@ spec:
               {port: 49983, protocol: TCP}]
     - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: flux-system}}}]   # OpenSandbox
       ports: [{port: 80, protocol: TCP}]
+    - to: [{podSelector: {matchLabels: {app: gaussdb-statesvc}}}]     # 状态服务:恢复后找沙箱新地址、资源大盘的统计上报
+      ports: [{port: 8090, protocol: TCP}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -28,7 +30,9 @@ spec:
     matchLabels: {app: gaussdb-statesvc}
   policyTypes: [Ingress, Egress]
   ingress:
-    - from: [{ipBlock: {cidr: 10.244.0.0/16}}]        # SANDBOX_CIDR:只有沙箱连它(凭沙箱令牌)
+    - from: [{ipBlock: {cidr: 10.244.0.0/16}}]        # SANDBOX_CIDR:沙箱连它(凭沙箱令牌)
+      ports: [{port: 8090, protocol: TCP}]
+    - from: [{podSelector: {matchLabels: {app: agent-gateway}}}]   # 网关:问沙箱地址、报 / 读运维统计(凭运维签名)
       ports: [{port: 8090, protocol: TCP}]
   egress: []                                          # 只读写 NAS,不出网
 ---

@@ -6,3 +6,4 @@ resources:
   - statesvc.yaml
   - credproxy.yaml
   - networkpolicy.yaml
+  - platform-read.yaml

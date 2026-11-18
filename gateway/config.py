@@ -43,6 +43,9 @@ _QUANTITY_RE = re.compile(r"^[0-9]+(\.[0-9]+)?(m|Ki|Mi|Gi|Ti)?$")
 TEST_SHORT_TIMERS = "POOL_TEST_SHORT_TIMERS"
 # 网页剪藏单次上限(MB)的天花板:网关单请求上限 64 MB,图片按 base64 传要多三分之一
 KB_CLIP_MAX_MB_CEILING = 45
+# 产品名(大盘标题、logo、日报报头):交付给不同客户时改这一项,代码里不写死客户称谓
+DEFAULT_PRODUCT_NAME = "GaussDB 智能体"
+PRODUCT_NAME_MAX = 40
 
 
 class ConfigError(Exception):
@@ -67,6 +70,9 @@ class Config:
     activity_interval_s: int = 60
     ready_timeout_s: int = 120
     kb_admin_roles: Tuple[str, ...] = ("kb-admin",)
+    # 运维管理员(资源大盘):角色头里带其中之一,或工号登记在 ConfigMap agent-roles 的 ops-admins 里
+    ops_admin_roles: Tuple[str, ...] = ("ops-admin",)
+    product_name: str = DEFAULT_PRODUCT_NAME
     # 控制 API 的独立密钥。空 = 控制 API 关闭(只提供代理入口)。
     admin_token: str = ""
     # 大盘前端的 Service 名:/dash/* 代理到 <frontend_service>.<namespace>.svc:80。
@@ -200,6 +206,9 @@ def load(env: Mapping[str, str]) -> Config:
                           "满员时提前转保留就永远轮不到" % (early, idle))
 
     fy = _fuyao(env, runtime_mode == RUNTIME_FUYAO, low)
+    product = (env.get("GATEWAY_PRODUCT_NAME") or "").strip() or DEFAULT_PRODUCT_NAME
+    if len(product) > PRODUCT_NAME_MAX or any(ord(c) < 32 or c in "<>\"'&" for c in product):
+        raise ConfigError("PRODUCT_NAME=%r 不对:至多 %d 个字符,不含控制字符与 < > \" ' &" % (product, PRODUCT_NAME_MAX))
 
     return Config(
         namespace=ns, image_tag=tag, image_registry=registry,
@@ -214,6 +223,9 @@ def load(env: Mapping[str, str]) -> Config:
         ready_timeout_s=_int(env, "GATEWAY_READY_TIMEOUT_SECONDS", 120, minimum=10),
         kb_admin_roles=tuple(r.strip().lower() for r in
                              (env.get("GATEWAY_KB_ADMIN_ROLES") or "kb-admin").split(",") if r.strip()),
+        ops_admin_roles=tuple(r.strip().lower() for r in
+                              (env.get("GATEWAY_OPS_ADMIN_ROLES") or "ops-admin").split(",") if r.strip()),
+        product_name=product,
         admin_token=(env.get("GATEWAY_ADMIN_TOKEN") or "").strip(),
         frontend_service=(env.get("GATEWAY_FRONTEND_SERVICE") or "frontend").strip(),
         runtime_mode=runtime_mode,

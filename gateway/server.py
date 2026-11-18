@@ -31,6 +31,7 @@ DIAG_EVERY = 4                      # 每轮询这么多次读一次 Pod 状态:
 
 
 ROUTE_DASH, ROUTE_REPORTS, ROUTE_OPENCODE = "dash", "reports", "opencode"
+DASH_API = "/dash/api/"      # 大盘的数据接口由网关自己答(其余 /dash/* 是前端静态页)
 REPORTS_PORT = 4097          # 用户 Pod 里 podctl serve-reports 的端口(docker/entrypoint.sh)
 
 # 对话请求转到哪个容器(知识库管理员才有 kb-import)。路径前缀走不通 —— opencode 网页用根绝对路径,
@@ -92,10 +93,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _peer(self) -> str:
         return self.client_address[0] if self.client_address else ""
 
-    def _json(self, code: int, payload: dict) -> None:
+    def _json(self, code: int, payload: dict, no_store: bool = False) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if no_store:
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -265,6 +268,25 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(code, body)
         self._json(404, {"error": "没有这个控制接口"})
 
+    # -- 大盘的数据接口(2026-11-18) --------------------------------------------
+
+    def _dash_api(self, who: idt.Identity, bare: str) -> None:
+        """/dash/api/me:我是谁、是不是运维 / 知识库管理员、产品名(导航与标题用);
+        /dash/api/resources:资源大盘的数据,只给运维管理员。身份已在 _proxy 里核过(不可信的请求到不了这里)。"""
+        if self.command not in ("GET", "HEAD"):
+            return self._json(405, {"error": "只支持 GET"}, no_store=True)
+        if bare == DASH_API + "me":
+            return self._json(200, {"user_id": who.user_id, "ops_admin": self.app.is_ops_admin(who),
+                                    "kb_admin": self.app.is_kb_admin(who), "product_name": self.app.cfg.product_name,
+                                    "mode": self.app.cfg.runtime_mode, "chat_home": self.app.landing}, no_store=True)
+        if bare == DASH_API + "resources":
+            if not self.app.is_ops_admin(who):
+                return self._json(403, {"error": "资源大盘只给运维管理员看"}, no_store=True)
+            if self.app.dash is None:
+                return self._json(503, {"error": "资源大盘的数据汇总没有启动"}, no_store=True)
+            return self._json(200, self.app.dash.get(), no_store=True)
+        return self._json(404, {"error": "没有这个接口"}, no_store=True)
+
     # -- 代理 ---------------------------------------------------------------
 
     def _proxy(self) -> None:
@@ -279,6 +301,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._text(403, "无法确认身份。请经统一认证入口访问。")
 
         bare = self.path.split("?", 1)[0]
+        if bare.startswith(DASH_API):
+            return self._dash_api(who, bare)            # 大盘的数据接口:网关自己答,不转前端、不建沙箱、不记活动
         if kbclip.handles(bare):
             return kbclip.handle(self, who, bare)        # 网页剪藏的安装页 / 剪藏页 / 上传(只给知识库管理员)
         switch = SWITCH_PATHS.get(bare.rstrip("/"))
@@ -415,6 +439,8 @@ class _Handler(BaseHTTPRequestHandler):
                     pool.note_activity(who.user_id)
                 else:
                     pool.note_activity(who.user_id, kind=kind)
+                if self.app.counter is not None and attempt == 0:
+                    self.app.counter.hit(who.user_id, kind)      # 资源大盘的请求计数(与记活动同一个口径)
             if route == ROUTE_REPORTS:
                 up = proxy.Upstream(t.host, t.reports_port, retries=1)
                 headers = proxy.forward_headers(self.headers.items(), None, who.user_id) + \
@@ -521,6 +547,10 @@ class App:
         self.pool = pool                    # 固定池化时是 poolrouter.PoolRouter;按需模式 None
         self.pool_admin = pool_admin        # 固定池化的运维接口(/admin/pool)
         self.fuyao_admin = None             # Fuyao 模式的运维接口(/admin/fuyao)
+        self.dash = None                    # 资源大盘的数据汇总(dashdata.Collector)
+        self.counter = None                 # 交互请求计数(opsreport.RequestCounter;Fuyao 模式才有状态服务可报)
+        self.state_ops = None               # 状态服务的统计接口(opsreport.StateOps)
+        self.reporter = None                # 请求计数的上报线程(opsreport.Reporter)
         self._waiters: dict = {}
         self._lock = threading.Lock()
 
@@ -529,6 +559,12 @@ class App:
         """对话页落地(切换环境、剪藏后打开会话):编码本模式下 opencode 的工作目录。"""
         from .config import RUNTIME_FUYAO
         return LANDING_FUYAO if self.cfg.runtime_mode == RUNTIME_FUYAO else LANDING
+
+    def is_ops_admin(self, who: idt.Identity) -> bool:
+        """运维管理员(资源大盘):角色头里带 OPS_ADMIN_ROLES 之一,**或**工号登记在 agent-roles 的 ops-admins 里。"""
+        if any(r in self.cfg.ops_admin_roles for r in who.roles):
+            return True
+        return who.user_id in self.mgr.ops_admins()
 
     def is_kb_admin(self, who: idt.Identity) -> bool:
         """角色头里带 KB_ADMIN_ROLES 之一,**或**工号登记在 ConfigMap agent-roles 里(SSO 不传角色时用)。"""

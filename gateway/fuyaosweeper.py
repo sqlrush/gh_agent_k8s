@@ -60,8 +60,9 @@ def _refusal(s: osb.Sandbox, synced: Optional[bool]) -> str:
 class FuyaoSweeper:
     def __init__(self, router: FuyaoRouter, sweep_s: int = 30,
                  busy_check: Callable[[str, str], bool] = busy, log: Callable[[str], None] = print,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time, report: Optional[Callable[[int, int], None]] = None):
         self.router, self.os, self.policy = router, router.os, router.policy
+        self.report = report                        # 每轮报一次运行 / 暂停台数(资源大盘的趋势,opsreport.fleet_reporter)
         self.sweep_s, self.busy_check = sweep_s, busy_check
         self.log, self.clock = log, clock
         self._stop = threading.Event()
@@ -123,6 +124,11 @@ class FuyaoSweeper:
             except osb.OpenSandboxError as exc:
                 counts["failed"] += 1
                 self.log("Fuyao 清扫:处理沙箱 %s(%s)失败:%s" % (s.id, user, exc))
+        if self.report is not None:
+            try:
+                self.report(sum(1 for b in boxes if b.running), sum(1 for b in boxes if b.paused))
+            except Exception as exc:                # noqa: BLE001 —— 上报失败不影响清扫
+                self.log("Fuyao 清扫:上报沙箱台数失败:%s" % exc)
         return counts
 
     def _flush_activity(self, boxes: List[osb.Sandbox], acts: Dict[Tuple[str, str], float]) -> None:

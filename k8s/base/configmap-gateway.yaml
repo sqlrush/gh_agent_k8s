@@ -26,6 +26,10 @@ data:
   ROLES_HEADER: "X-Agent-Roles"
   # 哪些角色值算「知识库管理员」(会多建一个 kb-import Pod)。逗号分隔,大小写不敏感。
   KB_ADMIN_ROLES: "kb-admin"
+  # 哪些角色值算「运维管理员」(能看大盘的「资源大盘」页)。另外工号登记在 agent-roles 的 ops-admins 里的人也算。
+  OPS_ADMIN_ROLES: "ops-admin"
+  # 产品名:大盘的标题、左上角 logo、文艺风格的日报报头都用它。至多 40 个字符,不含 < > " ' &。
+  PRODUCT_NAME: "GaussDB 智能体"
 
   # 回收模式:
   #   scale   缩到 0 副本,重连再拉起 —— 省掉镜像拉取与冷启动,代价是占着 Deployment(默认)

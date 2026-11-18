@@ -47,3 +47,68 @@ def test_sandbox_groups_live_in_the_platform_namespace_and_stay_out_of_the_overl
     assert 'RUNTIME_MODE: "fuyao"' in ov
     for g in re.findall(r"name: (sg-gsdb-\w+)", groups):
         assert g in ov, "overlay 里的沙箱组名要与 sandboxgroups.yaml 一致:%s" % g
+
+
+# -- 资源大盘(2026-11-18) ----------------------------------------------------------------------------
+
+def _yaml(path):
+    import yaml
+    return [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if d]
+
+
+def test_platform_read_is_read_only_on_the_three_sandbox_resources_and_bound_to_the_gateway():
+    docs = {d["kind"]: d for d in _yaml(_FY / "platform-read.yaml")}
+    assert set(docs) == {"ClusterRole", "ClusterRoleBinding"}
+    rules = docs["ClusterRole"]["rules"]
+    assert rules == [{"apiGroups": ["sandbox.flux.io"], "resources": ["sandboxgroups", "subsandboxgroups", "sandboxes"],
+                      "verbs": ["get", "list"]}], "只读、只这三种资源;不给平台命名空间的 Pod / Secret"
+    b = docs["ClusterRoleBinding"]
+    assert b["roleRef"]["name"] == docs["ClusterRole"]["metadata"]["name"]
+    assert b["subjects"] == [{"kind": "ServiceAccount", "name": "gateway", "namespace": "gaussdb-agent"}]
+    assert "platform-read.yaml" in (_FY / "kustomization.yaml").read_text(encoding="utf-8")
+
+
+def test_release_render_moves_the_binding_subject_with_the_namespace_and_keeps_cluster_objects_unnamespaced():
+    from release import render
+    docs = render.load_overlay(_ROOT / "k8s", "fuyao")
+    render.set_namespace(docs, "zz-other")
+    crb = [d for d in docs if d["kind"] == "ClusterRoleBinding"][0]
+    assert crb["subjects"][0]["namespace"] == "zz-other"
+    for d in docs:
+        if d["kind"] in ("ClusterRole", "ClusterRoleBinding"):
+            assert "namespace" not in d["metadata"], "集群级对象不写命名空间(与 kubectl kustomize 一致)"
+
+
+def test_kustomize_moves_the_binding_subject_with_the_overlay_namespace(tmp_path):
+    import shutil
+    import subprocess
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        pytest.skip("没有 kubectl")
+    shutil.copytree(_ROOT / "k8s", tmp_path / "k8s")
+    zz = tmp_path / "k8s" / "overlays" / "zz"
+    zz.mkdir()
+    (zz / "kustomization.yaml").write_text("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n"
+                                          "namespace: zz-other\nresources:\n  - ../fuyao\n", encoding="utf-8")
+    out = subprocess.run([kubectl, "kustomize", str(zz)], capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        pytest.skip("kubectl kustomize 不可用:%s" % out.stderr[:200])
+    import yaml
+    crb = [d for d in yaml.safe_load_all(out.stdout) if d and d["kind"] == "ClusterRoleBinding"][0]
+    assert crb["subjects"][0]["namespace"] == "zz-other" and "namespace" not in crb["metadata"]
+
+
+def test_the_gateway_can_reach_the_state_service_through_the_network_policies():
+    docs = {d["metadata"]["name"]: d for d in _yaml(_FY / "networkpolicy.yaml")}
+    out = docs["gateway-to-sandboxes"]["spec"]["egress"]
+    assert any(r["to"] == [{"podSelector": {"matchLabels": {"app": "gaussdb-statesvc"}}}] and
+               r["ports"] == [{"port": 8090, "protocol": "TCP"}] for r in out)
+    inn = docs["statesvc-policy"]["spec"]["ingress"]
+    assert any(r["from"] == [{"podSelector": {"matchLabels": {"app": "agent-gateway"}}}] for r in inn)
+
+
+def test_ops_admins_ship_empty_and_product_name_defaults_to_the_generic_name():
+    roles = _yaml(_ROOT / "k8s" / "base" / "configmap-agent-roles.yaml")[0]["data"]
+    assert roles["ops-admins"] == "" and roles["kb-admins"] == "", "交付时不能带任何样例工号"
+    gw = _yaml(_ROOT / "k8s" / "base" / "configmap-gateway.yaml")[0]["data"]
+    assert gw["PRODUCT_NAME"] == "GaussDB 智能体" and gw["OPS_ADMIN_ROLES"] == "ops-admin"

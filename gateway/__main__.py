@@ -139,7 +139,14 @@ def start_fuyao(cfg, kube, mgr, app):
     router = fuyaorouter.FuyaoRouter(client, sandboxexec.Envd(), policy, key,
                                      password_for=mgr.ensure_password, launch_env=launch_env, prereq=prereq,
                                      log=app.log, locate=state_locator(cfg.fuyao_state_url, key))
-    sweeper = fuyaosweeper.FuyaoSweeper(router, sweep_s=cfg.fuyao_sweep_seconds, log=app.log)
+    # 资源大盘:请求计数每 30 秒报给状态服务,清扫器每轮报运行 / 暂停台数(运维签名,沙箱调不到这几个接口)
+    from . import opsreport
+    ops = opsreport.StateOps(cfg.fuyao_state_url, key)
+    app.state_ops, app.counter = ops, opsreport.RequestCounter()
+    app.reporter = opsreport.Reporter(app.counter, ops, log=app.log)
+    app.reporter.start()
+    sweeper = fuyaosweeper.FuyaoSweeper(router, sweep_s=cfg.fuyao_sweep_seconds, log=app.log,
+                                        report=opsreport.fleet_reporter(ops, app.log))
     app.pool, app.fuyao_admin = router, sweeper
     sweeper.start()
     return sweeper
@@ -175,6 +182,8 @@ def main(argv=None) -> int:
         sweeper = start_pool(cfg, kube, mgr, app)
     elif cfg.runtime_mode == gwconfig.RUNTIME_FUYAO:
         sweeper = start_fuyao(cfg, kube, mgr, app)
+    from . import dashdata
+    app.dash = dashdata.Collector(app, ops=app.state_ops)      # 资源大盘(/dash/api/resources);非 Fuyao 模式只有组件那几块
     # 按需模式回收闲置的用户 Pod;固定池化下只剩知识库管理员的导入容器是按需建的,照样由它回收
     rp = reaper.Reaper(mgr, mode=cfg.reap_mode, idle_s=cfg.idle_seconds,
                        sweep_s=cfg.sweep_seconds, log=app.log)
@@ -196,6 +205,8 @@ def main(argv=None) -> int:
         rp.stop()
         if sweeper is not None:
             sweeper.stop()
+        if getattr(app, "reporter", None) is not None:
+            app.reporter.stop()                     # 把最后攒下的请求计数报出去
         # 另起一个线程关,避免在信号处理里 join 自己
         import threading
         threading.Thread(target=httpd.shutdown, daemon=True).start()

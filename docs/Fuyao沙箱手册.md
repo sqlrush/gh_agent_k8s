@@ -193,6 +193,16 @@ curl -X POST -H "X-Admin-Token: $T" -d '{"sandbox": "<沙箱 ID>", "force": true
 摘要里每台暂停的沙箱有 `synced_before_pause`；`unsynced_over_retention` 是「暂停已过保留期、但暂停前没回写成，所以没删」的台数，
 不为 0 时按上面的办法逐台处理（它们占着沙箱组容量）。
 
+### 7.1a 资源大盘（运维管理员，大盘「运维 · 资源大盘」）
+
+- **谁能看**：角色头里带 `OPS_ADMIN_ROLES`（gateway-config，默认 `ops-admin`）之一，或工号登记在 ConfigMap `agent-roles` 的 `ops-admins` 里（每行一个，默认空）。别人看不到导航入口，直接访问回无权限。
+- **数据**：网关自己答 `/dash/api/resources`（缓存 20 秒，页面 30 秒刷新），不建、不唤醒沙箱。每一块各自降级，读不到的块写明原因、不显示数字：
+  - 沙箱、状态、模板、暂停前回写：网关清扫器（与 `/admin/fuyao` 同一份）；
+  - 容量、承载 Pod、每台在哪个承载 Pod：平台的 `sandbox.flux.io`，要平台管理员 apply `k8s/fuyao/platform-read.yaml`（只读 ClusterRole，只给 sandboxgroups / subsandboxgroups / sandboxes 的 get / list；overlay 已包含）；
+  - 今天各工号请求次数、24 小时趋势、NAS 用量：状态服务（网关每 30 秒报请求计数、清扫器每轮报台数；状态服务每 5 分钟算一次 NAS 用量，计数落在 NAS 的 `.ops/usage.json`）。这几个接口只认网关用控制密钥派生子密钥签的请求，沙箱令牌调不通；
+  - 实际 CPU / 内存：metrics-server，没装就标「未装 metrics-server」；节点容量与 token 用量这一版不取。
+- **产品名**：gateway-config 的 `PRODUCT_NAME`（默认「GaussDB 智能体」），大盘标题、logo 与日报报头都用它。
+
 ### 7.2 升级（发版台）
 
 Fuyao 模式下发版台的步骤：模板核对（目标版本的两个模板各建一台探测沙箱，进入运行即删；模板缺了会给出 §3.3 的完整命令）

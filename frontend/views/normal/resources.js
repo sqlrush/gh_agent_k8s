@@ -6,7 +6,7 @@ import { I, tipAttr, glyph } from '../../lib/ui.js';
 import { rise } from '../../lib/motion.js';
 import { drawer } from '../../lib/overlay.js';
 import { insightCard } from './common.js';
-import { REFRESH_MS, KIND, STATE, BUSY_S, shortPod, RUNNING, SCALE_NOTE } from '../../pages/resources.js';
+import { REFRESH_MS, KIND, STATE, BUSY_S, shortPod, RUNNING, SCALE_NOTE, groupCaps } from '../../pages/resources.js';
 
 const ORDER = ['use', 'idle', 'pause', 'nosync', 'other'];
 const SW = { use: 'var(--s-use)', idle: 'var(--s-idle)', pause: 'var(--s-keep)', nosync: 'var(--s-bad)', other: 'var(--s-other)' };
@@ -81,9 +81,9 @@ function hero(m) {
   const cap = `<div class="glass rs-cap rise"${rise()}>
       <div class="title">${I.grid}沙箱容量<span class="r">${esc(groupsLine)} ${m.groups ? src('沙箱组 CRD') : na(d.platform)}</span></div>
       <div class="rs-capw"><div>
-        <div class="rs-big num">${t.run}<small>台运行中${t.cap !== null ? ` · 容量 ${t.cap}${t.free === 0 && t.cap ? ' 已满' : ''}` : ''}</small></div>
-        <div class="rs-split">${RUNNING.filter((k) => k !== 'other' || t.other).map((k) => `<span><i style="background:${SW[k]}"></i>${esc(STATE[k].replace('运行·', ''))}<b class="num">${t[k]}</b></span>`).join('')}
-          ${t.free !== null ? `<span><i style="background:rgba(255,255,255,.22)"></i>空余<b class="num">${t.free}</b></span>` : ''}</div>
+        <div class="rs-big num">${t.run}<small>台运行中</small></div>
+        ${groupCaps(m.groups).map((c) => `<div class="rs-split"><span>${esc(c.label)}:容量 <b class="num">${c.cap}</b> · 运行 <b class="num">${c.run}</b> · 空余 <b class="num">${c.free}</b>${c.free === 0 && c.cap ? ' · 已满' : ''}</span></div>`).join('')}
+        <div class="rs-split">${RUNNING.filter((k) => k !== 'other' || t.other).map((k) => `<span><i style="background:${SW[k]}"></i>${esc(STATE[k].replace('运行·', ''))}<b class="num">${t[k]}</b></span>`).join('')}</div>
         <div class="rs-split"><span><i style="background:${SW.pause}"></i>暂停<b class="num">${t.paused}</b>${t.nosync ? `(没回写成 ${t.nosync})` : ''} · 不占容量</span></div>
         <div class="rs-split" style="margin-top:6px">${ok(m.fy) ? src('/dash/api/resources') : na(m.fy)}</div></div>${ring(t)}</div>
       <div class="rs-mini">

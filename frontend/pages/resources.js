@@ -11,6 +11,11 @@ import { fetchResources } from '../lib/data.js';
 export const REFRESH_MS = 30000;
 export const BUSY_S = 300;                      // 最近这么多秒内有交互算「在用」,否则「闲置」(等清扫器收尾暂停)
 export const KIND = { runtime: '诊断', 'kb-import': '导入' };
+// 标题、解读里用的全称(格子里地方小,仍用短名)
+export const KIND_FULL = { runtime: '诊断(runtime)', 'kb-import': '导入(kb-import)' };
+// 各沙箱组分开说容量:诊断与导入的空位互不相通,合计成一个数会误导(2026-11-18 用户反馈「68 台」)
+export const groupCaps = (groups) => (groups || []).filter((g) => !g.missing)
+  .map((g) => ({ label: g.kinds.map((k) => KIND_FULL[k] || k).join('与'), cap: g.capacity || 0, run: g.occupied || 0, free: g.free || 0 }));
 export const STATE = { use: '运行·在用', idle: '运行·闲置', pause: '暂停', nosync: '暂停·没回写成', other: '启动中 / 其他', free: '空余' };
 export const RUNNING = ['use', 'idle', 'other'];        // 占容量的(运行中、启动中)
 export const PAUSED = ['pause', 'nosync'];              // 不占容量
@@ -111,8 +116,11 @@ export function insight(m) {
   let head;
   const pausedTxt = t.paused ? `;另有 ${t.paused} 台暂停,不占容量` : '';
   if (t.cap === null) head = `运行 ${t.run} 台、暂停 ${t.paused} 台;容量要读平台的沙箱组(需授权只读)`;
-  else if (t.free === 0 && t.cap > 0) head = `同时运行的容量 ${t.cap} 台已满,新工号进来会看到等待页、自动重试${pausedTxt}`;
-  else head = `同时运行的容量 ${t.cap} 台,在跑 ${t.run} 台,还能再进 ${t.free} 人${pausedTxt}`;
+  else {
+    const caps = groupCaps(m.groups);
+    const each = caps.map((c) => (c.free === 0 && c.cap > 0 ? `${c.label}容量 ${c.cap} 台已满` : `${c.label}容量 ${c.cap} 台,在跑 ${c.run} 台,还能进 ${c.free} 人`));
+    head = each.join(';') + (caps.some((c) => c.free === 0 && c.cap > 0) ? ',满了的新工号会看到等待页、自动重试' : '') + pausedTxt;
+  }
   const run = (m.groups || []).find((g) => !g.missing && g.kinds.includes('runtime'));
   if (run) lines.push(`<b>诊断组当前 ${run.agent_pods} 个承载 Pod × 每 Pod ${run.per_pod} 台</b>(最小 ${run.pod_min}、最大 ${run.pod_max});${SCALE_NOTE}。`);
   lines.push('<b>容量按同时在用的人数规划</b>:暂停的沙箱不占承载 Pod 的名额(2026-11-18 实测),闲置的人不挤占新来的人。');

@@ -25,9 +25,9 @@
 沙箱里由启动器（`podctl fuyao-start`）以 systemd 起三个服务：`gsdb-credrelay`（中继，root）、`gsdb-statesync`
 （后台同步，root）、`gsdb-agent`（opencode 与技能，`agent` 用户，无 sudo）。技能与 opencode 一行不改。
 
-实测（鲲鹏 920 + openFuyao，2026-11）：新用户从没有沙箱到能对话约 6 秒；再次进入约 2 秒；
-暂停后回来：2026-11-18 实测 5 次为 14.9、17.9、15.4、18.7、5.1 秒（平台恢复约 4 秒，其余是等沙箱报到新地址，见 §5）。
-慢的几次是网关在平台给的旧地址上探活等超时；已改为恢复后只认报到的地址、每 0.5 秒问一次状态服务，待复测；每种模板注册约 1 分钟。
+实测（鲲鹏 920 + openFuyao，2026-11-18）：新用户从没有沙箱到能对话约 5–6 秒（诊断、导入相同，两个模板都内置官方文档集）；
+再次进入约 1–2 秒；暂停后回来 2.9–3.8 秒（恢复后只认沙箱向状态服务报到的地址，每 0.5 秒问一次）；每种模板注册 1–6 分钟。
+空闲的沙箱实际约 0.55 GiB 内存、1.4% CPU，暂停的不占宿主机内存与 CPU。
 
 ## 1. 访问路径
 
@@ -51,8 +51,8 @@
 | 项 | 说明 |
 |---|---|
 | OpenSandbox 地址 | 填 `FUYAO_API`；开了认证时 API Key 放 Secret `fuyao-api`（键 `API_KEY`） |
-| 两个沙箱组 | 诊断、导入各一个（`k8s/fuyao/sandboxgroups.yaml` 是样例，容量按人数定），由平台管理员 apply |
-| 模板构建主机的 root | 模板构建服务所在主机；`scripts/build-e2b-template.py` 要在那里运行（§3.3） |
+| 两个沙箱组 | 诊断、导入各一个（`k8s/fuyao/sandboxgroups.yaml` 是样例，容量按同时在用的人数定），由平台管理员 apply |
+| 模板构建主机的 root | 模板构建服务所在主机；`scripts/build-e2b-template.py` 要在那里运行（《Fuyao沙箱部署手册》§4） |
 | 网络 | 网关 Pod → 沙箱的 Pod 网段（4095 / 4096 / 4097 / 49983）；沙箱 → 两个集群服务的 ClusterIP |
 
 ### 2.2 上线前必须由平台落实的安全前提
@@ -76,57 +76,18 @@
 | 删除沙箱时虚拟机收不到信号 | 删除前由网关触发收尾回写 |
 | 模板构建服务重启后第一次构建会集中补建网络槽位，期间宿主机负载很高、数分钟 | 避开业务高峰构建模板 |
 
-## 3. 一次性部署
+## 3. 部署
 
-### 3.1 Secret
+**照《Fuyao沙箱部署手册》做**（部署前检查与资源测算、导入镜像、注册模板、沙箱组、Secret 与配置、现场 overlay、上线验证、
+升级、扩容、卸载）。本手册不再重复部署步骤，只列要点：
 
-在《参数手册》③ 的基础上，Fuyao 模式**必须**有 `sandbox-control`（键 `KEY`，至少 16 字符，网关与两个集群服务共用）：
-
-```bash
-kubectl -n gaussdb-agent create secret generic sandbox-control --from-literal=KEY="$(openssl rand -hex 32)"
-```
-
-`grmp-token-<工号>` 照旧每人一个（凭据代理服务按工号读，Role 只有 `get`、不能列举）。
-
-### 3.2 沙箱组
-
-按 `k8s/fuyao/sandboxgroups.yaml` 改容量：承载 Pod 数 × `maxSandboxesPerPod` = 最多**同时运行**多少台沙箱，**暂停的不占名额**
-（2026-11-18 鲲鹏实测），所以按同时在用的人数定。**实测平台不会按需自动扩到 `agentPodMax`**（调 max 没有新起承载 Pod，
-调 `agentPodMin` 才会多起），要多少个承载 Pod 就把 `agentPodMin` 设成多少。满员时新工号看到等待页、自动重试
-（平台满员时建沙箱会回 500，网关同样按满员处理）。
-交平台管理员在平台命名空间 apply。组名填进 `FUYAO_RUNTIME_GROUP` / `FUYAO_IMPORT_GROUP`。
-
-### 3.3 模板
-
-模板名由版本号派生：`gsdb-runtime-v<主>-<次>-<修订>`、`gsdb-import-v<主>-<次>-<修订>`。在模板构建主机上（root）：
-
-```bash
-# 主机能拉到三个镜像（runtime、kb-import、kbstd）时:现场构建并注册
-python3 scripts/build-e2b-template.py --tag agent-v1.5.0-oc1.18.27 --registry <内网仓库前缀> --arch arm64
-
-# 主机不能上网时:用离线包里的模板 OCI 包(scripts/package-images.sh --e2b 打出)
-python3 e2b/scripts/build-e2b-template.py --tag agent-v1.5.0-oc1.18.27 --arch arm64 \
-    --from-oci gaussdb-agent-v1.5.0-oc1.18.27-e2b-arm64.oci.tar
-```
-
-团队 API Key 从 `/root/.e2b/config.json` 读（`--e2b-config` 可改），不打印。成功后打印两个模板名。
-
-### 3.4 部署与切换
-
-```bash
-kubectl apply -k k8s/overlays/fuyao          # base + statesvc + credproxy + 网关切 fuyao
-kubectl -n gaussdb-agent edit cm gateway-config   # 填 FUYAO_API、两个模板名、两个沙箱组
-kubectl -n gaussdb-agent rollout restart deploy/gateway
-```
-
-之后的版本升级用发版台（§7.2），它会核对模板、改模板名、看换版进度。
-
-### 3.5 验证
-
-1. 网关日志有「诊断容器 Fuyao 沙箱(<诊断组> / <导入组>)」。
-2. 用一个测试工号登录：首次约 6 秒进入对话页；`GET /admin/fuyao` 能看到这台沙箱、模板是新模板名。
-3. 知识库管理员进导入环境（`/kb-import/`）：首次进入时间同上。
-4. 运维接口手动暂停这台沙箱（§7.1），再进对话页：十几秒内恢复，会话还在。
+- Secret：在《参数手册》③ 的基础上**必须**有 `sandbox-control`（键 `KEY`，≥16 字符，网关与两个集群服务共用）；
+  `gateway-auth` 的 `ADMIN_TOKEN` 建议配上（运维接口与发版台要用）；`grmp-token-<工号>` 照旧每人一个。
+- 沙箱组：同时运行的上限 = 承载 Pod 数 × `maxSandboxesPerPod`，**暂停的不占名额**；平台只按 `agentPodMin` 起承载 Pod，最小值设成与最大值相同；
+  实际容量以子组（`kubectl -n flux-system get ssg`）为准。每台的预留可以低于上限（CPU 超分），内存不超分。
+- 模板：名字由版本标签派生（`gsdb-runtime-v<主>-<次>-<修订>`、`gsdb-import-v<主>-<次>-<修订>`），在模板构建主机上用
+  `build-e2b-template.py --from-oci` 注册；虚拟机规格由注册参数 `--cpu` / `--memory` 决定。
+- 部署清单：以 `k8s/overlays/fuyao` 为底写现场 overlay；64K 页内核或多核节点要带前端 nginx 进程数与标准知识库 Job 内存两个补丁。
 
 ## 4. 参数（ConfigMap `gateway-config`）
 
@@ -134,7 +95,7 @@ kubectl -n gaussdb-agent rollout restart deploy/gateway
 |---|---|---|
 | `RUNTIME_MODE` | `ondemand` | 设 `fuyao` |
 | `FUYAO_API` | 空 | OpenSandbox 地址，如 `http://opensandbox-server.<平台命名空间>.svc:80`；fuyao 模式必填 |
-| `FUYAO_RUNTIME_TEMPLATE` / `FUYAO_IMPORT_TEMPLATE` | 空 | 两个模板名（§3.3）；必填。发版台升级时自动改 |
+| `FUYAO_RUNTIME_TEMPLATE` / `FUYAO_IMPORT_TEMPLATE` | 空 | 两个模板名（《Fuyao沙箱部署手册》§4）；必填。发版台升级时自动改 |
 | `FUYAO_RUNTIME_GROUP` / `FUYAO_IMPORT_GROUP` | 空 | 两个沙箱组；必填 |
 | `FUYAO_CPU` / `FUYAO_MEMORY` | `2` / `4Gi` | 建沙箱请求里的资源字段（平台要求必填；虚拟机实际规格由模板决定，与沙箱组规格保持一致） |
 | `FUYAO_SANDBOX_TIMEOUT` | `0` | 沙箱寿命（秒）。`0` = 不设（推荐）；平台强制要求时填 ≥1800、不超过平台上限 |
@@ -154,7 +115,7 @@ kubectl -n gaussdb-agent rollout restart deploy/gateway
 | 本人没有沙箱 | 建沙箱 → 下发配置与沙箱令牌 → 启动器取独占、载入本人状态与知识库 → 起三个服务 → 探活 |
 | 本人沙箱已暂停 | 恢复（约 3 秒）→ 等沙箱里的同步报到（每 5 秒一次），网关据此拿到新地址 → 探活 |
 | 闲置超过 `FUYAO_IDLE_SECONDS`、没有会话在跑 | 收尾回写 → 暂停（记下回写是否成功） |
-| 暂停超过 `FUYAO_RETAIN_DAYS` | 删除（数据早已回写 NAS），下次登录重建 |
+| 暂停超过 `FUYAO_RETAIN_DAYS` | 暂停前已回写的删除，下次登录重建；暂停前没回写成的不删，交运维（§7.1） |
 | 发版换了模板 | 旧版沙箱：在用的不打断；闲置时收尾、放开独占后删除；暂停前已回写的直接删除；下次登录按新模板建。`/admin/fuyao` 的 `outdated` 是剩余台数 |
 | 设了寿命、离到期不到 15 分钟 | 收尾、放开独占后删除（有会话在跑的等到最后 5 分钟） |
 | 启动器在同一台沙箱里接连失败 3 次 | 用户看到「环境准备失败，请联系管理员」，网关日志记原因；运维删除这台后重建 |
@@ -208,13 +169,14 @@ curl -X POST -H "X-Admin-Token: $T" -d '{"sandbox": "<沙箱 ID>", "force": true
 
 ### 7.2 升级（发版台）
 
-Fuyao 模式下发版台的步骤：模板核对（目标版本的两个模板各建一台探测沙箱，进入运行即删；模板缺了会给出 §3.3 的完整命令）
+Fuyao 模式下发版台的步骤：模板核对（目标版本的两个模板各建一台探测沙箱，进入运行即删；模板缺了会给出注册模板的完整命令）
 → 配置迁移（自动改两个模板名）→ 网关滚动 → 沙箱换版（报告还剩几台旧版沙箱，闲置后自动换新）→ 冒烟。
-没有「池子在线替换」与「删除旧的导入容器」两步。首次部署不走发版台，按 §3。
+没有「池子在线替换」与「删除旧的导入容器」两步。首次部署不走发版台，按《Fuyao沙箱部署手册》；
+发版台不保留现场对前端与标准知识库 Job 的补丁，64K 页节点上升级后要重打（部署手册 §10.1）。
 
 ### 7.3 换根规范
 
-`rootspec-overlay.sh` 在离线包上换根规范时，包里有模板 OCI 包就一并重建；之后在模板构建主机上用新包重新注册模板（§3.3），
+`rootspec-overlay.sh` 在离线包上换根规范时，包里有模板 OCI 包就一并重建；之后在模板构建主机上用新包重新注册模板（部署手册 §4），
 再由发版台或手工改模板名。
 
 ## 8. 排查
@@ -224,7 +186,7 @@ Fuyao 模式下发版台的步骤：模板核对（目标版本的两个模板�
 | 一直是「正在为您准备环境」 | 网关日志 `Fuyao:` 开头的行：模板名不存在、沙箱组满、启动器失败（附启动器最后几行输出） |
 | 「环境准备失败，请联系管理员」 | 网关日志「启动器接连失败」那行；多为模板有问题。修好后 `/admin/fuyao/delete` 删除那台，下次登录重建（回 409 说明收尾回写没成功，确认可丢再带 `force`） |
 | `/admin/fuyao` 的 `unsynced_over_retention` 不为 0 | 这些沙箱暂停前没回写成，清扫器过了保留期也不删（网关日志「不自动删除」那行）。按 §7.1 先 `resume` 再 `delete`，或确认可丢后带 `force` |
-| 暂停后回来要等几秒到十几秒 | 正常：等沙箱里的同步报到后网关才拿到新地址（平台恢复后不回新地址） |
+| 暂停后回来要等较久（正常 3–4 秒） | 网关要等沙箱里的同步向状态服务报到后才拿到新地址（平台恢复后不回新地址）；久等说明没报到，查沙箱到状态服务 8090 的网络 |
 | 清扫器日志「恢复后还没报到（地址未知）」、运维动作回 409「地址未知」 | 沙箱恢复了但后台同步没报到：查沙箱里 `gsdb-statesync` 服务与到状态服务（8090）的网络。网关在报到前不会碰它；确认可丢可带 `force` 删除 |
 | 建沙箱回 400「timeout exceeds configured maximum」 | `FUYAO_SANDBOX_TIMEOUT` 超过平台上限；建议设 `0` |
 | 模板注册失败「x509 unknown authority」 | 构建服务拉公网仓库失败：用脚本默认方式（本机临时仓库）或 `--from-oci` |

@@ -145,7 +145,7 @@ def test_customer_facing_docs_exist_where_the_package_expects_them():
                  "命令卡-测试环境搭建.md", "快速搭建-K8s.md", "单机演示-不用K8s.md",
                  "参数手册.md", "对接清单-各方要做什么.md", "功能清单-容器版.md",
                  "仓库结构说明.md", "固定池化手册.md", "现场测试-模拟SSO.md", "从源码构建到K8s运行-完整手册.md",
-                 "发版台-运维手册.md"):
+                 "发版台-运维手册.md", "Fuyao沙箱手册.md", "Fuyao沙箱部署手册.md"):
         assert (_ROOT / "docs" / name).is_file(), "缺 docs/%s" % name
 
 

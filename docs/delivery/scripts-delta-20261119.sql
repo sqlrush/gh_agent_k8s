@@ -18,7 +18,7 @@
 -- 执行库（database_type）：appbusiness 的脚本 parameter_config 最前面带
 --   {"key":"dbName","value":"","type":"String","autoAcquire":false}，
 -- 中间件按调用时传入的 dbName 切到该业务库执行；postgres 的脚本不带 dbName，在 postgres 库执行。
--- 本文件里的 UPDATE 会同时写 database_type 与 parameter_config，以本文件为准覆盖手工改过的记录。
+-- 本文件里的 UPDATE 只改脚本正文(script_content),不动执行库(database_type)与参数定义(parameter_config)。
 --
 -- 导入前请确认两处与现有规范的对齐：
 --   1. `create_user` / `last_modify_user` 当前填 '999999999'，与上一版保持一致；

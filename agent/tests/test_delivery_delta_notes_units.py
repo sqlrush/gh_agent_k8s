@@ -26,3 +26,23 @@ def test_the_notes_in_the_repo_have_no_duplicates_and_cover_this_round():
     notes = dd.load_notes(dd.NOTES.read_text(encoding="utf-8"))
     for name in ("lockwait.pairs", "health.stale_stats", "health.unused_index", "perf.table_stat", "explain.kernel_funcs"):
         assert "concat" in notes["changed"][name], name
+
+
+# ---- 文件头按实际改了哪些字段写(2026-11-19):本版 4 条只改脚本正文,模板却写「UPDATE 会同时写 database_type 与
+# parameter_config」—— 中间件团队据此会去核对执行库与参数,白费功夫,也会误以为执行库被重写了。
+
+def _head(changed, pchanged=frozenset(), tchanged=frozenset()):
+    text = dd.render([], changed, {"changed": {n: "说明" for n in changed}}, 132, 132, "2026-11-19", set(pchanged), set(tchanged))
+    return text.split("一、新增")[0]
+
+
+def test_header_says_only_the_body_changes_when_no_routing_or_params_changed():
+    head = _head(["lockwait.pairs", "health.stale_stats"])
+    assert "只改脚本正文(script_content)" in head and "不动执行库" in head
+    assert "会同时写 database_type 与 parameter_config" not in head
+
+
+def test_header_names_the_updates_that_rewrite_routing_or_params():
+    head = _head(["lockwait.pairs", "health.stale_stats"], tchanged={"lockwait.pairs"})
+    assert "lockwait.pairs" in head and "同时写 database_type 与 parameter_config" in head
+    assert "其余 1 条只改脚本正文" in head

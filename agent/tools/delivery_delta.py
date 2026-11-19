@@ -168,6 +168,21 @@ def _stored(sql: str) -> str:
     return sql if sql.endswith("\n") else sql + "\n"
 
 
+def _fields_note(added, changed, pchanged, tchanged) -> str:
+    """文件头里「这一包改了哪些字段」:按实际写,不用固定说法(2026-11-19:本版 4 条只改正文,模板却说会重写执行库与参数)。"""
+    writes = [n for n in changed if n in pchanged or n in tchanged]
+    rest = len(changed) - len(writes)
+    lines = []
+    if added:
+        lines.append("本文件里的 INSERT 带完整的执行库(database_type)与参数定义(parameter_config)。")
+    if changed and not writes:
+        lines.append("本文件里的 UPDATE 只改脚本正文(script_content),不动执行库(database_type)与参数定义(parameter_config)。")
+    elif writes:
+        lines.append("本文件里 %d 条 UPDATE(%s)同时写 database_type 与 parameter_config,以本文件为准覆盖手工改过的记录%s。"
+                     % (len(writes), "、".join(writes), (";其余 %d 条只改脚本正文" % rest) if rest else ""))
+    return "\n".join("-- " + ln for ln in lines) if lines else "-- 本文件没有新增或更新。"
+
+
 def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tchanged=frozenset(), upgrade: str = "") -> str:
     reg = registry()
     out = ["""-- =====================================================================
@@ -186,7 +201,7 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tch
 -- 执行库（database_type）：appbusiness 的脚本 parameter_config 最前面带
 --   {"key":"dbName","value":"","type":"String","autoAcquire":false}，
 -- 中间件按调用时传入的 dbName 切到该业务库执行；postgres 的脚本不带 dbName，在 postgres 库执行。
--- 本文件里的 UPDATE 会同时写 database_type 与 parameter_config，以本文件为准覆盖手工改过的记录。
+%(fields)s
 --
 -- 导入前请确认两处与现有规范的对齐：
 --   1. `create_user` / `last_modify_user` 当前填 '999999999'，与上一版保持一致；
@@ -197,7 +212,8 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tch
 -- 一、新增 %(na)d 条
 -- =====================================================================
 """ % {"date": date, "nb": n_base, "nn": n_now, "na": len(added), "nc": len(changed),
-       "upgrade": "".join("\n-- " + ln for ln in upgrade.splitlines()) + ("\n--" if upgrade else "")}]
+       "upgrade": "".join("\n-- " + ln for ln in upgrade.splitlines()) + ("\n--" if upgrade else ""),
+       "fields": _fields_note(added, changed, pchanged, tchanged)}]
     for name in added:
         rec = reg[name]
         title, src, why = notes["added"][name]

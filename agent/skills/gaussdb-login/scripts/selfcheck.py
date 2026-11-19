@@ -27,7 +27,7 @@ for _anc in _HERE.parents:
 import render  # noqa: E402
 from common import access, cli, config  # noqa: E402
 from common.version import package_version  # noqa: E402
-from common.grmp import routing  # noqa: E402
+from common.grmp import deltas, routing  # noqa: E402
 from common.grmp.registry import Registry, RegistryError  # noqa: E402
 
 OK, WARN, FAIL = "✓", "！", "✕"
@@ -135,9 +135,9 @@ def check_whitelist(conn, registry: Registry) -> List[Item]:
     missing = sorted(want - have)
     if not missing:
         return [Item("白名单", OK, "本版本用到的 %d 条都已登记(中间件共 %d 条)" % (len(want), len(have)))]
-    return [Item("白名单", FAIL, "缺 %d 条(中间件 %d 条,本版本要 %d 条):%s%s。按补充说明「SQL 白名单」一节导入增量"
-                 % (len(missing), len(have), len(want), "、".join(missing[:8]), "等" if len(missing) > 8 else ""),
-                 MIDDLEWARE)]
+    return [Item("白名单", FAIL, "缺 %d 条(中间件 %d 条,本版本要 %d 条):%s%s。%s"
+                 % (len(missing), len(have), len(want), "、".join(missing[:8]), "等" if len(missing) > 8 else "",
+                    deltas.advice(missing=missing)), MIDDLEWARE)]
 
 
 def check_scripts(runner) -> List[Item]:
@@ -204,7 +204,9 @@ def check_routing(conn, runner, used: Optional[set] = None, marks: bool = True) 
         if others:
             parts.append("%d 条读 SQL 历史 / WDR 快照 / 实例级视图的带了 dbName(%s%s),本版对它们明确带 postgres,照常可用"
                          % (len(others), "、".join(others[:4]), "等" if len(others) > 4 else ""))
-        items.append(Item("白名单切库标注", WARN, ";".join(parts) + "。按本版增量白名单导入后一致", MIDDLEWARE))
+        # 2026-11-19:原先只说「按本版增量导入」,现场往往还缺更早的增量 —— 按对不上的脚本推出从哪一份起导
+        items.append(Item("白名单切库标注", WARN, ";".join(parts) + "。" + deltas.advice(misrouted=set(missing) | set(others)),
+                          MIDDLEWARE))
     elif reg:
         items.append(Item("白名单切库标注", OK, "与本版一致(%d 条在业务库执行)" % len(reg)))
     return items

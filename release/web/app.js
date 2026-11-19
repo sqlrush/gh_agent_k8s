@@ -322,12 +322,18 @@ const MAIN = {
     return `<h3>变更预览 <span class="sub">kubectl diff · 确认后才改动集群;Secret 与用户自己的容器不在这里</span></h3><div class="diffv">${body}</div>`;
   },
   whitelist() {
+    // 要导哪几份(2026-11-19):按白名单本身推断导到了哪里;推断不出就请现场导出交给我方核对,不按集群版本猜
+    const wlAdvice = (w, m) => {
+      if (Array.isArray(w.suggest) && w.suggest.length) return `<div class="small" style="margin-top:6px">按核对结果推断,要从 <b class="mono">${esc(w.suggest[0])}</b> 起按顺序导完:${w.suggest.map(esc).join("、")}(一份都不能跳;已经导过的不要重导)。</div>`;
+      if (w.suggest === null) return `<div class="small" style="margin-top:6px">推断不出白名单导到了哪一份(${esc(w.suggest_reason || "")}):请把白名单导出交给我方核对,不要猜着导${(m.whitelist_files || []).length ? `;按集群版本推算本次涉及的增量:${m.whitelist_files.map(esc).join("、")}` : ""}。</div>`;
+      return "";
+    };
     const w = sh().whitelist; const m = runMeta();
     if (!w) return '<div class="empty-state">还没核对</div>';
     const c = w.counts || {};
     const tile = (n, l, cls) => `<div class="tile ${cls || ""}"><div class="n">${n}</div><div class="l">${l}</div></div>`;
     return `<div class="tiles">${tile(w.expected, "本版本应有")}${tile(c.ok || 0, "已登记且一致", "g")}${tile(c.missing || 0, "未登记", c.missing ? "r" : "")}${tile((c.content || 0) + (c.params || 0) + (c.duplicate || 0) + (c.invalid || 0), "内容 / 参数 / 重名 / 未生效", (c.content || c.params || c.duplicate || c.invalid) ? "r" : "")}</div>
-      ${(w.problems || []).length ? `<div class="gatebox err"><b>${w.problems.length} 条没有通过</b>:白名单由白名单团队手工执行${(m.whitelist_files || []).length ? `(本次的增量:${m.whitelist_files.map(esc).join("、")})` : ""};补登记后点「已补登记,重新核对」。</div>` : `<div class="gatebox" style="border-color:#a7f3d0;background:#ecfdf5"><b class="ok">核对通过</b>:${w.expected} 条全部已登记且内容一致。</div>`}
+      ${(w.problems || []).length ? `<div class="gatebox err"><b>${w.problems.length} 条没有通过</b>:白名单由白名单团队手工执行;补登记后点「已补登记,重新核对」。${wlAdvice(w, m)}</div>` : `<div class="gatebox" style="border-color:#a7f3d0;background:#ecfdf5"><b class="ok">核对通过</b>:${w.expected} 条全部已登记且内容一致。</div>`}
       <table><tr><th>脚本</th><th>结果</th><th>说明</th></tr>${(w.problems || []).map((p) => `<tr class="bad"><td class="mono">${esc(p.name)}</td><td><span class="pill p-red">${esc(p.label)}</span></td><td class="small">${esc(p.detail)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">没有问题</td></tr>'}</table>
       ${(w.extra || []).length ? `<p class="small muted">中间件里另有 ${w.extra.length} 条本版本不需要的脚本(只列出,不算失败)。</p>` : ""}`;
   },

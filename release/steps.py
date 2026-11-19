@@ -323,15 +323,21 @@ def step_whitelist(ctx: Ctx) -> None:
     if not expected:
         raise StepFailed("目标包的 release.yaml 里没有白名单清单")
     ctx.sub(0, "done", "%d 条" % len(expected))
+    deltas = (pkg.release or {}).get("whitelist", {}).get("deltas") or []
     while True:
         ctx.sub(1, "running")
-        rep = whitelist.compare(expected, registered_scripts(svc, svc.cfg()))
+        got = registered_scripts(svc, svc.cfg())
+        rep = whitelist.compare(expected, got)
         ctx.sub(1, "done", "已读取")
         counts = rep.counts()
         ctx.sub(2, "done", "%d 条一致" % counts[whitelist.OK])
+        # 要导哪几份:按白名单本身推断导到了哪里(白名单常常落后于集群版本);推断不出就不猜,请现场导出交给我方核对
+        files, why = whitelist.suggest(deltas, rep.problems, got) if not rep.passed else ([], "")
         ctx.share(whitelist={"expected": rep.expected, "counts": counts, "extra": rep.extra,
                              "problems": [{"name": f.name, "status": f.status, "label": whitelist.LABELS[f.status],
-                                           "detail": f.detail} for f in rep.problems]})
+                                           "detail": f.detail} for f in rep.problems],
+                             "suggest": files, "suggest_reason": why,
+                             "span_files": ctx.plan.get("whitelist_files") or []})
         if rep.passed:
             ctx.sub(3, "done", "%d/%d" % (rep.expected, rep.expected))
             ctx.log("核对通过:%d 条全部已登记且一致" % rep.expected, "g")
@@ -339,9 +345,14 @@ def step_whitelist(ctx: Ctx) -> None:
             return
         msg = "、".join("%s %d 条" % (whitelist.LABELS[k], v) for k, v in counts.items() if v and k != whitelist.OK)
         ctx.log("核对未通过:%s" % msg, "w")
+        if files:
+            ctx.log("按核对结果推断,白名单团队要从 %s 起按顺序导完:%s(一份都不能跳;已经导过的不要重导)"
+                    % (files[0], "、".join(files)), "w")
+        elif files is None:
+            ctx.log("推断不出白名单导到了哪一份(%s):请把白名单导出交给我方核对,不要猜着导" % why, "w")
         ctx.sub(3, "waiting", msg)
         ctx.detail("未通过:" + msg)
-        ctx.gate("whitelist", {"counts": counts, "files": ctx.plan.get("whitelist_files") or []})
+        ctx.gate("whitelist", {"counts": counts, "files": files if files is not None else [], "reason": why})
         ctx.log("运维确认已补登记,重新核对")
 
 

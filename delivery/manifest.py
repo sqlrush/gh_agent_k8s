@@ -95,7 +95,7 @@ COMMON = {
         "timing/__init__.py", "timing/analysis.py", "timing/cli.py", "timing/grmplog.py", "timing/mask.py",
         "timing/render.py", "timing/store.py", "timing/report.html",
         "sql.py",           # 已清空,但 13 个诊断技能按「common/sql.py 存在」定位 common 目录,不能删
-        "grmp/__init__.py", "grmp/client.py", "grmp/columns.py", "grmp/errors.py", "grmp/hints.py",
+        "grmp/__init__.py", "grmp/client.py", "grmp/columns.py", "grmp/deltas.py", "grmp/errors.py", "grmp/hints.py",
         "grmp/params.py", "grmp/paths.py", "grmp/placeholder.py", "grmp/proxy.py", "grmp/registry.py", "grmp/routing.py",
         "grmp/runner.py", "grmp/script.py", "grmp/serialize.py", "grmp/settings.py", "grmp/signing.py",
         "grmp/sm2.py", "grmp/sm3.py", "grmp/statement.py", "grmp/timing.py", "grmp/userid.py", "grmp/values.py",

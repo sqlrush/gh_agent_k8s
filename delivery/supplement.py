@@ -51,6 +51,15 @@ def render(manifest, package: str, root: pathlib.Path, source: Dict[str, str], v
     L += ["", "部署方式与镜像里一致:`common/`%s与 `skills/` 下的各个技能目录放进 opencode 的技能目录(镜像里是 "
           "`/opt/agent/config/opencode/skills/`,技能直接在这一层,不再套 `skills/`),`AGENTS.md` 放进 opencode 的配置目录"
           "(镜像里是 `/opt/agent/config/opencode/`)。" % ("、`scripts/`" if pkg["whitelist"] else ""), ""]
+    # 2026-11-17 现场:只放了 common/ 与技能目录、漏了 scripts/,又没设 GSDB_SKILLS_DIR —— 部署自检读不到脚本定义中途退出,
+    # 补充说明里的命令照抄也找不到文件。两条都写成必做项
+    must = ["**`GSDB_SKILLS_DIR` 必须设置**:在启动 opencode 的环境里设成技能目录(例如 `export GSDB_SKILLS_DIR=/workspace/.opencode/skills`)。"
+            "根提示词里的命令、下面的自检与耗时统计都按它找脚本;没设时照抄命令会提示找不到文件。"]
+    if pkg["whitelist"]:
+        must.insert(0, "**`scripts/` 必须和 `common/` 一起放**:放在技能目录下、与 `common/` 同一层(`$GSDB_SKILLS_DIR/scripts/registry/`)。"
+                       "平时问答不读它(技能按脚本名调中间件),但部署自检要拿它和中间件登记的清单比对;漏了,"
+                       "自检的「白名单」「白名单切库标注」两项会标「无法比对」。")
+    L += ["- " + m for m in must] + [""]
     # 2026-11-06 行方升级:GSDB_HOME 不设时就是技能目录下的 common/,本地配置与会话都在里面,整包覆盖会把配置冲掉
     L += ["**升级时保留本地状态**:`GSDB_HOME` 不设时就是技能目录下的 `common/`,里面的 `config.yaml`(连接方式、中间件地址)、"
           "`credentials/`、`sessions/` 是本地状态。覆盖前先备份 `common/config.yaml`,覆盖后还原(包里的 `common/config.yaml` "
@@ -59,13 +68,14 @@ def render(manifest, package: str, root: pathlib.Path, source: Dict[str, str], v
         # 2026-11-08 行方测试报告:一半的「失败」是环境问题(新包没装进运行目录、白名单没导全、受限账号、监控开关),
         # 用到时才以 HTTP 400 冒出来;装完先自检,一次查清、并写明找谁
         L += ["**装完先自检**:登录任一实例后运行 `python3 $GSDB_SKILLS_DIR/gaussdb-login/scripts/selfcheck.py --session <句柄>`"
-              "(或在对话里说「做一次部署自检」)。它核对技能包版本、知识库目录、白名单是否导全、中间件能否跑多条语句、"
-              "关键脚本能否执行(含执行账号权限)、数据库监控开关,逐项给出结论和「找谁」。登录表格里的「技能包」一行"
+              "(或在对话里说「做一次部署自检」)。它核对技能包版本、`GSDB_SKILLS_DIR`、知识库目录、白名单是否导全、白名单切库标注、"
+              "是否切到了业务库、关键脚本能否执行(含执行账号权限)、数据库监控开关,逐项给出结论和「找谁」;某一项查不了只标这一项,其余照常查完。登录表格里的「技能包」一行"
               "显示正在运行的版本,与本包版本对不上说明新包没装进技能目录。", ""]
     if (root / "common" / "timing" / "cli.py").is_file():
         # 2026-11-16 现场反馈一次交互十几分钟:每一步的用时由脚本统计出来,不调模型、不改提示词
         L += ["**看每次交互慢在哪**(v1.4.14 起):在智能体所在的机器 / 容器里运行 "
               "`python3 $GSDB_SKILLS_DIR/common/timing/cli.py --last 3 --html /tmp/耗时报告.html`,"
+              "(没设 `GSDB_SKILLS_DIR` 时写完整路径,例如 `python3 /workspace/.opencode/skills/common/timing/cli.py --last 3 --html /tmp/耗时报告.html`),"
               "按「提问 → 每一轮模型调用 → 等首字 / 思考与输出 / 工具(其中 GRMP 与数据库)/ 空档」统计用时并写出慢在哪;"
               "`--list` 列出最近的提问,`--since` / `--until` 按时间段取,`--text` 出文本版。纯脚本统计,不调模型、不联网、不改任何数据。"
               "默认是摘要版(只有时间、技能与脚本名、token 数);加 `--detail` 带思考原文、命令参数与工具输出(令牌、会话句柄、IP 自动遮掉),只在内部查看。"

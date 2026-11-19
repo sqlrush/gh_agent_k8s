@@ -51,6 +51,29 @@ _PARAMS = re.compile(r"'centralization', '.*?', '(\[.*?\])', 'AGENT'", re.S)
 _DBTYPE = re.compile(r"VALUES \([^,]+, '[A-Z]+', '[a-z_]+\.[a-z_0-9]+', '([a-z]+)'")
 
 
+class _NoDupLoader(yaml.SafeLoader):
+    """同一层里重复的键直接报错(yaml 默认后一个静默覆盖前一个)。"""
+
+
+def _no_dup_mapping(loader, node, deep=False):
+    keys = set()
+    for k, _v in node.value:
+        key = loader.construct_object(k, deep=deep)
+        if key in keys:
+            raise ValueError("%s 里 %r 写了两次:后一条会静默顶替前一条(v1.4.14 的增量说明就这样写错过),只留最新的一条"
+                             % (NOTES.name, key))
+        keys.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_NoDupLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
+
+
+def load_notes(text: str) -> dict:
+    """读增量说明;有重复的脚本名就报错,不许旧说明顶替新说明(2026-11-19)。"""
+    return yaml.load(text, Loader=_NoDupLoader) or {}
+
+
 def bodies(dml: str) -> dict:
     """DML 文本 → {脚本名: SQL 正文}。正文里的 '' 还原成 '。"""
     out = {}
@@ -145,7 +168,7 @@ def _stored(sql: str) -> str:
     return sql if sql.endswith("\n") else sql + "\n"
 
 
-def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tchanged=frozenset()) -> str:
+def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tchanged=frozenset(), upgrade: str = "") -> str:
     reg = registry()
     out = ["""-- =====================================================================
 -- GRMP 诊断脚本白名单 · 增量导入（%(date)s）
@@ -153,7 +176,7 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tch
 --
 -- 适用前提：已导入过上一版的 %(nb)d 条脚本。本文件只含相对那一版的**增量**，
 -- 不要整份重导（整份见同目录 scripts.sql，共 %(nn)d 条）。
---
+--%(upgrade)s
 --   新增   %(na)d 条 INSERT
 --   更新   %(nc)d 条 UPDATE
 --
@@ -173,7 +196,8 @@ def render(added, changed, notes, n_base, n_now, date, pchanged=frozenset(), tch
 -- =====================================================================
 -- 一、新增 %(na)d 条
 -- =====================================================================
-""" % {"date": date, "nb": n_base, "nn": n_now, "na": len(added), "nc": len(changed)}]
+""" % {"date": date, "nb": n_base, "nn": n_now, "na": len(added), "nc": len(changed),
+       "upgrade": "".join("\n-- " + ln for ln in upgrade.splitlines()) + ("\n--" if upgrade else "")}]
     for name in added:
         rec = reg[name]
         title, src, why = notes["added"][name]
@@ -234,10 +258,11 @@ def main(argv=None) -> int:
                     help="行方在用的那一版所在的 git 版本(发布标签,如 agent-v1.4.6)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--date", required=True, help="写进文件头的日期,如 2026-10-18")
+    ap.add_argument("--upgrade", default="", help="写进文件头的升级路径,如「从 v1.4.14(及更早)升级到 v1.5.0」;更早的版本先导哪几份也写在这里")
     a = ap.parse_args(argv)
 
     added, changed, gone, nb, nn = diff(a.base)
-    notes = yaml.safe_load(NOTES.read_text(encoding="utf-8")) or {}
+    notes = load_notes(NOTES.read_text(encoding="utf-8"))
     base, reg = _base_dml(a.base), registry()
     tchanged = routing_changed(base, changed, reg)
     b = bodies(base)
@@ -256,7 +281,7 @@ def main(argv=None) -> int:
         print("warning: 这些脚本在行方那版里有、现在没了,增量包**不**生成 DELETE,"
               "请人工确认是否要行方删除:\n  %s" % "\n  ".join(gone), file=sys.stderr)
     pchanged = params_changed(a.base, changed) if changed else set()
-    pathlib.Path(a.out).write_text(render(added, changed, notes, nb, nn, a.date, pchanged, tchanged), encoding="utf-8")
+    pathlib.Path(a.out).write_text(render(added, changed, notes, nb, nn, a.date, pchanged, tchanged, a.upgrade), encoding="utf-8")
     print("写出 %s:新增 %d、更新 %d(其中参数定义变了 %d、执行库变了 %d、只改执行库 %d)(基线 %s,%d → %d 条)"
           % (a.out, len(added), len(changed), len(pchanged), len(tchanged), len(routing_only), a.base, nb, nn))
     return 0

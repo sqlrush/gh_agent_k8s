@@ -144,6 +144,29 @@ def test_an_empty_list_is_explained_as_an_instance_attribute_mismatch(monkeypatc
     assert rc == 1 and "脚本清单为空" in out and "集中式" in out and "灌" not in out
 
 
+# ---- 现场形态:技能目录下只有 common 与各技能,没有 scripts/(2026-11-17 现场照片)
+
+def test_a_missing_script_registry_does_not_stop_the_report(monkeypatch, tmp_path, capsys):
+    """现场安装时只放了 common/ 与技能目录、漏了 scripts/:读不到本地脚本定义,原来整份报告在「白名单核对」抛
+    RegistryError 退出,后面的脚本试跑、监控开关都没跑。现在这两项标「无法比对」并说清下一步,其余照常跑完。"""
+    monkeypatch.setenv("GRMP_REGISTRY", str(tmp_path / "skills" / "scripts" / "registry"))
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry(_ROOT / "scripts" / "registry").names()), capsys)
+    assert "| 白名单 | ！ | 无法比对" in out and "| 白名单切库标注 | ！ | 无法比对" in out
+    assert "scripts/" in out and "common/ 同一层" in out and "部署方" in out
+    assert "已切到「appdb」" in out, "业务库切换不依赖本地脚本定义,照常检查"
+    assert "health.overview 正常" in out and "参数 enable_stmt_track" in out, "后面各项照常跑完"
+    assert "Traceback" not in out and rc == 0, "只是比对不了,不算功能不可用"
+
+
+def test_an_unexpected_error_in_one_check_only_marks_that_check(monkeypatch, tmp_path, capsys):
+    def boom(runner):
+        raise RuntimeError("意外")
+    monkeypatch.setattr(sc, "check_scripts", boom)
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names()), capsys)
+    assert "| 关键脚本试跑 | ✕ | 自检这一项出错:意外" in out and rc == 1
+    assert "参数 enable_stmt_track" in out and "| 白名单 | ✓" in out, "其余各项照常输出"
+
+
 # ---- 切到业务库(dbName,2026-11-11)
 
 def test_routing_is_reported_when_the_session_switched(monkeypatch, tmp_path, capsys):

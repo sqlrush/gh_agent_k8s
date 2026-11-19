@@ -159,6 +159,7 @@ spec:
             # (gateway/config.py):不限制来源就等于「任填工号即可进入任何人的环境」,
             # 而且从外面看不出异常 —— 宁可起不来。
             - {name: GATEWAY_TRUST_SECRET, valueFrom: {secretKeyRef: {name: gateway-auth, key: TRUST_SECRET, optional: true}}}
+            # ADMIN_TOKEN:按需 / 固定池化可选(不配 = 控制 API 关闭);**Fuyao 模式必填**,缺了网关拒绝启动(运维接口与发版台都要用)
             - {name: GATEWAY_ADMIN_TOKEN, valueFrom: {secretKeyRef: {name: gateway-auth, key: ADMIN_TOKEN, optional: true}}}
           ports: [{containerPort: 8080, name: http}]
           readinessProbe:

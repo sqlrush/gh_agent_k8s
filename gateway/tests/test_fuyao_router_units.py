@@ -627,7 +627,7 @@ def test_pausing_records_whether_the_final_sync_succeeded(env):
 # -- 配置 --------------------------------------------------------------------------------------------
 
 BASE = {"GATEWAY_NAMESPACE": "ns", "GATEWAY_IMAGE_TAG": "t", "GATEWAY_TRUST_SECRET": "s" * 32}
-FUYAO = dict(BASE, GATEWAY_RUNTIME_MODE="fuyao", GATEWAY_POOL_CONTROL_KEY="c" * 32,
+FUYAO = dict(BASE, GATEWAY_RUNTIME_MODE="fuyao", GATEWAY_POOL_CONTROL_KEY="c" * 32, GATEWAY_ADMIN_TOKEN="a" * 32,
              GATEWAY_FUYAO_API="http://opensandbox-server.flux-system.svc:80",
              GATEWAY_FUYAO_RUNTIME_TEMPLATE="gsdb-runtime-v1-5-0", GATEWAY_FUYAO_RUNTIME_GROUP="sg-gsdb-run",
              GATEWAY_FUYAO_IMPORT_TEMPLATE="gsdb-import-v1-5-0", GATEWAY_FUYAO_IMPORT_GROUP="sg-gsdb-imp",
@@ -639,6 +639,19 @@ def test_fuyao_config_parses_and_other_modes_ignore_it():
     assert c.runtime_mode == "fuyao" and c.fuyao_pause is True and c.fuyao_idle_seconds == 1800
     assert c.fuyao_state_url == "http://10.96.0.20:8090"
     assert gwconfig.load(BASE).runtime_mode == "ondemand", "不在 fuyao 模式时缺这些不拒绝"
+
+
+def test_fuyao_mode_refuses_to_start_without_the_admin_token():
+    """Fuyao 模式的运维(/admin/fuyao:回写、暂停、删除,发版台的换版进度与冒烟)全靠运维密钥;没有它运维接口整体 404,
+    出了问题只能去平台上删沙箱(不回写)。所以缺了就不启动,并说清楚去哪补(2026-11-18)。其他模式照旧可选。"""
+    for bad in ("", "   "):
+        with pytest.raises(gwconfig.ConfigError) as ei:
+            gwconfig.load(dict(FUYAO, GATEWAY_ADMIN_TOKEN=bad))
+        assert "ADMIN_TOKEN" in str(ei.value) and "gateway-auth" in str(ei.value)
+    no_key = {k: v for k, v in FUYAO.items() if k != "GATEWAY_ADMIN_TOKEN"}
+    with pytest.raises(gwconfig.ConfigError):
+        gwconfig.load(no_key)
+    assert gwconfig.load(dict(BASE, GATEWAY_ADMIN_TOKEN="")).admin_token == "", "按需模式不强制"
 
 
 def test_the_two_service_urls_follow_the_gateway_namespace_when_not_given():

@@ -191,6 +191,11 @@ def load(env: Mapping[str, str]) -> Config:
     if runtime_mode == RUNTIME_FUYAO and len(pool_key) < 16:
         raise ConfigError("Fuyao 模式要 GATEWAY_POOL_CONTROL_KEY(Secret sandbox-control 的 KEY,与状态服务、"
                           "凭据代理服务同一把,用来签发沙箱令牌),没配或不足 16 个字符")
+    if runtime_mode == RUNTIME_FUYAO and not (env.get("GATEWAY_ADMIN_TOKEN") or "").strip():
+        # 运维接口 /admin/fuyao(回写、暂停、删除,发版台读换版进度与删冒烟沙箱)全靠它;没有它接口整体 404,
+        # 出了问题只能去平台上直接删沙箱(不回写、丢数据)—— 宁可不启动(2026-11-18)
+        raise ConfigError("Fuyao 模式要 GATEWAY_ADMIN_TOKEN(Secret gateway-auth 的 ADMIN_TOKEN,运维接口 /admin/fuyao 与"
+                          "发版台都要用),没配或为空:往 Secret gateway-auth 加 ADMIN_TOKEN(openssl rand -hex 24)后重启网关")
     short = (env.get(TEST_SHORT_TIMERS) or "").strip() == "1"
     clip_mb = _int(env, "GATEWAY_KB_CLIP_MAX_MB", 30, minimum=1)
     if clip_mb > KB_CLIP_MAX_MB_CEILING:

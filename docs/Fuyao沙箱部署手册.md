@@ -364,7 +364,7 @@ Secret 要先于 §7 建好（否则网关、状态服务、凭据代理起不�
 | Secret | 键 | 必需 | 谁用 | 怎么生成 |
 |---|---|---|---|---|
 | `gateway-auth` | `TRUST_SECRET` | 与 `TRUST_CIDRS` 至少一个 | 网关：确认工号头可信 | `openssl rand -hex 24`，交给统一认证团队 |
-| `gateway-auth` | `ADMIN_TOKEN` | **Fuyao 模式建议必配** | 网关运维接口 `/admin/fuyao`；发版台经它读换版进度、删冒烟沙箱 | `openssl rand -hex 24`，留空则运维接口整体 404，发版台的 Fuyao 步骤会失败 |
+| `gateway-auth` | `ADMIN_TOKEN` | **必需**（Fuyao 模式，缺了网关拒绝启动） | 网关运维接口 `/admin/fuyao`；发版台经它读换版进度、删冒烟沙箱 | `openssl rand -hex 24` |
 | `sandbox-control` | `KEY` | **必需**（≥16 字符） | 网关签发沙箱令牌；状态服务、凭据代理验令牌；运维统计签名 | `openssl rand -hex 32` |
 | `model-api` | `MODEL_API_KEY` | **必需** | 凭据代理给模型请求加密钥（缺了凭据代理起不来） | 模型服务提供 |
 | `grmp-sm2` | `GRMP_SM2_PRIVATE_KEY` | 中间件开签名校验时 | 凭据代理给中间件请求签名 | 中间件方签发，`--from-file` |
@@ -607,6 +607,7 @@ kubectl auth can-i list pods -n flux-system --as=$SA                            
 | 网关日志 `配置错误,网关拒绝启动:Fuyao 模式缺配置:…` | §6.2 的必填项没填，按提示补 |
 | `… 不像模板名` / `不是合法的沙箱组名` | 模板名、组名写错（组名只能是小写字母、数字、连字符） |
 | `Fuyao 模式要 GATEWAY_POOL_CONTROL_KEY …` | Secret `sandbox-control` 没建或键不是 `KEY` |
+| `Fuyao 模式要 GATEWAY_ADMIN_TOKEN …` | Secret `gateway-auth` 没有 `ADMIN_TOKEN`（1.5.0 起 Fuyao 模式必填）：补上后重启网关 |
 | 凭据代理 `CreateContainerConfigError` | Secret `model-api` 没建 |
 | 状态服务 `CreateContainerConfigError` | Secret `sandbox-control` 没建或键不是 `KEY` |
 | 状态服务反复重启，日志「缺 GSDB_CONTROL_KEY」 | `sandbox-control` 的 `KEY` 不足 16 个字符 |

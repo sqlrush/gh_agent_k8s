@@ -82,7 +82,7 @@
 升级、扩容、卸载）。本手册不再重复部署步骤，只列要点：
 
 - Secret：在《参数手册》③ 的基础上**必须**有 `sandbox-control`（键 `KEY`，≥16 字符，网关与两个集群服务共用）；
-  `gateway-auth` 的 `ADMIN_TOKEN` 建议配上（运维接口与发版台要用）；`grmp-token-<工号>` 照旧每人一个。
+  `gateway-auth` 的 `ADMIN_TOKEN` **必填**（运维接口与发版台要用，1.5.0 起缺了网关拒绝启动）；`grmp-token-<工号>` 照旧每人一个。
 - 沙箱组：同时运行的上限 = 承载 Pod 数 × `maxSandboxesPerPod`，**暂停的不占名额**；平台只按 `agentPodMin` 起承载 Pod，最小值设成与最大值相同；
   实际容量以子组（`kubectl -n flux-system get ssg`）为准。每台的预留可以低于上限（CPU 超分），内存不超分。
 - 模板：名字由版本标签派生（`gsdb-runtime-v<主>-<次>-<修订>`、`gsdb-import-v<主>-<次>-<修订>`），在模板构建主机上用

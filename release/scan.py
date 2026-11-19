@@ -5,7 +5,8 @@
 这几项标「首次部署后核对」,由冒烟验证兜底。
 
 Fuyao 运行模式(gateway-config 的 RUNTIME_MODE=fuyao)没有池子:不找管家、不看池子,模型与中间件由冒烟验证核对;
-另加一项「Fuyao 沙箱」:状态服务、凭据代理服务两个 Deployment 就绪,gateway-config 的 FUYAO_API 有值。
+另加一项「Fuyao 沙箱」:状态服务、凭据代理服务两个 Deployment 就绪,gateway-config 的 FUYAO_API 有值,
+Secret gateway-auth 有 ADMIN_TOKEN(1.5.0 起 Fuyao 模式必填)。
 """
 from __future__ import annotations
 
@@ -203,6 +204,12 @@ class Scanner:
         """Fuyao 模式:两个集群服务就绪(就绪副本数达到期望)、OpenSandbox 地址有值。模板在发布的「模板核对」一步查。"""
         api = str(((self.kube.get("configmap", "gateway-config") or {}).get("data") or {}).get("FUYAO_API") or "").strip()
         problems = [] if api else ["gateway-config 的 FUYAO_API 没填(OpenSandbox 地址)"]
+        auth = self.kube.get("secret", "gateway-auth")
+        if auth is not None and not str((auth.get("data") or {}).get("ADMIN_TOKEN") or "").strip():
+            # 1.5.0 起 Fuyao 模式的网关缺它不启动;首次部署(还没有这个 Secret)由发版台生成,不报
+            problems.append("Secret gateway-auth 没有 ADMIN_TOKEN:1.5.0 起 Fuyao 模式必填(网关缺它不启动),"
+                            "先补上:kubectl -n <命名空间> patch secret gateway-auth --type merge "
+                            "-p '{\"stringData\":{\"ADMIN_TOKEN\":\"<openssl rand -hex 24 生成>\"}}'")
         ready = []
         for name in FUYAO_DEPLOYS:
             d = self.kube.get("deploy", name)

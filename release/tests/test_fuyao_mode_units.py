@@ -227,7 +227,8 @@ def test_the_config_step_writes_the_target_template_names(tmp_path, monkeypatch)
 def _scan(tmp_path, kube):
     st = Store(tmp_path / "r.db")
     st.save_config({"smoke.user": "u9500", "registry.mode": "preloaded"})
-    kube.objects.update({("secret", "gateway-auth"): {}, ("secret", "grmp-token-u9500"): {}})
+    kube.objects.setdefault(("secret", "gateway-auth"), {"data": {"TRUST_SECRET": "dA==", "ADMIN_TOKEN": "YQ=="}})
+    kube.objects.update({("secret", "grmp-token-u9500"): {}})
     (tmp_path / "rel").mkdir(exist_ok=True)
     return {i.id: i for i in scan.Scanner(store=st, kube=kube, releases=tmp_path / "rel").run()}
 
@@ -246,6 +247,15 @@ def test_the_fuyao_scan_names_what_is_missing(tmp_path):
     del kube.objects[("deploy", "statesvc")]
     it = _scan(tmp_path, kube)["fuyao"]
     assert it.st == "bad" and "FUYAO_API 没填" in it.msg and "没有 Deployment statesvc" in it.msg and "credproxy 就绪 1/2" in it.msg
+
+
+@pytest.mark.parametrize("data", [{"TRUST_SECRET": "dA=="}, {"TRUST_SECRET": "dA==", "ADMIN_TOKEN": ""}])
+def test_the_fuyao_scan_flags_a_missing_admin_token_before_the_gateway_refuses_to_start(tmp_path, data):
+    """1.5.0 起 Fuyao 模式的网关缺 ADMIN_TOKEN 不启动:扫描先报出来,别等到「网关滚动」一步超时才发现。"""
+    kube = FyKube()
+    kube.objects[("secret", "gateway-auth")] = {"data": data}
+    it = _scan(tmp_path, kube)["fuyao"]
+    assert it.st == "bad" and "ADMIN_TOKEN" in it.msg and "gateway-auth" in it.msg
 
 
 def test_other_modes_have_no_fuyao_item(tmp_path):

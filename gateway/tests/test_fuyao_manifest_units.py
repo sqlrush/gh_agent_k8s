@@ -114,3 +114,11 @@ def test_ops_admins_ship_empty_and_product_name_defaults_to_the_generic_name():
     assert roles["ops-admins"] == "" and roles["kb-admins"] == "", "交付时不能带任何样例工号"
     gw = _yaml(_ROOT / "k8s" / "base" / "configmap-gateway.yaml")[0]["data"]
     assert gw["PRODUCT_NAME"] == "GaussDB 智能体" and gw["OPS_ADMIN_ROLES"] == "ops-admin"
+
+
+def test_the_two_service_urls_are_left_empty_so_the_gateway_derives_them_from_its_namespace():
+    """base 不再写死 gaussdb-agent:换命名空间部署时留空,网关按 GATEWAY_NAMESPACE 推导(gateway/config.py)。"""
+    cm = (_ROOT / "k8s" / "base" / "configmap-gateway.yaml").read_text(encoding="utf-8")
+    for key in ("FUYAO_STATE_URL", "FUYAO_CREDPROXY_URL"):
+        m = re.search(r'^  %s:\s*"([^"]*)"' % key, cm, re.M)
+        assert m and m.group(1) == "", "%s 要留空(默认按命名空间推导)" % key

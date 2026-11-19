@@ -205,7 +205,7 @@ def load(env: Mapping[str, str]) -> Config:
         raise ConfigError("GATEWAY_POOL_EARLY_IDLE_SECONDS=%d 比 GATEWAY_POOL_IDLE_SECONDS=%d 还长:"
                           "满员时提前转保留就永远轮不到" % (early, idle))
 
-    fy = _fuyao(env, runtime_mode == RUNTIME_FUYAO, low)
+    fy = _fuyao(env, runtime_mode == RUNTIME_FUYAO, low, ns)
     product = (env.get("GATEWAY_PRODUCT_NAME") or "").strip() or DEFAULT_PRODUCT_NAME
     if len(product) > PRODUCT_NAME_MAX or any(ord(c) < 32 or c in "<>\"'&" for c in product):
         raise ConfigError("PRODUCT_NAME=%r 不对:至多 %d 个字符,不含控制字符与 < > \" ' &" % (product, PRODUCT_NAME_MAX))
@@ -250,14 +250,22 @@ def _http_url(key: str, raw: str) -> str:
     return raw.rstrip("/")
 
 
-def _fuyao(env: Mapping[str, str], on: bool, low) -> dict:
-    """Fuyao 模式的配置。不在这个模式时只解析、不强制;在这个模式时缺一项都拒绝启动。"""
+# 两个集群服务的默认地址:按网关所在的命名空间推导(k8s/fuyao 的 Service 与网关在同一个命名空间)。
+# 换命名空间部署时不用再手工改这两项;显式填了的照用(2026-11-18)
+STATE_URL_DEFAULT = "http://statesvc.%s.svc:8090"
+CREDPROXY_URL_DEFAULT = "http://credproxy.%s.svc:8091"
+
+
+def _fuyao(env: Mapping[str, str], on: bool, low, ns: str = "gaussdb-agent") -> dict:
+    """Fuyao 模式的配置。不在这个模式时只解析、不强制;在这个模式时缺一项都拒绝启动。
+    状态服务、凭据代理服务的地址没填时按命名空间 ns 推导。"""
     out = {
         "fuyao_api": (env.get("GATEWAY_FUYAO_API") or "").strip(), "fuyao_api_key": (env.get("GATEWAY_FUYAO_API_KEY") or "").strip(),
         "fuyao_runtime_template": (env.get("GATEWAY_FUYAO_RUNTIME_TEMPLATE") or "").strip(), "fuyao_runtime_group": (env.get("GATEWAY_FUYAO_RUNTIME_GROUP") or "").strip(),
         "fuyao_import_template": (env.get("GATEWAY_FUYAO_IMPORT_TEMPLATE") or "").strip(), "fuyao_import_group": (env.get("GATEWAY_FUYAO_IMPORT_GROUP") or "").strip(),
         "fuyao_cpu": (env.get("GATEWAY_FUYAO_CPU") or "2").strip(), "fuyao_memory": (env.get("GATEWAY_FUYAO_MEMORY") or "4Gi").strip(),
-        "fuyao_state_url": (env.get("GATEWAY_FUYAO_STATE_URL") or "").strip(), "fuyao_credproxy_url": (env.get("GATEWAY_FUYAO_CREDPROXY_URL") or "").strip(),
+        "fuyao_state_url": (env.get("GATEWAY_FUYAO_STATE_URL") or "").strip() or STATE_URL_DEFAULT % ns,
+        "fuyao_credproxy_url": (env.get("GATEWAY_FUYAO_CREDPROXY_URL") or "").strip() or CREDPROXY_URL_DEFAULT % ns,
     }
     pause = (env.get("GATEWAY_FUYAO_PAUSE") or "1").strip().lower()
     if pause not in ("1", "0", "true", "false", "yes", "no"):
@@ -277,9 +285,7 @@ def _fuyao(env: Mapping[str, str], on: bool, low) -> dict:
                               ("GATEWAY_FUYAO_RUNTIME_TEMPLATE", out["fuyao_runtime_template"]),
                               ("GATEWAY_FUYAO_RUNTIME_GROUP", out["fuyao_runtime_group"]),
                               ("GATEWAY_FUYAO_IMPORT_TEMPLATE", out["fuyao_import_template"]),
-                              ("GATEWAY_FUYAO_IMPORT_GROUP", out["fuyao_import_group"]),
-                              ("GATEWAY_FUYAO_STATE_URL", out["fuyao_state_url"]),
-                              ("GATEWAY_FUYAO_CREDPROXY_URL", out["fuyao_credproxy_url"])) if not v]
+                              ("GATEWAY_FUYAO_IMPORT_GROUP", out["fuyao_import_group"])) if not v]
     if missing:
         raise ConfigError("Fuyao 模式缺配置:%s(见《参数手册》Fuyao 一节)" % "、".join(missing))
     out["fuyao_api"] = _http_url("GATEWAY_FUYAO_API", out["fuyao_api"])

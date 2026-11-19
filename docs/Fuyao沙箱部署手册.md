@@ -407,8 +407,8 @@ Fuyao 相关键（默认值取自 `k8s/base/configmap-gateway.yaml`，下限由�
 | `FUYAO_PAUSE` | `1` | 否 | 平台不支持暂停时设 `0`：闲置即收尾后删除 |
 | `FUYAO_SWEEP_SECONDS` | `30` | 否 | 清扫周期（≥5） |
 | `FUYAO_WAIT_SECONDS` | `90` | 否 | 一次请求为准备沙箱最多等多久，等不到回等待页（≥10） |
-| `FUYAO_STATE_URL` | `http://statesvc.gaussdb-agent.svc:8090` | 是 | 状态服务。**换了命名空间要跟着改**（§7.5）；网关解析成 ClusterIP 再下发给沙箱 |
-| `FUYAO_CREDPROXY_URL` | `http://credproxy.gaussdb-agent.svc:8091` | 是 | 凭据代理服务，同上 |
+| `FUYAO_STATE_URL` | 空 | 否 | 状态服务地址。留空（推荐）= 按网关所在命名空间推导为 `http://statesvc.<命名空间>.svc:8090`，换命名空间不用改；服务不在网关的命名空间时才填。网关解析成 ClusterIP 再下发给沙箱 |
+| `FUYAO_CREDPROXY_URL` | 空 | 否 | 凭据代理服务地址，规则同上：留空推导为 `http://credproxy.<命名空间>.svc:8091` |
 | `PRODUCT_NAME` | `GaussDB 智能体` | 否 | 大盘标题、logo、日报报头上的产品名，例如「XX智能体」；至多 40 个字符，不含 `< > " ' &` |
 | `OPS_ADMIN_ROLES` | `ops-admin` | 否 | 哪些角色值算运维管理员（能看资源大盘） |
 | `KB_ADMIN_ROLES` | `kb-admin` | 否 | 哪些角色值算知识库管理员（有导入环境） |
@@ -552,7 +552,7 @@ Role 2、RoleBinding 2、ServiceAccount 2、ClusterRole 1、ClusterRoleBinding 1
 
 ### 7.5 换命名空间（不用默认 `gaussdb-agent` 时）
 
-在 `kustomization.yaml` 加 `namespace: <命名空间>`，并多打两处补丁（鲲鹏测试环境 `gaussdb-agent-fy` 就是这样部署的）：
+在 `kustomization.yaml` 加 `namespace: <命名空间>`，再打一处补丁：
 
 - 网关的 `GATEWAY_NAMESPACE` 在清单里写死为 `gaussdb-agent`，要改成新命名空间：
 
@@ -569,7 +569,8 @@ Role 2、RoleBinding 2、ServiceAccount 2、ClusterRole 1、ClusterRoleBinding 1
               - {name: GATEWAY_NAMESPACE, value: <命名空间>}
   ```
 
-- `gateway-config` 的 `FUYAO_STATE_URL` / `FUYAO_CREDPROXY_URL` 里的 `.gaussdb-agent.svc` 改成 `.<命名空间>.svc`（写进 `configmap-gateway-site.yaml`）。
+- `gateway-config` 的 `FUYAO_STATE_URL` / `FUYAO_CREDPROXY_URL` **不用改**：1.5.0 起留空即按网关所在命名空间推导（§6.2）。
+  1.4.x 时期的现场 overlay 若显式写了 `.gaussdb-agent.svc` 的地址，换命名空间时要删掉这两行或改对，显式值优先。
 - 同一个集群里只能有一套 Fuyao 部署使用 `gaussdb-agent-sandbox-read` 这个 ClusterRole / Binding 名；第二套要给它们改名（`kustomization.yaml` 加 `nameSuffix` 会影响全部对象，建议复制 `k8s/fuyao/platform-read.yaml` 改名后替换）。
 
 ### 7.6 应用

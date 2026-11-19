@@ -641,9 +641,21 @@ def test_fuyao_config_parses_and_other_modes_ignore_it():
     assert gwconfig.load(BASE).runtime_mode == "ondemand", "不在 fuyao 模式时缺这些不拒绝"
 
 
+def test_the_two_service_urls_follow_the_gateway_namespace_when_not_given():
+    """没填(或填空)时按网关所在命名空间推导:换命名空间部署不用再手工改两个地址(2026-11-18)。显式填了的照用。"""
+    c = gwconfig.load(dict(FUYAO, GATEWAY_FUYAO_STATE_URL="", GATEWAY_FUYAO_CREDPROXY_URL=" "))
+    assert c.fuyao_state_url == "http://statesvc.ns.svc:8090"
+    assert c.fuyao_credproxy_url == "http://credproxy.ns.svc:8091"
+    bare = {k: v for k, v in FUYAO.items() if k not in ("GATEWAY_FUYAO_STATE_URL", "GATEWAY_FUYAO_CREDPROXY_URL")}
+    c = gwconfig.load(dict(bare, GATEWAY_NAMESPACE="gaussdb-agent-fy"))
+    assert (c.fuyao_state_url, c.fuyao_credproxy_url) == ("http://statesvc.gaussdb-agent-fy.svc:8090",
+                                                          "http://credproxy.gaussdb-agent-fy.svc:8091")
+    assert gwconfig.load(FUYAO).fuyao_credproxy_url == "http://10.96.0.21:8091", "显式填了的照用"
+
+
 @pytest.mark.parametrize("patch,needle", [
     ({"GATEWAY_FUYAO_API": ""}, "GATEWAY_FUYAO_API"),
-    ({"GATEWAY_FUYAO_STATE_URL": ""}, "GATEWAY_FUYAO_STATE_URL"),
+    ({"GATEWAY_FUYAO_STATE_URL": "statesvc:8090"}, "GATEWAY_FUYAO_STATE_URL"),
     ({"GATEWAY_POOL_CONTROL_KEY": "short"}, "GATEWAY_POOL_CONTROL_KEY"),
     ({"GATEWAY_FUYAO_RUNTIME_GROUP": "Bad_Group"}, "沙箱组名"),
     ({"GATEWAY_FUYAO_API": "opensandbox:80"}, "http(s)://"),

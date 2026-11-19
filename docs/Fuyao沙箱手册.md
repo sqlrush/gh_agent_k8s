@@ -104,7 +104,7 @@
 | `FUYAO_PAUSE` | `1` | 平台不支持暂停时设 `0`：闲置即收尾后删除 |
 | `FUYAO_SWEEP_SECONDS` | `30` | 清扫周期（≥5） |
 | `FUYAO_WAIT_SECONDS` | `90` | 一次请求为准备沙箱最多等多久，等不到回等待页（≥10） |
-| `FUYAO_STATE_URL` / `FUYAO_CREDPROXY_URL` | 两个服务的 Service 域名 | 一般不改；网关解析成 ClusterIP 再下发 |
+| `FUYAO_STATE_URL` / `FUYAO_CREDPROXY_URL` | 空 | 留空 = 按网关所在命名空间推导（`http://statesvc.<命名空间>.svc:8090`、`http://credproxy.<命名空间>.svc:8091`）；网关解析成 ClusterIP 再下发 |
 
 `agent-config`（中间件、模型、实例别名、剪藏）与按需模式完全相同，由网关在启动沙箱时下发。
 

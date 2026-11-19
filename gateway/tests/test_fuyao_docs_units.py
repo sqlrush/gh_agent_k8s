@@ -47,7 +47,7 @@ def test_every_template_script_flag_is_documented():
 
 
 def test_the_manual_carries_the_field_facts_and_the_other_docs_point_to_it():
-    for must in ("暂停的沙箱不占名额", "agentPodMin", "SubSandboxGroup", "worker_processes  2", "512Mi",
+    for must in ("暂停的沙箱不占名额", "agentPodMin", "SubSandboxGroup", "1.5.0 起不需要现场补丁", "512Mi",
                  "120 秒", "--from-oci", "force", "gaussdb-agent-sandbox-read", "GATEWAY_NAMESPACE"):
         assert must in _DOC, "部署手册缺:%s" % must
     for name in ("部署手册-从零到上线.md", "Fuyao沙箱手册.md", "仓库结构说明.md", "版本说明.md"):

@@ -102,8 +102,8 @@ Fuyao 模式里出现的「承载 Pod」是**平台的**对象（每个承载 Po
 | 项 | 怎么查 | 要求 / 说明 |
 |---|---|---|
 | CPU 架构 | `kubectl get nodes -o wide`；节点上 `uname -m` | 选同架构的离线包与模板包（`arm64` / `amd64`） |
-| 内存页大小 | 节点上 `getconf PAGESIZE` | `65536` 即 64K 页内核，**必须**打 §7.3 的两个补丁 |
-| 节点 CPU 数 | `kubectl get nodes -o jsonpath='{.items[*].status.capacity.cpu}'` | 核数很多（实测 160 核）时前端 nginx 会起同样多的进程，同样要打 §7.3 的补丁 |
+| 内存页大小 | 节点上 `getconf PAGESIZE` | `65536` 即 64K 页内核。1.5.0 起产品已适配（§7.3），只作记录 |
+| 节点 CPU 数 | `kubectl get nodes -o jsonpath='{.items[*].status.capacity.cpu}'` | 用于资源测算（§1.4）。前端 nginx 的进程数 1.5.0 起固定为 2，与核数无关 |
 | CNI 是否执行网络策略 | `kubectl -n kube-flannel get ds`（有即为 Flannel） | **Flannel 不执行 NetworkPolicy**（实测），清单里的策略对象只是摆设，隔离要靠平台在宿主机侧做 |
 | Pod 网段 | `kubectl get nodes -o jsonpath='{range .items[*]}{.spec.podCIDR}{"\n"}{end}'` | 实测沙箱地址落在 Pod 网段里，§7.2 的 `SANDBOX_CIDR` 填这个 |
 | 节点时钟同步 | 节点上 `timedatectl \| grep synchronized`；`chronyc tracking` | 必须为 `yes`。网关与状态服务之间的运维统计签名有 **120 秒**时间窗，组件分在时钟相差超过 120 秒的节点上时资源大盘统计读不到；中间件的时间戳签名同样受影响 |
@@ -455,10 +455,7 @@ k8s/overlays/site/
 ├── configmap-gateway-site.yaml        # §6.2
 ├── configmap-agent-site.yaml          # §6.3(可选:也可以 apply 之后 kubectl edit)
 ├── configmap-agent-roles-site.yaml    # §6.3
-├── nas-pv-nfs.yaml                    # 没有 RWX StorageClass 时(《部署手册-从零到上线》§2.2 情形 ②)
-├── frontend-nginx-workers.yaml        # §7.3:64K 页 / 多核节点
-├── frontend-nginx-main.conf           # §7.3
-└── kbstd-unpack-memory.yaml           # §7.3:64K 页
+└── nas-pv-nfs.yaml                    # 没有 RWX StorageClass 时(《部署手册-从零到上线》§2.2 情形 ②)
 ```
 
 ### 7.2 `kustomization.yaml`
@@ -475,17 +472,10 @@ images:
   - {name: gaussdb-agent-runtime,   newName: registry.example/gaussdb-agent/gaussdb-agent-runtime,   newTag: agent-v1.5.0-oc1.18.27}
   - {name: gaussdb-agent-kb-import, newName: registry.example/gaussdb-agent/gaussdb-agent-kb-import, newTag: agent-v1.5.0-oc1.18.27}
   - {name: gaussdb-agent-kbstd,     newName: registry.example/gaussdb-agent/gaussdb-agent-kbstd,     newTag: agent-v1.5.0-oc1.18.27}
-configMapGenerator:               # §7.3 的 nginx 主配置
-  - name: frontend-nginx-main
-    namespace: gaussdb-agent
-    files: [nginx.conf=frontend-nginx-main.conf]
-    options: {disableNameSuffixHash: true}
 patches:
   - path: configmap-gateway-site.yaml
   - path: configmap-agent-site.yaml          # 不在 overlay 里改 agent-config 时删掉这一行
   - path: configmap-agent-roles-site.yaml
-  - path: frontend-nginx-workers.yaml
-  - path: kbstd-unpack-memory.yaml
   # 沙箱网段(SANDBOX_CIDR):清单里的样例值换成 §1.2 查到的 Pod 网段
   - target: {kind: NetworkPolicy, name: gateway-to-sandboxes}
     patch: |-
@@ -525,72 +515,16 @@ data:
 `configmap-agent-roles-site.yaml` 写法同 §6.3（`metadata: {name: agent-roles, namespace: gaussdb-agent}`）；
 `configmap-agent-site.yaml` 只写《部署手册-从零到上线》§4.1 里要改的键（`metadata: {name: agent-config, namespace: gaussdb-agent}`）。
 
-### 7.3 64K 页内核与多核节点的两个补丁
+### 7.3 64K 页内核与多核节点：1.5.0 起不需要现场补丁
 
-产品清单的默认值在这两种节点上会被 OOM 杀（鲲鹏实测），现场 overlay 里必须带上：
+鲲鹏实测（160 核、64K 页内核）发现的两处 OOM，1.5.0 起已在产品里处理，现场 overlay 不用再打补丁：
 
-**① 前端 nginx 的进程数**：镜像自带的 nginx 主配置 `worker_processes auto` 按节点 CPU 数起进程（160 核起 160 个），超出 128Mi 被杀。
-挂一份固定为 2 个进程的主配置。`frontend-nginx-main.conf`：
+| 问题 | 1.5.0 起的处理 |
+|---|---|
+| 前端 nginx 主配置 `worker_processes auto` 按节点 CPU 数起进程（160 核起 160 个），超出 128Mi 被杀，大盘 502 | 前端镜像自带主配置 `docker/nginx-main.conf`，进程数固定为 2 |
+| 标准知识库安装 Job 的初始化容器 `unpack` 上限 64Mi，64K 页内核下 `cp` 包时被杀 | `k8s/base/kbstd-install.yaml` 里上限改为 512Mi |
 
-```nginx
-# 与 nginx-unprivileged 镜像自带的 /etc/nginx/nginx.conf 相同,只把 worker_processes 从 auto 改成 2
-worker_processes  2;
-error_log  /var/log/nginx/error.log notice;
-pid        /tmp/nginx.pid;
-events {
-    worker_connections  1024;
-}
-http {
-    proxy_temp_path /tmp/proxy_temp;
-    client_body_temp_path /tmp/client_temp;
-    fastcgi_temp_path /tmp/fastcgi_temp;
-    uwsgi_temp_path /tmp/uwsgi_temp;
-    scgi_temp_path /tmp/scgi_temp;
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"';
-    access_log  /var/log/nginx/access.log  main;
-    sendfile        on;
-    keepalive_timeout  65;
-    include /etc/nginx/conf.d/*.conf;
-}
-```
-
-`frontend-nginx-workers.yaml`：
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: frontend, namespace: gaussdb-agent}
-spec:
-  template:
-    spec:
-      containers:
-        - name: nginx
-          volumeMounts:
-            - {name: nginx-main, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
-      volumes:
-        - name: nginx-main
-          configMap: {name: frontend-nginx-main}
-```
-
-**② 标准知识库安装 Job 的初始化容器内存**：64K 页内核下 `cp` 标准知识库包超出 64Mi 被杀，上限调到 512Mi。
-Job 名随版本变化，以 `k8s/base/kbstd-install.yaml` 为准（`awk '/^  name: kbstd-install/{print $2}' k8s/base/kbstd-install.yaml`）。`kbstd-unpack-memory.yaml`：
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata: {name: kbstd-install-v1-5-0, namespace: gaussdb-agent}     # 改成上面查到的名字
-spec:
-  template:
-    spec:
-      initContainers:
-        - name: unpack
-          resources:
-            limits: {cpu: 500m, memory: 512Mi}
-```
+从 1.4.x 的现场 overlay 升级时，如果里面还有挂 `frontend-nginx-main` 的补丁或 `unpack` 内存补丁，可以删掉（留着也无害）。
 
 ### 7.4 渲染并检查
 
@@ -613,8 +547,7 @@ Role 2、RoleBinding 2、ServiceAccount 2、ClusterRole 1、ClusterRoleBinding 1
 | `cidr:` | 三处沙箱网段已改成现场 Pod 网段 |
 | 集群级对象 | 只有 Namespace、PersistentVolume（如有）、ClusterRole `gaussdb-agent-sandbox-read`、ClusterRoleBinding `gaussdb-agent-sandbox-read` |
 | ClusterRoleBinding 的 subject | `ServiceAccount gateway`，命名空间是本次部署的命名空间 |
-| 前端 | 有 `nginx-main` 卷挂到 `/etc/nginx/nginx.conf` |
-| 标准知识库 Job | `unpack` 的内存上限 512Mi |
+| 标准知识库 Job | `unpack` 的内存上限 512Mi（清单默认值） |
 
 ### 7.5 换命名空间（不用默认 `gaussdb-agent` 时）
 
@@ -676,8 +609,8 @@ kubectl auth can-i list pods -n flux-system --as=$SA                            
 | 状态服务 `CreateContainerConfigError` | Secret `sandbox-control` 没建或键不是 `KEY` |
 | 状态服务反复重启，日志「缺 GSDB_CONTROL_KEY」 | `sandbox-control` 的 `KEY` 不足 16 个字符 |
 | 状态服务 Pod `Pending` 或挂载失败 | NAS 没挂上：看 PVC `nas` 是否 `Bound` |
-| 前端 `OOMKilled` | 没打 §7.3 补丁 ① |
-| `kbstd-install` 的 `unpack` 被 `OOMKilled` | 没打 §7.3 补丁 ②。Job 的模板改不了：改好 overlay 后先 `kubectl -n $NS delete job <Job 名>` 再 apply |
+| 前端 `OOMKilled` | 用的不是 1.5.0 及以上的前端镜像（§7.3） |
+| `kbstd-install` 的 `unpack` 被 `OOMKilled` | 清单不是 1.5.0 及以上的（§7.3）。Job 的模板改不了：换成新清单后先 `kubectl -n $NS delete job <Job 名>` 再 apply |
 
 ---
 
@@ -821,34 +754,8 @@ Fuyao 模式的差异：
 
 前提：`gateway-auth` 有 `ADMIN_TOKEN`（发版台经网关容器调 `/admin/fuyao`）。操作见《发版台-运维手册》。
 
-**发版台不保留现场 overlay 对 Deployment 与 Job 的补丁**（它按版本包里的清单渲染）。64K 页 / 多核节点上升级后要重打 §7.3 的两个补丁：
-
-```bash
-NS=gaussdb-agent
-kubectl -n $NS patch deploy frontend --type strategic --patch-file k8s/overlays/site/frontend-nginx-workers.yaml
-# ConfigMap frontend-nginx-main 发版台不会删,不用重建
-```
-
-标准知识库 Job 由发版台按新版本重建；若 `unpack` 被 OOM 杀（Job 的模板改不了，只能删了重建）：
-
-```bash
-J=<新 Job 名>
-kubectl -n $NS get job $J -o json | python3 -c '
-import json, sys
-j = json.load(sys.stdin)
-j.pop("status", None)
-for k in ("uid", "resourceVersion", "creationTimestamp", "managedFields", "generation"):
-    j["metadata"].pop(k, None)
-j["spec"].pop("selector", None)
-labels = j["spec"]["template"]["metadata"].get("labels", {})
-for k in ("controller-uid", "batch.kubernetes.io/controller-uid", "job-name", "batch.kubernetes.io/job-name"):
-    labels.pop(k, None)
-for c in j["spec"]["template"]["spec"]["initContainers"]:
-    if c["name"] == "unpack":
-        c["resources"]["limits"]["memory"] = "512Mi"
-print(json.dumps(j))' > job.json
-kubectl -n $NS delete job $J && kubectl -n $NS apply -f job.json
-```
+发版台按版本包里的清单渲染，**不保留**现场 overlay 对 Deployment、Job 的补丁；1.5.0 起 64K 页节点不再需要这类补丁（§7.3）。
+现场如果另有自己的 Deployment 补丁，升级后要重新打。
 
 ### 10.2 手工换版
 
@@ -967,8 +874,8 @@ curl -s -X POST -H "X-Admin-Token: $ADMIN" -H 'Content-Type: application/json' -
 | 改了 `agent-config` 不生效 | 同上：删除重建该沙箱 |
 | 状态服务或凭据代理的 Service 被删除重建过，沙箱回写、中间件全部失败 | 沙箱启动时拿到的是 ClusterIP，Service 重建后地址变了（按代码推断）。逐台 `delete` 重建；平时不要删除这两个 Service |
 | 状态服务 / 凭据代理探活超时、宿主机负载很高 | 多为模板构建服务刚重启后的第一次构建（§4.1），等负载回落 |
-| 前端 `OOMKilled`，大盘 502 | §7.3 补丁 ① 没打，或发版台升级后没重打（§10.1） |
-| `kbstd-install` 失败 | §7.3 补丁 ② |
+| 前端 `OOMKilled`，大盘 502 | 前端镜像低于 1.5.0（§7.3） |
+| `kbstd-install` 失败 | 看 `kubectl -n $NS logs job/<Job 名>`；`unpack` 被 OOM 杀说明清单低于 1.5.0（§7.3） |
 | 资源大盘「需授权只读」 | §7.6 的 ClusterRole 没 apply |
 | 资源大盘请求计数、NAS 用量读不到 | 网关到状态服务 8090 不通；节点时钟相差超过 120 秒（运维签名过期） |
 | 注册模板报 `x509 unknown authority` | 用 `--from-oci` |

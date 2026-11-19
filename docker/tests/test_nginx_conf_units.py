@@ -40,6 +40,7 @@ def test_no_cache_no_autoindex_and_healthz():
 def test_dockerfile_copies_frontend_and_conf_only():
     assert "COPY frontend/ /usr/share/nginx/html/dash/" in _DOCKERFILE
     assert "COPY docker/nginx-dash.conf /etc/nginx/conf.d/default.conf" in _DOCKERFILE
+    assert "COPY docker/nginx-main.conf /etc/nginx/nginx.conf" in _DOCKERFILE, "主配置要用我方的(固定进程数)"
     assert "agent/" not in _DOCKERFILE and "gateway/" not in _DOCKERFILE, "前端镜像里不该有技能或网关代码"
 
 
@@ -51,3 +52,23 @@ def test_every_frontend_file_is_world_readable():
     bad = [str(p.relative_to(_ROOT)) for p in (_ROOT / "frontend").rglob("*")
            if p.is_file() and not p.stat().st_mode & stat.S_IROTH]
     assert not bad, "这些文件 others 不可读,进镜像后 nginx 会回 403:%s(chmod 644 即可)" % bad
+
+
+_MAIN = (_ROOT / "docker" / "nginx-main.conf").read_text(encoding="utf-8")
+
+
+def test_main_conf_pins_a_small_worker_count():
+    """**2026-11-17 鲲鹏抓到。** 基础镜像自带的主配置是 `worker_processes auto`:按节点 CPU 数起进程,
+    160 核 + 64K 页内核下起 160 个,超出容器 128Mi 上限被 OOM 杀,大盘 502。固定成小值,与节点核数无关。"""
+    m = re.search(r"^\s*worker_processes\s+(\S+)\s*;", _MAIN, re.M)
+    assert m and m.group(1).isdigit() and 1 <= int(m.group(1)) <= 4, "worker_processes 要固定成 1–4,不能 auto"
+
+
+def test_main_conf_keeps_what_the_unprivileged_image_needs():
+    """只改进程数,其余照基础镜像:非 root 写不了 /var/run,pid 与临时目录都在 /tmp(根文件系统只读);
+    server 段仍从 conf.d 引入。"""
+    assert re.search(r"^\s*pid\s+/tmp/nginx\.pid\s*;", _MAIN, re.M)
+    for d in ("proxy", "client_body", "fastcgi", "uwsgi", "scgi"):
+        assert re.search(r"%s_temp_path\s+/tmp/" % d, _MAIN), "缺 %s_temp_path(只读根文件系统下写不了默认目录)" % d
+    assert re.search(r"include\s+/etc/nginx/conf\.d/\*\.conf\s*;", _MAIN)
+    assert re.search(r"include\s+/etc/nginx/mime\.types\s*;", _MAIN)

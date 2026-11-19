@@ -34,7 +34,7 @@ spec:
             - {name: packs, mountPath: /packs}
           resources:
             requests: {cpu: 10m, memory: 16Mi}
-            limits: {cpu: 500m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 512Mi}    # 64K 页内核下 cp 包时 64Mi 被 OOM 杀(2026-11-17 鲲鹏实测);只跑几秒
       containers:
         # 用导入镜像里的 kb.py 装(与知识库管理员手工 `kb.py docset install` 是同一段代码)
         - name: install

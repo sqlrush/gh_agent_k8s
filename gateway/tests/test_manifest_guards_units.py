@@ -257,3 +257,12 @@ def test_standard_kb_install_job_matches_the_release_and_has_no_network_or_api()
     np = (base / "networkpolicy.yaml").read_text(encoding="utf-8")
     pol = np[np.index("name: kbstd-policy"):]
     assert "app: gaussdb-kbstd" in pol and "ingress: []" in pol and "egress: []" in pol, "安装 Job 不该有任何网络"
+
+
+def test_standard_kb_unpack_has_room_on_a_64k_page_kernel():
+    """**2026-11-17 鲲鹏抓到。** 64K 页内核下 `cp` 标准知识库包时页缓存按 64K 记账,初始化容器 64Mi 上限被 OOM 杀,
+    官方文档集装不上。上限至少 512Mi(实测够用);它只跑几秒,预留不用跟着涨。"""
+    job = (_ROOT / "k8s" / "base" / "kbstd-install.yaml").read_text(encoding="utf-8")
+    unpack = job[job.index("- name: unpack"):job.index("containers:", job.index("- name: unpack"))]
+    m = re.search(r"limits:\s*\{cpu:\s*\S+,\s*memory:\s*(\d+)Mi\}", unpack)
+    assert m and int(m.group(1)) >= 512, "unpack 的内存上限要 ≥512Mi(64K 页内核)"

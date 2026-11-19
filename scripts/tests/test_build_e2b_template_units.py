@@ -179,3 +179,57 @@ def test_main_reads_the_team_key_from_the_config_and_never_prints_it(tmp_path, m
     assert seen == [("runtime-e2b", "runtime"), ("kbimport-e2b", "kb-import")] and keys == [KEY, KEY]
     out = capsys.readouterr().out
     assert "gsdb-runtime-v1-5-0" in out and "gsdb-import-v1-5-0" in out and KEY not in out
+
+
+# -- --template-name:同一版本改虚拟机规格时另起一个名字(2026-11-18) --------------------------------------------
+
+def test_the_default_name_still_follows_the_version_and_an_explicit_name_overrides_it():
+    assert bt.chosen_name("runtime", _args(template_name="")) == "gsdb-runtime-v1-5-0", "不给就照旧"
+    assert bt.chosen_name("kb-import", _args()) == "gsdb-import-v1-5-0", "老调用方没有这个属性也照旧"
+    assert bt.chosen_name("runtime", _args(template_name="gsdb-runtime-v1-5-0-c4m8")) == "gsdb-runtime-v1-5-0-c4m8"
+
+
+@pytest.mark.parametrize("bad", ["Gsdb-Runtime", "gsdb_runtime", "-gsdb", "gsdb runtime", "a" * 64, "gsdb/x"])
+def test_an_explicit_name_must_be_a_plain_template_name(bad, tmp_path):
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"teamApiKey": KEY}))
+    with pytest.raises(SystemExit) as ei:
+        bt.main(["--tag", "agent-v1.5.0-oc1.18.27", "--kind", "runtime", "--template-name=" + bad,
+                 "--e2b-api", "http://127.0.0.1:1", "--e2b-config", str(conf)])
+    assert "--template-name" in str(ei.value)
+
+
+def test_an_explicit_name_needs_a_single_kind(tmp_path, monkeypatch):
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"teamApiKey": KEY}))
+    called = []
+    monkeypatch.setattr(bt, "serve_and_build", lambda *a: called.append(a))
+    with pytest.raises(SystemExit) as ei:
+        bt.main(["--tag", "agent-v1.5.0-oc1.18.27", "--template-name", "gsdb-runtime-x",
+                 "--e2b-api", "http://127.0.0.1:1", "--e2b-config", str(conf)])
+    assert "--kind" in str(ei.value) and not called, "一个名字给不了两种模板;在调平台之前就拒绝"
+
+
+def test_main_registers_the_explicit_name_with_the_given_size(tmp_path, monkeypatch, capsys):
+    conf = tmp_path / "config.json"
+    conf.write_text(json.dumps({"teamApiKey": KEY}))
+    monkeypatch.setattr(bt, "build_oci", lambda target, out, a, kind: "img:v1")
+    built = []
+
+    class Api:
+        def __init__(self, base, key):
+            pass
+
+        def build(self, name, cpu, memory, image, wait_s=1800):
+            built.append((name, cpu, memory))
+            return {"name": name, "templateID": "t", "buildID": "b", "seconds": 1}
+    monkeypatch.setattr(bt, "E2B", Api)
+    monkeypatch.setattr(bt.subprocess, "Popen", lambda *a, **k: type("P", (), {"terminate": lambda s: None,
+                                                                              "wait": lambda s, t=None: 0})())
+    monkeypatch.setattr(bt.urllib.request, "urlopen", lambda *a, **k: type("R", (), {
+        "__enter__": lambda s: s, "__exit__": lambda s, *e: False})())
+    assert bt.main(["--tag", "agent-v1.5.0-oc1.18.27", "--kind", "runtime", "--cpu", "4", "--memory", "8192",
+                    "--template-name", "gsdb-runtime-v1-5-0-c4m8", "--e2b-api", "http://127.0.0.1:1",
+                    "--e2b-config", str(conf)]) == 0
+    assert built == [("gsdb-runtime-v1-5-0-c4m8", 4, 8192)]
+    assert "gsdb-runtime-v1-5-0-c4m8" in capsys.readouterr().out

@@ -13,6 +13,9 @@
 --from-oci:跳过第 1 步,用别处构建好的 OCI 包(目录或 tar,可同时含两种模板镜像 gaussdb-agent-*-e2b:<tag>)——
 构建服务所在的主机不能上网时,镜像在能上网的机器上按 Dockerfile.e2b 构建好带过去。
 模板名 = gsdb-<种类>-<版本>(如 gsdb-runtime-v1-5-0),填进 gateway-config 的 FUYAO_RUNTIME_TEMPLATE / FUYAO_IMPORT_TEMPLATE。
+--template-name:同一版本改虚拟机规格(--cpu / --memory)时另起一个名字,要配 --kind runtime 或 kb-import(一次一种)。
+同名模板重复注册的平台行为没有实测:改规格时换新名字,不要覆盖在用的模板。发版台按版本推导模板名,下一次升级会回到默认名字
+(届时按新规格注册目标版本的模板)。
 团队 API Key 从 --e2b-config 读,只在本进程里用,不打印。
 """
 from __future__ import annotations
@@ -34,6 +37,7 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 KINDS = {"runtime": ("runtime-e2b", "gaussdb-agent-runtime"), "kb-import": ("kbimport-e2b", "gaussdb-agent-kb-import")}
 LISTEN = "127.0.0.1:5050"
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")      # 与默认名字同一种字符:小写字母、数字、连字符
 
 
 def log(msg: str) -> None:
@@ -44,6 +48,11 @@ def template_name(kind: str, tag: str) -> str:
     m = re.match(r"^agent-v(\d+)\.(\d+)\.(\d+)", tag)
     ver = "v%s-%s-%s" % m.groups() if m else re.sub(r"[^a-z0-9-]+", "-", tag.lower()).strip("-")
     return "gsdb-%s-%s" % ("runtime" if kind == "runtime" else "import", ver)
+
+
+def chosen_name(kind: str, args) -> str:
+    """--template-name 给了就用它,否则按版本推导(默认行为不变)。"""
+    return getattr(args, "template_name", "") or template_name(kind, args.tag)
 
 
 def e2b_api(explicit: str) -> str:
@@ -155,7 +164,7 @@ def serve_and_build(layout: str, ref: str, kind: str, args, api: E2B) -> dict:
                     break
             except (urllib.error.URLError, OSError):
                 time.sleep(0.2)
-        name = template_name(kind, args.tag)
+        name = chosen_name(kind, args)
         log("注册模板 %s(%s/%s,%d vCPU / %d MB),构建服务拉取并制作快照,通常几分钟"
             % (name, LISTEN, ref, args.cpu, args.memory))
         got = api.build(name, args.cpu, args.memory, "%s/%s" % (LISTEN, ref))
@@ -179,7 +188,14 @@ def main(argv=None) -> int:
     ap.add_argument("--e2b-config", default="/root/.e2b/config.json")
     ap.add_argument("--workdir", default="")
     ap.add_argument("--from-oci", default="", help="不构建,用现成的 OCI 包(目录或 tar)")
+    ap.add_argument("--template-name", default="",
+                    help="指定模板名(同一版本改规格时用;要配 --kind runtime 或 kb-import;建议换新名字,不要覆盖在用的)")
     a = ap.parse_args(argv)
+    if a.template_name:
+        if a.kind == "all":
+            raise SystemExit("--template-name 一次只能给一种模板:加 --kind runtime 或 --kind kb-import")
+        if not NAME_RE.match(a.template_name):
+            raise SystemExit("--template-name=%r 不对:小写字母、数字、连字符,字母或数字开头,至多 63 个字符" % a.template_name)
     key = json.loads(pathlib.Path(a.e2b_config).read_text())["teamApiKey"]
     api = E2B(e2b_api(a.e2b_api), key)
     work = a.workdir or tempfile.mkdtemp(prefix="gsdb-e2b-")

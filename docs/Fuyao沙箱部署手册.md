@@ -261,6 +261,7 @@ python3 e2b/scripts/build-e2b-template.py --tag agent-v1.5.0-oc1.18.27 --arch ar
 | `--e2b-api` | 空 | E2B API 地址，如 `http://<E2B API 地址>:3000`；空则用 kubectl 查 |
 | `--e2b-config` | `/root/.e2b/config.json` | 团队 API Key 文件；只在脚本进程里使用，不打印 |
 | `--workdir` | 临时目录 | 工作目录；不指定时用完删除 |
+| `--template-name` | 空 | 指定模板名，**只在同一版本改虚拟机规格时用**（§11.3）；要配 `--kind runtime` 或 `--kind kb-import`，一次一种；小写字母、数字、连字符，至多 63 个字符。不给时按 `--tag` 推导，正常部署与升级都不用它 |
 
 **预期输出**（每种模板先一行「注册模板 …」，构建完一行「就绪」，最后打印两个模板的 JSON）：
 
@@ -290,7 +291,7 @@ python3 e2b/scripts/build-e2b-template.py --tag agent-v1.5.0-oc1.18.27 --arch ar
 - 模板镜像压成了一层：平台的模板构建不处理 OCI 删除标记（上层删掉的文件会回来），压层后没有这个问题。代价是每个版本两个模板各约 400 MB 整体传输。
 - 平台模板参数里的磁盘大小不生效（磁盘 = 镜像大小 + 约 0.5 GB），模板里放了 6 GB 全零占位文件撑大磁盘，沙箱首次启动时删除，实测磁盘 8.9 GB、可用约 7.7 GB。
 - 诊断、导入两个模板都内置官方文档集，沙箱启动不再从 NAS 拉，实测首次进入约 5–6 秒。
-- 同名模板重复注册的行为**未实测**。改虚拟机规格时请用新标签生成新模板名（§11.3）。
+- 同名模板重复注册的行为**未实测**。改规格时用 `--template-name` 换一个新名字，**不要覆盖在用的模板**（§11.3）。
 
 ---
 
@@ -810,8 +811,22 @@ kubectl -n flux-system get ssg | grep sg-gsdb-runtime      # PODS / CAPACITY 变
 
 ### 11.3 改虚拟机规格
 
-虚拟机的 vCPU / 内存由模板决定：用新标签重新注册模板（`--cpu` / `--memory`），同步改沙箱组的每台上限与 `FUYAO_CPU` / `FUYAO_MEMORY`，
-再把模板名切过去（同 §10.2），已有沙箱闲置后按新模板重建。磁盘大小由模板里的占位文件决定（`--reserve-mb`，只在现场构建时生效）。
+虚拟机的 vCPU / 内存由模板决定。**同一版本**要改规格时，用离线包里同一个模板包按新规格另注册一个**新名字**的模板，不要覆盖在用的：
+
+```bash
+python3 e2b/scripts/build-e2b-template.py --tag agent-v1.5.0-oc1.18.27 --arch arm64 \
+    --from-oci gaussdb-agent-v1.5.0-oc1.18.27-e2b-arm64.oci.tar \
+    --kind runtime --cpu 4 --memory 8192 --template-name gsdb-runtime-v1-5-0-c4m8
+```
+
+然后：
+
+1. 沙箱组的每台上限改成新规格（预留按 §1.4 重算；直接改已有组的影响未实测，建议按 §11.2 新建组再切换）；
+2. `gateway-config` 的 `FUYAO_RUNTIME_TEMPLATE` 改成新名字，`FUYAO_CPU` / `FUYAO_MEMORY` 改成新规格，重启网关；
+3. 已有沙箱成了「旧版」，闲置后按新模板重建（`/admin/fuyao` 的 `outdated` 降到 0）。
+
+**下一次版本升级**时发版台按版本推导模板名（`gsdb-runtime-<新版本>`），自定义名字不会沿用：注册目标版本的模板时直接带上新规格
+（`--cpu` / `--memory`，不用 `--template-name`）。磁盘大小由模板里的占位文件决定（`--reserve-mb`，只在现场构建时生效）。
 
 ---
 

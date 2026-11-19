@@ -12,6 +12,16 @@
 # 版本从新到旧;第一条必须是本仓库清单里的版本(守卫测试)。min_upgrade_from 之前的版本按《部署上线方案》§14 手工升级。
 min_upgrade_from: agent-v1.4.0
 versions:
+  - version: agent-v1.5.0
+    mixed_with: [agent-v1.4.14]   # 网关改了(新增 Fuyao 模式与资源大盘),与池子管家的协议、会话文件格式不变,槽位换到哪版用哪版
+    required: []                  # Fuyao 是新增的可选模式,按需与固定池化升级没有必须新填的配置
+    steps: [rebuild_kb_import]    # 导入镜像里的启动脚本与容器内程序换了
+    whitelist: [scripts-delta-20261119.sql]
+    notes:
+      - "白名单增量 20261119 更新 4 条(业务库脚本的拼接改用 concat,M 兼容业务库上原来整条报错),导完仍是 132 条;还在 v1.4.13 白名单的先导 20261116"
+      - "(按需)换过根规范的,用本版本的离线包重做 rootspec-overlay.sh 再推内网仓库(版本说明 v1.4.5「根规范模板替换」)"
+      - "用技能包装在自有环境的:scripts/ 与 common/ 放同一层、设好 GSDB_SKILLS_DIR,装完跑一次部署自检(版本说明 v1.5.0)"
+      - "Fuyao 沙箱模式(预览)是新增的可选运行模式,发版台不切换运行模式;要试用的按《Fuyao沙箱部署手册》首次部署,只用于测试环境"
   - version: agent-v1.4.14
     mixed_with: [agent-v1.4.13, agent-v1.4.12, agent-v1.4.11]  # 网关没改;会话文件格式不变,槽位换到哪版用哪版
     required: []

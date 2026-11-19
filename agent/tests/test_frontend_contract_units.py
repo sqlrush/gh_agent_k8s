@@ -108,7 +108,10 @@ def test_contract_lists_every_page_the_frontend_has():
     """frontend/pages/ 里每个页面在契约里都要有对应的段 —— 加了页面忘了写契约,守卫就守不到它。"""
     pages = {p.stem for p in (_REPO / "frontend" / "pages").glob("*.js")}
     covered = {"health", "topsql", "wdr", "kb"}
-    assert pages == covered, "pages/ 与契约不一致:%s" % (pages ^ covered)
+    # 资源大盘(v1.5.0)不读技能写的报告文件,读的是网关自己答的 /dash/api/resources:
+    # 它的字段由网关的测试钉住(gateway/tests/test_dashdata_units.py、test_dash_api_units.py),不在这份契约里
+    from_gateway = {"resources"}
+    assert pages == covered | from_gateway, "pages/ 与契约不一致:%s" % (pages ^ (covered | from_gateway))
 
 
 def test_a_bogus_field_would_be_caught(samples):

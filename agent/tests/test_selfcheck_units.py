@@ -102,6 +102,17 @@ def test_a_healthy_environment_passes(monkeypatch, tmp_path, capsys):
     assert rc == 0 and "全部正常" in out and sc.package_version() in out
 
 
+def test_a_complete_whitelist_still_says_bodies_are_not_checked(monkeypatch, tmp_path, capsys):
+    """2026-11-19 补测:清单接口只回脚本名与参数、没有正文。只改正文的增量(如 || 改 concat)没导时这一项照样 ✓,
+    现场会以为修复已经生效 —— 在 ✓ 的说明后面点明这一点和最新一份增量的文件名(取自 deltas,不写死)。级别保持 ✓。"""
+    from common.grmp import deltas
+    rc, out = _run(monkeypatch, tmp_path, _Runner(Registry().names()), capsys)
+    line = next(ln for ln in out.splitlines() if ln.startswith("| 白名单 |"))
+    assert "| ✓ |" in line and rc == 0 and "全部正常" in out, "级别不变,导全了不会一直显示 !"
+    assert "脚本正文是否为最新本项看不出(中间件清单接口不返回正文)" in line
+    assert "请确认已导到 %s" % deltas.DELTAS[-1].file in line
+
+
 def test_the_bank_environment_is_explained_item_by_item(monkeypatch, tmp_path, capsys):
     names = [n for n in Registry().names() if not n.startswith("health.xlog")]      # 白名单没导全
     runner = _Runner(names, broken={"health.slow_sql"}, old_top=True, storage_null=True, multi=False,

@@ -134,7 +134,10 @@ def check_whitelist(conn, registry: Registry) -> List[Item]:
     want = used_names(registry)
     missing = sorted(want - have)
     if not missing:
-        return [Item("白名单", OK, "本版本用到的 %d 条都已登记(中间件共 %d 条)" % (len(want), len(have)))]
+        # 清单接口只回脚本名与参数、没有正文:只改正文的增量没导时这里照样 ✓(2026-11-19 补测)。级别保持 ✓,只点明这一点
+        latest = deltas.DELTAS[-1].file if deltas.DELTAS else deltas.FULL
+        return [Item("白名单", OK, "本版本用到的 %d 条都已登记(中间件共 %d 条)。脚本正文是否为最新本项看不出"
+                     "(中间件清单接口不返回正文):请确认已导到 %s" % (len(want), len(have), latest))]
     return [Item("白名单", FAIL, "缺 %d 条(中间件 %d 条,本版本要 %d 条):%s%s。%s"
                  % (len(missing), len(have), len(want), "、".join(missing[:8]), "等" if len(missing) > 8 else "",
                     deltas.advice(missing=missing)), MIDDLEWARE)]

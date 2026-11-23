@@ -44,7 +44,7 @@ docker images | grep gaussdb-agent
 ## 2. 取源码
 
 ```bash
-git clone https://github.com/sqlrush/gh_agent_k8s.git && cd gh_agent_k8s
+git clone https://github.com/sqlrush/gh_gs_k8s_agent.git && cd gh_gs_k8s_agent
 ```
 > 进入目录。**之后所有命令都在这里执行。**
 

@@ -33,7 +33,7 @@
 | 操作机能用 kubectl，且有权限读 Secret、做 port-forward | `kubectl -n gaussdb-agent auth can-i get secret/gateway-auth` 与 `kubectl -n gaussdb-agent auth can-i create pods/portforward` 都回 `yes` |
 | 操作机有 Python 3.8 及以上 | `python3 --version`（Windows 上可能是 `python` 或 `py -3`）。只用标准库，不用装任何包 |
 | 网关配了**信任凭据** | `kubectl -n gaussdb-agent get secret gateway-auth -o jsonpath='{.data.TRUST_SECRET}' \| wc -c` 不为 0 |
-| 有 `sso-sim.py` | 离线包解开后在 `k8s/tools/sso-sim.py`；或从公开仓库下载：`curl -fsSLO https://raw.githubusercontent.com/sqlrush/gh_agent_k8s/main/k8s/tools/sso-sim.py` |
+| 有 `sso-sim.py` | 离线包解开后在 `k8s/tools/sso-sim.py`；或从公开仓库下载：`curl -fsSLO https://raw.githubusercontent.com/sqlrush/gh_gs_k8s_agent/main/k8s/tools/sso-sim.py` |
 
 **网关只配了信任网段（`TRUST_CIDRS`）、没配信任凭据时，这个办法不通。** 经 port-forward 进来的请求，
 网关看到的来源地址是 `127.0.0.1`（已实测），不在贵方 SSO 的网段里，会被拒成 403。

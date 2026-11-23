@@ -29,7 +29,7 @@
 
 ```mermaid
 flowchart LR
-    GH["GitHub 仓库<br/>sqlrush/gh_agent_k8s"] -->|git clone| BUILD
+    GH["GitHub 仓库<br/>sqlrush/gh_gs_k8s_agent"] -->|git clone| BUILD
     subgraph BUILD["构建机 (docker buildx)"]
         B1["scripts/build-images.sh<br/>runtime · kb-import · gateway · frontend"]
     end
@@ -130,8 +130,8 @@ flowchart TB
 ## 2. 拉代码
 
 ```bash
-git clone https://github.com/sqlrush/gh_agent_k8s.git
-cd gh_agent_k8s
+git clone https://github.com/sqlrush/gh_gs_k8s_agent.git
+cd gh_gs_k8s_agent
 git log --oneline -1
 ```
 

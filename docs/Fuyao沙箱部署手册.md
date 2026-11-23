@@ -254,7 +254,12 @@ ctr -n gsdb-e2b images rm $R $K                       # 导出后可删
 
 **预期**：`tar -tf $OUT | grep -c '^blobs/sha256/'` 不少于 5；`tar -xOf $OUT index.json` 里能看到两个镜像名。
 `--from-oci` 按镜像名最后一段（`gaussdb-agent-runtime-e2b`、`gaussdb-agent-kb-import-e2b`）和标签找镜像，带 `ghcr.io/sqlrush/` 前缀不影响。
-模板注册脚本不在镜像里：从代码仓库标签 `agent-v1.5.0` 取 `scripts/build-e2b-template.py` 与 `scripts/oci-serve.py`，放到构建主机的 `e2b/scripts/` 下，§4.1 的命令照用。
+模板注册脚本不在镜像里：从联合仓库 [gh_gs_k8s_agent](https://github.com/sqlrush/gh_gs_k8s_agent) 标签 `agent-v1.5.0` 的 `e2b/` 目录取（与离线包的 `e2b/` 目录逐字节相同），整个目录拷到构建主机，§4.1 的命令照用：
+
+```bash
+git clone -b agent-v1.5.0 --depth 1 https://github.com/sqlrush/gh_gs_k8s_agent.git gaussdb-src
+cp -r gaussdb-src/e2b /root/gsdb-e2b/
+```
 
 ---
 
@@ -1026,14 +1031,14 @@ curl -s -X POST -H "X-Admin-Token: $ADMIN" -H 'Content-Type: application/json' -
 | 架构 | 鲲鹏是 **arm64**。在 arm64 机器上构建最快；在 x86 机器上要交叉构建（`--platform linux/arm64`，需要 buildx 的 QEMU / binfmt 支持），会慢很多 |
 | 磁盘 | 预留 40 GB 以上（两个沙箱镜像各含 6 GB 占位文件，构建过程中要展开） |
 | 外网 | 构建期要访问：Docker Hub（基础镜像 `python:3.12-slim-bookworm`、`nginxinc/nginx-unprivileged:1.27-alpine`、Dockerfile 语法前端 `docker/dockerfile:1.7`）、Debian 软件源、GitHub（opencode 1.18.27 程序包）、`models.dev`（模型清单）、PyPI。**镜像里不保留任何外网依赖**，运行时不联外。内网构建要为以上地址配好代理或镜像源，否则请直接用离线包 |
-| 源码 | `gh_agent_k8s` 仓库的发布标签，例如 `agent-v1.5.0` |
+| 源码 | 联合仓库 [gh_gs_k8s_agent](https://github.com/sqlrush/gh_gs_k8s_agent) 的发布标签，例如 `agent-v1.5.0`（与离线包同一版本） |
 | 标准知识库包 | `kb-std-<代号>-<内容版本>.tar.gz`（官方文档集，如 `kb-std-G25132C-….tar.gz`）。**不在代码仓库里**（官方文档的派生内容），向我方索取；也可以不自己构建 kbstd 镜像，直接用离线包或 GHCR 上的同版本 kbstd 镜像（它的内容只随文档集变化，不随代码变化） |
 
 ### 16.2 取源码
 
 ```bash
-git clone https://github.com/sqlrush/gh_agent_k8s.git
-cd gh_agent_k8s
+git clone https://github.com/sqlrush/gh_gs_k8s_agent.git
+cd gh_gs_k8s_agent
 git checkout agent-v1.5.0
 cat agent/common/VERSION                 # 预期:agent-v1.5.0
 TAG=agent-v1.5.0-oc1.18.27               # 镜像标签 = 发布标签 + opencode 版本

@@ -19,7 +19,7 @@ from typing import List, Optional, Sequence, Set, Tuple
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "docs" / "智能体验收方案.md"
 OUT = ROOT / "docs" / "acceptance" / "index.html"
-REPO = "https://github.com/sqlrush/gh_agent_k8s"   # 测试仓库:跑题与评分代码在这里(v1.4.7 起从联合仓库迁来)
+REPO = "https://github.com/sqlrush/gh_gs_k8s_agent"   # 联合仓库:面向客户的发布出口,跑题与评分代码随每个发布标签同步(2026-11-23 起)
 
 CSS = """
 :root{--fg:#1b2430;--muted:#5a6475;--bd:#d9dfe8;--bg-code:#f5f7fa;--accent:#2f6fdb;--navy:#123a73}
@@ -202,7 +202,7 @@ def render(md: str) -> str:
     return ('<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             '<meta name="robots" content="noindex">\n<title>%s</title>\n<style>%s</style>\n</head>\n<body>\n'
-            '<header><div class="wrap"><h1>%s</h1><div class="meta">代码仓库 sqlrush/gh_agent_k8s · '
+            '<header><div class="wrap"><h1>%s</h1><div class="meta">代码仓库 sqlrush/gh_gs_k8s_agent · '
             '本页由仓库 docs/智能体验收方案.md 生成(acceptance/render_guide.py)· 跑题与评分代码在 acceptance/</div>'
             '</div></header>\n<div class="wrap"><main>\n%s\n</main></div>\n</body>\n</html>\n'
             % (html.escape(title), CSS, html.escape(title), "\n".join(body)))

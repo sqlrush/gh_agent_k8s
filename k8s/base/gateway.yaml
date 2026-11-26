@@ -114,6 +114,8 @@ spec:
             # 资源大盘(2026-11-18):运维管理员的角色值;产品名(大盘标题、logo、日报报头)
             - {name: GATEWAY_OPS_ADMIN_ROLES, valueFrom: {configMapKeyRef: {name: gateway-config, key: OPS_ADMIN_ROLES, optional: true}}}
             - {name: GATEWAY_PRODUCT_NAME, valueFrom: {configMapKeyRef: {name: gateway-config, key: PRODUCT_NAME, optional: true}}}
+            # 对话页注入老浏览器兼容补丁(v1.5.3,默认开;填 "0" 关)
+            - {name: GATEWAY_LEGACY_COMPAT, valueFrom: {configMapKeyRef: {name: gateway-config, key: LEGACY_COMPAT, optional: true}}}
             - {name: GATEWAY_REAP_MODE, valueFrom: {configMapKeyRef: {name: gateway-config, key: REAP_MODE, optional: true}}}
             - {name: GATEWAY_IDLE_SECONDS, valueFrom: {configMapKeyRef: {name: gateway-config, key: IDLE_SECONDS, optional: true}}}
             - {name: GATEWAY_TRUST_CIDRS, valueFrom: {configMapKeyRef: {name: gateway-config, key: TRUST_CIDRS, optional: true}}}

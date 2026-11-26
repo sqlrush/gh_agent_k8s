@@ -81,6 +81,9 @@
 | 只要 Appkey 和时间戳 | 填中间件给的 Appkey | `headers-only` | 无 |
 | 要完整签名 | 填中间件给的 Appkey | `full` | 中间件签发的 SM2 私钥文件（第 6.3 步的可选项） |
 
+> **拿不准就按「要 Appkey」处理。** 这套环境之前装过非容器版或 K8s 版、能正常诊断的，照原来那套配置填同一个 Appkey。
+> Appkey 留空时智能体根本不带它，而中间件要求它的话，登录数据库会报「**调用方不存在**」——这与库名、令牌都无关。
+
 **令牌从哪来**
 
 - 令牌由中间件按工号签发。本产品不生成它，也没有命令能替你申请，只能找中间件团队要。
@@ -330,7 +333,7 @@ MODEL_NET=10.0.0.0/8
 GRMP_API_HOST=填中间件主机名或IP
 GRMP_API_PORT=8080
 GRMP_PATH_PREFIX=/填接口路径前缀
-GRMP_APPKEY=
+GRMP_APPKEY=填中间件给的Appkey
 GRMP_SIGN_MODE=headers-only
 GRMP_SIGN_TIMESTAMP=ms
 GRMP_NET=10.0.0.0/8
@@ -354,7 +357,7 @@ vi site.env
 | `FUYAO_API`、`POD_CIDR` | 第 0.2 步查到的 OpenSandbox 地址、Pod 网段 |
 | `MODEL_BASE_URL`、`MODEL_ID` | 模型服务的地址（以 `/v1` 结尾）和模型名 |
 | `GRMP_API_HOST`、`GRMP_API_PORT`、`GRMP_PATH_PREFIX` | 中间件的主机、端口、接口路径前缀 |
-| `GRMP_APPKEY`、`GRMP_SIGN_MODE` | 按第 0.1 步「中间件签名的三种情况」填。不校验就保持 `GRMP_APPKEY=` 为空 |
+| `GRMP_APPKEY`、`GRMP_SIGN_MODE` | 按第 0.1 步「中间件签名的三种情况」填，**一般都要填 Appkey**（整个智能体共用一个，照原来能用的那套配置填）。只有中间件团队明确说不校验调用方时，才改成 `GRMP_APPKEY=` 留空 |
 | `GRMP_SIGN_TIMESTAMP` | 时间戳单位：`ms` 毫秒，`s` 秒，问中间件团队。`GRMP_APPKEY` 为空时不起作用 |
 | `MODEL_NET`、`GRMP_NET` | 模型服务、中间件的 IP 所在网段，例如 `10.1.2.3/32`。网络插件是 Flannel 时不起作用，不用改；其他插件见 6.6 |
 | `NAS_MODE` 等 | 第 5 步选的哪种情形。情形 B 写 `NAS_MODE=local`，两项 `NFS_` 不用管 |
@@ -366,7 +369,7 @@ vi site.env
 ```bash
 grep -v '^#' site.env | grep '填' || echo "都填好了"
 ```
-> `都填好了`。`NAS_MODE=local` 时 `NFS_SERVER` 那一行还带「填」字是正常的。
+> `都填好了`。`NAS_MODE=local` 时 `NFS_SERVER` 那一行还带「填」字是正常的；中间件不校验调用方而把 Appkey 清空了的，`GRMP_APPKEY=` 那一行不会再出现。
 
 ### 6.3 建命名空间和密钥
 
@@ -663,6 +666,7 @@ pkill -f 'port-forward svc/gateway 18089:80'; pkill -f 'k8s/tools/sso-sim.py'
 | 登录后一直「正在为您准备环境」 | 模板名不存在、沙箱组没建好 | 网关日志里 `Fuyao:` 开头的行；核对第 3、4 步 |
 | 「当前使用人数已满」 | 沙箱组的名额用完了 | 等别人闲置（默认 30 分钟后自动暂停让出名额），或请平台管理员把第 4 步的容量调大 |
 | 「您的环境尚未开通」 | 这个工号没有令牌 Secret | 做第 7.1 步 |
+| 登录数据库报「调用方不存在」 | 中间件认不出调用方：`GRMP_APPKEY` 没填或填错（与库名、令牌无关） | 照原来能用的那套配置填 `site.env` 的 `GRMP_APPKEY`，重做 6.4、6.5，再 `kubectl -n gaussdb-agent rollout restart deploy/credproxy`；已建好的沙箱要重建（见本表下面那段） |
 | 能对话，但登录数据库失败 | 令牌不对，或中间件地址、路径前缀、签名配置不对 | 核对第 0.1 步的第 2 到 4 项；改了 `site.env` 后重做 6.4、6.5，再 `kubectl -n gaussdb-agent rollout restart deploy/credproxy` |
 | 对话卡住很久后超时 | 模型服务不通 | 做第 6.6 步的自检 |
 | 资源大盘显示「需授权只读」 | 两个只读授权没建上 | 见第 6.5 步末尾 |

@@ -43,8 +43,8 @@ def last_active(s: osb.Sandbox) -> float:
 
 
 FORCE_HINT = "确认可以丢再带 {\"force\": true} 重发"
-UNLOCATED = ("沙箱恢复后还没向状态服务报到,地址未知,先不动它(平台给的是暂停前的旧地址,可能已分给别人的沙箱);"
-             "等它报到后再试")
+UNLOCATED = ("沙箱恢复后核实不了地址(平台给的与它报到时看到的地址上都不是它),先不动它(平台给的可能是暂停前的旧地址,"
+             "已分给别人的沙箱);等它报到后再试")
 
 
 def _refusal(s: osb.Sandbox, synced: Optional[bool]) -> str:
@@ -68,7 +68,7 @@ class FuyaoSweeper:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._warned: set = set()                   # 已提醒过「过了保留期但没回写成」的沙箱,同一台只提醒一次
-        self._unlocated: set = set()                # 已提醒过「恢复后还没报到」的沙箱,同一台只提醒一次
+        self._unlocated: set = set()                # 已提醒过「恢复后核实不了地址」的沙箱,同一台只提醒一次
 
     # -- 一轮 ---------------------------------------------------------------------------------------
 
@@ -116,10 +116,19 @@ class FuyaoSweeper:
                         counts["kept"] += 1
                         self._warn_unsynced(s, user)
             except AddressUnknown:
-                counts["failed"] += 1                # 恢复后还没报到:收尾 / 探忙都不能往平台给的旧地址发,下一轮再看
+                if self.router.unlocated_droppable(s):
+                    # 恢复后一直找不到、恢复前已回写、恢复后没被用过:删掉不丢数据,不删就一直占着名额
+                    try:
+                        self._delete(s, "恢复后一直核实不了地址;暂停前已收尾回写,删除(下次登录重建)")
+                        counts["deleted"] += 1
+                    except osb.OpenSandboxError as exc:
+                        counts["failed"] += 1
+                        self.log("Fuyao 清扫:删除沙箱 %s(%s)失败:%s" % (s.id, user, exc))
+                    continue
+                counts["failed"] += 1                # 核实不了:收尾 / 探忙都不能往没核实的地址发,下一轮再看
                 if s.id not in self._unlocated:
                     self._unlocated.add(s.id)
-                    self.log("Fuyao 清扫:%s 的沙箱 %s 恢复后还没报到(地址未知),这一轮不收尾、不暂停;"
+                    self.log("Fuyao 清扫:%s 的沙箱 %s 恢复后核实不了地址,这一轮不收尾、不暂停;"
                              "一直这样要查沙箱里的后台同步" % (user, s.id))
             except osb.OpenSandboxError as exc:
                 counts["failed"] += 1
@@ -150,7 +159,7 @@ class FuyaoSweeper:
     def retire(self, s: osb.Sandbox, now: float) -> str:
         """闲置:收尾同步 → 暂停(或删除)。旧版沙箱收尾成功就删除(换版)。返回 retired / upgraded / busy / failed。"""
         user, _kind = owner(s)
-        host = self.router.address(s)               # 恢复后没报到会抛 AddressUnknown,由 sweep 记一轮失败
+        host = self.router.address(s)               # 核实不了会抛 AddressUnknown,由 sweep 处理
         self._unlocated.discard(s.id)
         if user and self.busy_check(host, self.router.password_for(user)):
             return "busy"
@@ -242,7 +251,7 @@ class FuyaoSweeper:
             return 404, {"error": "没有这台沙箱(或不是本智能体的)"}
         now = self.clock()
         if verb == "resume":
-            self.router.resume(s.id)                 # 先打恢复标记再恢复(见 FuyaoRouter.resume)
+            self.router.resume(s.id, synced=synced_before_pause(s))   # 先打恢复标记再恢复(见 FuyaoRouter.resume)
             return 200, {"sandbox": s.id, "resumed": True}
         if verb == "stop" and not s.running:
             return 409, {"error": "沙箱不在运行(%s)" % s.state}

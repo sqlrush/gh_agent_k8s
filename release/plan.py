@@ -15,7 +15,8 @@ from typing import Dict, List
 
 from .package import Package, vkey
 
-TAG = re.compile(r":(agent-v\d+\.\d+\.\d+-oc[\d.]+)(?:@sha256:[0-9a-f]{64})?$")    # 发版台按 digest 钉住的写法也认
+# 发版台按 digest 钉住的写法也认;`-hf<N>` 是只换一个镜像的补丁(如 agent-v1.5.3-oc1.18.27-hf1 网关),算同一版本
+TAG = re.compile(r":(agent-v\d+\.\d+\.\d+-oc[\d.]+)(?:-hf\d+)?(?:@sha256:[0-9a-f]{64})?$")
 
 STEPS = [  # id, 名字, 子步骤
     ("pkg", "读包与校验", ["发现发布包", "校验 sha256", "读取 release.yaml", "核对镜像 digest"]),

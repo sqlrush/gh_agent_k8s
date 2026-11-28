@@ -91,6 +91,16 @@ def test_fuyao_mode_reads_the_cluster_services_instead_of_pool_pods():
     assert pl.runtime_mode(FyKube()) == "fuyao" and pl.runtime_mode(FyKube(cms={})) == ""
 
 
+def test_a_gateway_hotfix_image_counts_as_the_same_version():
+    """只换网关镜像的补丁(2026-11-28 agent-v1.5.3-oc1.18.27-hf1):不能被当成「上次发布没走完」挡住以后的升级。"""
+    cms = {"gateway-config": {"USER_IMAGE_TAG": OLD, "RUNTIME_MODE": "fuyao", "FUYAO_API": "http://opensandbox.example:80"}}
+    cur = pl.detect(FyKube(gw=OLD + "-hf1", cms=cms))              # 只换了网关镜像,配置里的版本不动
+    assert (cur.state, cur.version) == ("ok", "agent-v1.4.14") and cur.tags["deploy/gateway"] == OLD
+    assert pl.detect(FyKube(gw=OLD + "-hf2@sha256:" + "a" * 64, cms=cms)).state == "ok"
+    assert pl.detect(FyKube(gw=OLD + "-rc1", cms=cms)).state == "partial", "认不出的后缀照旧算没走完"
+    assert pl.build(cur, _pkg(TAG), HISTORY).kind == "upgrade"
+
+
 def test_fuyao_step_table_swaps_templates_instead_of_the_pool():
     p = pl.build(pl.detect(FyKube()), _pkg(TAG), HISTORY)
     assert p.kind == "upgrade" and p.mode == "fuyao" and p.problems == []

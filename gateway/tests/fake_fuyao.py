@@ -5,6 +5,7 @@
 - metadata 原样存、可 PATCH(值为 None 删键)、列举按 metadata 过滤(查询串 `k=v&k2=v2`);
 - 暂停后恢复会换地址;`stale_after_resume=True` 时 /endpoints 仍回旧地址(平台的已知问题);
 - 删除即时生效;
+- 新建的沙箱带 `fresh`(还没跑过启动器);测试里直接 add 进去的当作早已启动过。
 - 单台查询(GET /v1/sandboxes/{id})不带业务 metadata、列举与单台查询都不带 expiresAt,只有建沙箱的回包带(端到端实测)。
 """
 import itertools
@@ -163,17 +164,24 @@ class FakeOpenSandbox:
         bid = self.add(body.get("metadata") or {}, group=group, template=(body.get("image") or {}).get("uri"),
                        expires=time.time() + int(body["timeout"]) if body.get("timeout") else 0)
         self.boxes[bid]["timeout"] = body.get("timeout")
+        self.boxes[bid]["fresh"] = True                    # 还没跑过启动器:沙箱里没有令牌文件
         if self.on_create is not None:
             self.on_create(self, bid)
         return 202, self._json(bid, "create")
 
 
 class FakeEnvd:
-    """envd 替身:记下每次执行;`launch` 成功后这个地址被视为 opencode 就绪(配合 prober)。"""
+    """envd 替身:记下每次执行;`launch` 成功后这个地址被视为 opencode 就绪(配合 prober)。
+    给了 platform(FakeOpenSandbox)与 key 时模拟沙箱里的令牌文件(/run/gsdb/sandbox-token):启动器成功时写下
+    下发的令牌,跟着沙箱走(恢复换了地址照样在);直接 add 进去的沙箱当作早已启动过、令牌按它的 metadata 签。
+    读令牌(网关核实身份)记在 reads,不混进 runs。"""
 
-    def __init__(self):
-        from gateway import sandboxexec
-        self._mod = sandboxexec
+    def __init__(self, platform=None, key=None):
+        from gateway import sandboxexec, sbxtoken
+        self._mod, self._tok = sandboxexec, sbxtoken
+        self.platform, self.key = platform, key
+        self.tokens = {}                 # 沙箱 ID → 启动器写下的令牌
+        self.reads = []                  # 读令牌的地址
         self.runs = []                   # (host, argv, user, envs)
         self.ready = set()               # opencode 已就绪的地址
         self.down = set()                # envd 连不上的地址
@@ -183,14 +191,39 @@ class FakeEnvd:
     def healthy(self, host):
         return host not in self.down
 
+    def _box_at(self, host):
+        if self.platform is None:
+            return None
+        return next((bid for bid, b in self.platform.boxes.items() if b["ip"] == host), None)
+
+    def token_of(self, bid):
+        if bid is None:
+            return None
+        if bid in self.tokens:
+            return self.tokens[bid]
+        b = self.platform.boxes[bid]
+        md = b["metadata"]
+        if self.key and not b.get("fresh") and md.get("gsdb-user") and md.get("gsdb-kind"):
+            return self._tok.issue(self.key, bid, md["gsdb-user"], md["gsdb-kind"])
+        return None
+
     def run(self, host, argv, user="root", envs=None, cwd=None, timeout_s=120.0):
         if host in self.down:
             raise self._mod.ExecError("连不上 %s" % host)
+        if argv[:1] == ["cat"] and argv[-1].endswith("/sandbox-token"):
+            self.reads.append(host)
+            tok = self.token_of(self._box_at(host))
+            return self._mod.Result(0, tok + "\n", "") if tok else \
+                self._mod.Result(1, "", "cat: %s: No such file or directory\n" % argv[-1])
         self.runs.append((host, list(argv), user, dict(envs or {})))
         if argv[-1] == "fuyao-start":
             if self.fail_launch:
                 return self._mod.Result(2, "", "启动器:载入状态失败\n")
             self.ready.add(host)
+            bid = self._box_at(host)
+            if bid is not None and (envs or {}).get("GSDB_SANDBOX_TOKEN"):
+                self.tokens[bid] = envs["GSDB_SANDBOX_TOKEN"]
+                self.platform.boxes[bid].pop("fresh", None)
             return self._mod.Result(0, "ok\n", "")
         if "fuyao-stop" in argv:
             return self._mod.Result(1 if self.fail_stop else 0, "", "收尾失败\n" if self.fail_stop else "")

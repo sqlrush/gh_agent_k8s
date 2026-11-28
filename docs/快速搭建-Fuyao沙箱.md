@@ -119,6 +119,8 @@ kubectl -n flux-system get svc opensandbox-server
 kubectl get nodes -o jsonpath='{range .items[*]}{.spec.podCIDR}{"\n"}{end}'
 ```
 > 每个节点一行，形如 `10.244.0.0/24`。**Pod 网段**取它们共同的大网段：前两段不变，写成 `10.244.0.0/16`。拿不准就问集群管理员「Pod 网段是多少」。
+>
+> 这个网段用在网络策略里，放行的是**沙箱虚拟机**的地址。有的平台沙箱虚拟机用单独的网段、不在 Pod 网段里（例如有的 Calico 集群）：要问平台管理员「沙箱虚拟机用哪个网段」，写那个网段。写错了的表现见「常见报错速查」第一条沙箱相关的报错。
 
 ```bash
 timedatectl | grep synchronized
@@ -357,7 +359,7 @@ vi site.env
 
 | 参数 | 怎么填 |
 |---|---|
-| `FUYAO_API`、`POD_CIDR` | 第 0.2 步查到的 OpenSandbox 地址、Pod 网段 |
+| `FUYAO_API`、`POD_CIDR` | 第 0.2 步查到的 OpenSandbox 地址、沙箱虚拟机所在的网段（多数平台就是 Pod 网段） |
 | `MODEL_BASE_URL`、`MODEL_ID` | 模型服务的地址（以 `/v1` 结尾）和模型名 |
 | `GRMP_API_HOST`、`GRMP_API_PORT`、`GRMP_PATH_PREFIX` | 中间件的主机、端口、接口路径前缀 |
 | `GRMP_APPKEY`、`GRMP_SIGN_MODE` | 按第 0.1 步「中间件签名的三种情况」填，**一般都要填 Appkey**（整个智能体共用一个，照原来能用的那套配置填）。只有中间件团队明确说不校验调用方时，才改成 `GRMP_APPKEY=` 留空 |
@@ -669,6 +671,8 @@ pkill -f 'port-forward svc/gateway 18089:80'; pkill -f 'k8s/tools/sso-sim.py'
 | 登录后一直「正在为您准备环境」 | 模板名不存在、沙箱组没建好 | 网关日志里 `Fuyao:` 开头的行；核对第 3、4 步 |
 | 「当前使用人数已满」 | 沙箱组的名额用完了 | 等别人闲置（默认 30 分钟后自动暂停让出名额），或请平台管理员把第 4 步的容量调大 |
 | 「您的环境尚未开通」 | 这个工号没有令牌 Secret | 做第 7.1 步 |
+| 沙箱已经建好（`Running`），但一直「正在为您准备环境」；网关日志有 `启动失败:在沙箱(…)里执行命令失败:timed out` | 网关连不上沙箱：网络策略只放行 `POD_CIDR`，沙箱地址不在里面（沙箱用单独网段的平台；Calico 等会执行网络策略） | 问平台管理员沙箱网段，先执行 `C=<沙箱网段>`，再把三条网络策略改成它：`for n in gateway-to-sandboxes:/spec/egress/0/to/0/ipBlock/cidr statesvc-policy:/spec/ingress/0/from/0/ipBlock/cidr credproxy-policy:/spec/ingress/0/from/0/ipBlock/cidr; do kubectl -n gaussdb-agent patch networkpolicy ${n%%:*} --type=json -p "[{\"op\":\"replace\",\"path\":\"${n#*:}\",\"value\":\"$C\"}]"; done`；再把 `site.env` 的 `POD_CIDR` 改成同一个值（以后重做 6.4、6.5 才不会改回去）。立即生效，刷新页面即可 |
+| 能打开对话页，但发消息一直「正在为您准备环境」（503）；状态服务记下的沙箱地址是节点地址 | 集群对沙箱出来的连接做了源地址转换，v1.5.3 首发的网关会拿这个节点地址去找沙箱 | 换网关补丁镜像 `gaussdb-agent-gateway:agent-v1.5.3-oc1.18.27-hf1`（发布页附件 `gaussdb-agent-gateway-v1.5.3-oc1.18.27-hf1-arm64.tar.gz`）：每个节点 `gunzip -c gaussdb-agent-gateway-v1.5.3-oc1.18.27-hf1-arm64.tar.gz | ctr -n k8s.io images import -`，然后在部署机 `kubectl -n gaussdb-agent set image deploy/gateway gateway=gaussdb-agent-gateway:agent-v1.5.3-oc1.18.27-hf1`。已建的沙箱不用删。以后重做 6.5 会换回原镜像，之后再执行一次这条 `set image` |
 | 注册模板报 `模板 gsdb-runtime-v1-5-3 构建失败`，平台的构建日志里有 `Temporary failure resolving 'deb.debian.org'`、`Unable to locate package systemd` | 用的是不带 `-offline` 的首发模板包：平台建模板时要给镜像补装 systemd、SSH 等系统包，模板构建主机不通外网 | 换成 `gaussdb-agent-v1.5.3-oc1.18.27-e2b-arm64-offline.oci.tar`，重做第 3 步（校验、注册两步）。模板名不变，其他步骤不用重做；不用开外网、不用搭 Debian 源 |
 | 重新注册时报 `建模板 gsdb-runtime-v1-5-3 失败(HTTP …)`，提示名字已存在 | 之前失败的同名模板还在 | 换个名字只注册诊断模板：第 3 步的命令末尾加 `--kind runtime --template-name gsdb-runtime-v1-5-3b`（导入模板还没注册上的，再加 `--kind kb-import` 单独注册一次）；把 `k8s/overlays/site/configmap-gateway-site.yaml` 里的 `FUYAO_RUNTIME_TEMPLATE` 改成 `gsdb-runtime-v1-5-3b`（直接改这个文件，不要重做 6.4，会改回去），重做 6.5，再 `kubectl -n gaussdb-agent rollout restart deploy/gateway` |
 | 登录数据库报「调用方不存在」 | 中间件认不出调用方：`GRMP_APPKEY` 没填或填错（与库名、令牌无关） | 照原来能用的那套配置填 `site.env` 的 `GRMP_APPKEY`，重做 6.4、6.5，再 `kubectl -n gaussdb-agent rollout restart deploy/credproxy`；已建好的沙箱要重建（见本表下面那段） |

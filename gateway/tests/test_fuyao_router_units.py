@@ -45,7 +45,7 @@ class Clock:
 @pytest.fixture()
 def env():
     fake = FakeOpenSandbox(capacity={"g-run": 3, "g-imp": 1})
-    envd = FakeEnvd()
+    envd = FakeEnvd(fake, KEY)
     clock = Clock()
     logs = []
     prereq_calls = []
@@ -193,13 +193,14 @@ def test_a_never_resumed_sandbox_still_falls_back_to_the_platform_address(env):
     assert router.target("u1001").host == t.host == fake.ip(t.pod)
 
 
-def test_the_sweeper_leaves_a_resumed_sandbox_alone_until_it_reports(env):
+def test_the_sweeper_leaves_a_resumed_sandbox_alone_until_its_address_is_verified(env):
     fake, envd, router, clock, *_ = env
     bid, old, probed = _victim_on_the_old_address(fake, envd, router)
     logs = []
     sw = fs.FuyaoSweeper(router, sweep_s=30, busy_check=lambda h, p: (probed.append((h, p)), False)[1],
                          log=logs.append, clock=clock)
-    fake.boxes[bid]["state"] = "Running"
+    fake.boxes[bid]["state"] = "Running"                          # 恢复了:换了新地址,平台仍回旧地址(别人的)
+    fake.boxes[bid]["old_ip"], fake.boxes[bid]["ip"] = old, "10.244.9.250"
     fake.boxes[bid]["metadata"]["gsdb-resumed"] = str(int(clock.t))
     clock.t += 601
     for b in fake.boxes.values():                                  # u2002 一直在用:不收尾它
@@ -209,9 +210,9 @@ def test_the_sweeper_leaves_a_resumed_sandbox_alone_until_it_reports(env):
     assert out["failed"] == 1 and fake.boxes[bid]["state"] == "Running"
     assert (old, "pw-u1001") not in probed and not [r for r in envd.runs if r[0] == old], \
         "收尾不能跑到别人的沙箱里(会放开别人的独占,还会据此删掉本人的沙箱)"
-    assert sw.sweep()["failed"] == 1 and len([m for m in logs if "还没报到" in m]) == 1, "同一台只提醒一次"
+    assert sw.sweep()["failed"] == 1 and len([m for m in logs if "核实不了地址" in m]) == 1, "同一台只提醒一次"
     code, body = sw.act("stop", bid)
-    assert code == 409 and "还没" in body["error"]
+    assert code == 409 and "核实不了" in body["error"]
     assert sw.act("delete", bid)[0] == 409 and bid in fake.boxes
     code, body = sw.act("delete", bid, force=True)
     assert code == 200 and bid not in fake.boxes and body["synced"] is False, "强删不收尾(地址未知),如实写没回写"
@@ -246,6 +247,136 @@ def test_a_failing_locator_falls_back_to_the_platform_address(env):
     router.locate = lambda sid, user, kind: (_ for _ in ()).throw(OSError("状态服务连不上"))
     t = router.target("u1001")
     assert t.host == fake.ip(t.pod)
+
+
+# -- 源地址转换(2026-11-28 现场:Calico 集群把沙箱到状态服务的连接转成了节点地址) ----------------------
+# 状态服务看到的来源地址全是节点地址:网关不能再「有报到地址就用」,地址一律先核实身份(读沙箱里的令牌、验签)。
+
+NODE = "192.0.2.17"
+
+
+def _snat(router):
+    router.locate = lambda sid, user, kind: (NODE, 0.0)
+
+
+def _replica(router):
+    """另一个网关副本:同一个平台、envd、密钥,没有缓存。"""
+    return fr.FuyaoRouter(router.os, router.envd, router.policy, router.key, password_for=router.password_for,
+                          launch_env=router.launch_env, prereq=router.prereq, prober=router.prober, log=router.log,
+                          locate=router.locate, clock=router.clock, sleep=router.sleep)
+
+
+def _waiting(router, user="u1001"):
+    with pytest.raises(poolrouter.PoolWait) as ei:
+        router.target(user)
+    return ei.value.reason
+
+
+def test_under_snat_a_new_sandbox_is_reached_at_the_platform_address_by_every_gateway(env):
+    fake, envd, router, *_ = env
+    _snat(router)
+    t = router.target("u1001")
+    t2 = _replica(router).target("u1001")                          # 另一个副本(没缓存):现场就是这里 503
+    assert t2.host == t.host == fake.ip(t.pod) != NODE
+    assert not [r for r in envd.runs if r[0] == NODE], "不能往节点地址跑启动器"
+
+
+def test_under_snat_a_resumed_sandbox_is_used_at_the_platform_address_once_verified(env):
+    fake, envd, router, *_ = env
+    _snat(router)
+    bid = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime", "gsdb-synced": "1",
+                   "gsdb-template": "tpl-run"},
+                   state="Paused")
+    router.prober = lambda host, pw: host == fake.ip(bid) and pw == "pw-u1001"
+    t = router.target("u1001")
+    assert t.pod == bid and t.host == fake.ip(bid) != NODE
+    assert NODE in envd.reads, "报到地址也是候选,但核实不过"
+    assert "gsdb-resumed-synced" not in fake.boxes[bid]["metadata"], "找到之后清掉「恢复前已回写」:之后可能有新内容"
+    assert not envd.runs
+
+
+def test_under_snat_with_a_stale_platform_address_a_resumed_sandbox_synced_before_pause_is_rebuilt(env):
+    fake, envd, router, clock, logs, _ = env
+    bid, old, probed = _victim_on_the_old_address(fake, envd, router)
+    _snat(router)
+    fake.boxes[bid]["metadata"].update({"gsdb-synced": "1", "gsdb-template": "tpl-run"})   # 当前版(不触发换版重建)
+    assert _waiting(router) == "address_stale"                     # 恢复;报到地址是节点、平台地址上是别人
+    assert bid in fake.boxes and fake.boxes[bid]["metadata"]["gsdb-resumed-synced"] == "1"
+    clock.t += fr.RESUME_LOCATE_GRACE_S
+    router.prober = lambda host, pw: (probed.append((host, pw)), envd.prober(host, pw))[1]
+    assert _waiting(router) == "starting" and bid not in fake.boxes, "宽限期过了:暂停前已回写,删掉重建"
+    t = router.target("u1001")
+    assert t.pod != bid and t.host == fake.ip(t.pod)
+    assert not [p for p in probed if p[0] in (old, NODE)], "口令没送到别人的沙箱或节点地址"
+    assert not [r for r in envd.runs if r[0] in (old, NODE)]
+    assert any("删掉重建" in m for m in logs)
+
+
+def test_a_resumed_sandbox_not_synced_before_pause_is_never_rebuilt(env):
+    fake, envd, router, clock, *_ = env
+    bid, old, probed = _victim_on_the_old_address(fake, envd, router)
+    _snat(router)
+    fake.boxes[bid]["metadata"].update({"gsdb-synced": "0", "gsdb-template": "tpl-run"})
+    assert _waiting(router) == "address_stale"
+    clock.t += fr.RESUME_LOCATE_GRACE_S * 10
+    assert _waiting(router) == "address_stale" and bid in fake.boxes, "暂停前没回写成:删了会丢数据,只等"
+    assert not [p for p in probed if p[0] in (old, NODE)]
+
+
+def test_a_resumed_sandbox_found_once_is_never_rebuilt_even_if_it_cannot_be_found_later(env):
+    fake, envd, router, clock, *_ = env
+    bid = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime", "gsdb-synced": "1",
+                   "gsdb-template": "tpl-run"},
+                   state="Paused")
+    router.prober = lambda host, pw: host == fake.ip(bid) and pw == "pw-u1001"
+    assert router.target("u1001").pod == bid                       # 找到了:之后用户可能写了新内容
+    envd.down.add(fake.ip(bid))                                    # 后来连不上了(网络抖动等),网关也重启了
+    clock.t += fr.RESUME_LOCATE_GRACE_S * 10
+    assert _waiting(_replica(router)) == "address_stale" and bid in fake.boxes, "找到过的不能当「删了不丢」处理"
+
+
+def test_a_never_resumed_sandbox_is_not_reached_at_a_platform_address_that_hosts_another_sandbox(env):
+    fake, envd, router, _clock, logs, _ = env
+    mine = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u1001", "gsdb-kind": "runtime"})
+    other = fake.add({"gsdb-app": "gaussdb-agent", "gsdb-user": "u2002", "gsdb-kind": "runtime"})
+    fake.stale_after_resume, fake.boxes[mine]["old_ip"] = True, fake.ip(other)   # 平台给的是别人的地址
+    envd.ready.update({fake.ip(mine), fake.ip(other)})
+    probed = []
+    router.prober = lambda host, pw: (probed.append((host, pw)), envd.prober(host, pw))[1]
+    router.locate = lambda sid, user, kind: None
+    assert _waiting(router) == "address_stale" and _waiting(router) == "address_stale"
+    assert not [p for p in probed if p[0] == fake.ip(other)], "核实出那里是别人的沙箱:不发口令"
+    assert len([m for m in logs if "地址上是别的沙箱" in m]) == 1, "等待时反复重试,只记一次"
+    router.locate = lambda sid, user, kind: (fake.ip(mine), 0.0) if sid == mine else None
+    assert _replica(router).target("u1001").host == fake.ip(mine)
+
+
+def test_the_sweeper_removes_a_resumed_sandbox_that_cannot_be_found_and_was_synced_before_pause(env):
+    fake, envd, router, clock, *_ = env
+    bid, old, probed = _victim_on_the_old_address(fake, envd, router)
+    _snat(router)
+    fake.boxes[bid]["metadata"].update({"gsdb-synced": "1", "gsdb-template": "tpl-run"})   # 当前版(不触发换版重建)
+    _waiting(router)                                               # 用户来过一次,恢复了,但找不到
+    clock.t += 601
+    for b in fake.boxes.values():
+        if b["metadata"].get("gsdb-user") == "u2002":
+            b["metadata"]["gsdb-active"] = str(int(clock.t))
+    out = _sweeper(router, clock).sweep()
+    assert out["deleted"] == 1 and bid not in fake.boxes, "不删就一直占着名额"
+    assert not [r for r in envd.runs if r[0] in (old, NODE)]
+
+
+def test_a_token_signed_with_another_key_does_not_identify_the_sandbox(env):
+    fake, envd, router, *_ = env
+    t = router.target("u1001")
+    s = router.mine("u1001", "runtime")[0]
+    assert router.identify(t.host, s) == fr.ID_MATCH
+    envd.tokens[t.pod] = sbxtoken.issue(b"x" * 32, t.pod, "u1001", "runtime")
+    assert router.identify(t.host, s) == fr.ID_OTHER
+    envd.tokens[t.pod] = sbxtoken.issue(KEY, t.pod, "u2002", "runtime")
+    assert router.identify(t.host, s) == fr.ID_OTHER, "签名对但不是本人的"
+    envd.down.add(t.host)
+    assert router.identify(t.host, s) == fr.ID_UNREACHABLE
 
 
 def test_concurrent_creation_by_two_gateways_keeps_only_the_oldest(env):
@@ -544,10 +675,12 @@ def test_admin_summary_and_actions(env):
     s = sw.summary()
     assert [x["user_id"] for x in s["sandboxes"]] == ["u1001"] and s["states"] == {"Running": 1}
     assert sw.act("pause", t.pod)[0] == 200 and fake.boxes[t.pod]["state"] == "Paused"
+    fake.stale_after_resume = True                                 # 平台恢复后回旧地址
     assert sw.act("resume", t.pod)[0] == 200 and fake.boxes[t.pod]["state"] == "Running"
     assert fake.boxes[t.pod]["metadata"].get("gsdb-resumed"), "运维恢复也先打恢复标记"
-    assert sw.act("delete", t.pod)[0] == 409 and t.pod in fake.boxes, "恢复后还没报到:地址未知,不收尾不删"
-    router.locate = lambda sid, user, kind: (fake.ip(sid), 0.0)     # 沙箱报到了
+    assert fake.boxes[t.pod]["metadata"].get("gsdb-resumed-synced") == "1", "暂停前已回写:恢复时记下"
+    assert sw.act("delete", t.pod)[0] == 409 and t.pod in fake.boxes, "核实不了地址:不收尾不删"
+    router.locate = lambda sid, user, kind: (fake.ip(sid), 0.0)     # 沙箱报到了(地址核实得上)
     code, body = sw.act("delete", t.pod)
     assert code == 200 and body["synced"] is True and t.pod not in fake.boxes
     assert sw.act("delete", foreign)[0] == 404, "不是本智能体的沙箱不动"

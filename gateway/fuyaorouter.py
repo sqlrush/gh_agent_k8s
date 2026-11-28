@@ -5,7 +5,11 @@
 
   转发   本人沙箱在跑:缓存里有目标就用;没有(网关刚重启 / 另一个副本建的)就现查,口令探活通过即可。
   恢复   本人沙箱已暂停:恢复后重新取地址、探活。平台实测恢复后地址会变而接口可能仍回旧地址 ——
-         探活用的是本人的对话口令,连到别人的沙箱只会被拒,不会串数据;探不通就等,等不到回等待页。
+         候选地址(它恢复后报到时状态服务看到的来源地址、平台给的地址)都先**核实身份**再用:经 envd 读沙箱里
+         启动器写下的沙箱令牌(root 才能读写),用网关的密钥验签、对上这台沙箱才往那里发口令、跑启动器或收尾。
+         核实不了就等;一直核实不了而暂停前已回写的,删掉重建(见 address() 与 unlocated_droppable())。
+  地址   不假设集群内不做源地址转换(2026-11-28 现场:Calico 集群把沙箱到状态服务的连接转成了节点地址,
+         状态服务看到的来源地址全是节点地址):没恢复过的沙箱用平台给的地址;状态服务的来源地址只是候选,同样要核实。
   新建   本人没有沙箱:查开通前提 → 建沙箱(metadata 带工号与种类)→ 经 envd 下发配置并启动 → 探活。
          两个网关副本可能同时为同一人建:建完再列一次,只留最早的那台,多出来的删掉。
   满员   沙箱组没有空位:回等待页(PoolFull)。
@@ -33,9 +37,18 @@ APP = "gaussdb-agent"
 MD_APP, MD_USER, MD_KIND, MD_ACTIVE, MD_PAUSED = "gsdb-app", "gsdb-user", "gsdb-kind", "gsdb-active", "gsdb-paused"
 MD_TEMPLATE, MD_SYNCED = "gsdb-template", "gsdb-synced"     # 建它的模板;暂停前收尾回写是否成功("1" / "0")
 MD_EXPIRES = "gsdb-expires"                                  # 平台寿命的到期时刻(只在 sandbox_timeout_s > 0 时有)
-# 恢复过("1"):平台 /endpoints 从此回的是暂停前的旧地址(实测),而旧地址可能已分给别人的新沙箱 ——
-# 这台只认它自己用沙箱令牌向状态服务报到的地址,绝不往平台给的地址送口令、跑启动器或收尾(2026-11-18)
+# 恢复过(恢复时刻):平台 /endpoints 从此可能回暂停前的旧地址(实测),而旧地址可能已分给别人的新沙箱 ——
+# 这台的地址一律先核实身份再用(2026-11-18 起只认报到地址;2026-11-28 改为核实,不依赖报到时的来源地址)
 MD_RESUMED = "gsdb-resumed"
+# 恢复时「暂停前已收尾回写」("1"):恢复后第一次核实到地址就清掉(之后用户可能写了新内容)。
+# 一直核实不了地址、这个标记还在的,删掉重建不丢数据(unlocated_droppable)
+MD_RESUMED_SYNCED = "gsdb-resumed-synced"
+RESUME_LOCATE_GRACE_S = 60.0                     # 恢复后这么久仍核实不了地址,才按「找不到」处理(正常 3–4 秒报到)
+# 启动器写下的沙箱令牌(docker/fuyao.py TOKEN_FILE:/run/gsdb 0700、文件 0600,只有 root 能读写)
+TOKEN_PATH = "/run/gsdb/sandbox-token"
+IDENTIFY_TIMEOUT_S = 5.0
+# 核实结果:是它 / 是别的沙箱(令牌属于别人或验签不过)/ 还没跑过启动器 / envd 连不上
+ID_MATCH, ID_OTHER, ID_ABSENT, ID_UNREACHABLE = "match", "other", "absent", "unreachable"
 STALE_POLL_S = 0.5                               # 等恢复后的沙箱报到:每这么久问一次状态服务
 OPENCODE_PORT, REPORTS_PORT, CLIP_PORT = 4096, 4097, 4095
 KINDS = (KIND_RUNTIME, KIND_KB_IMPORT)
@@ -51,10 +64,10 @@ def _num(text: Optional[str]) -> float:
 
 
 class AddressUnknown(Exception):
-    """恢复过的沙箱还没向状态服务报到:没有可信的地址(平台给的是旧的,可能已是别人的沙箱)。"""
+    """没有核实过的地址:候选地址(平台给的、报到时看到的)上都不是这台沙箱,或都连不上。"""
 
     def __init__(self, sandbox_id: str):
-        super().__init__("沙箱 %s 恢复后还没向状态服务报到,地址未知" % sandbox_id)
+        super().__init__("沙箱 %s 的地址核实不了(平台给的与它报到时看到的地址上都不是它)" % sandbox_id)
         self.sandbox_id = sandbox_id
 
 
@@ -158,6 +171,8 @@ class FuyaoRouter:
         self._locks: Dict[Tuple[str, str], threading.Lock] = {}
         self._launched: Dict[str, float] = {}
         self._fails: Dict[str, int] = {}             # 沙箱 → 启动器接连失败次数(连不上 envd 不算)
+        self._where: Dict[str, Tuple[str, str]] = {}  # 沙箱 → (恢复时刻标记, 用过的地址):同一次恢复内地址不变
+        self._noted: set = set()                     # 已记过「平台地址上是别的沙箱」的沙箱(等待时每秒重试,只记一次)
         self._activity: Dict[Tuple[str, str], float] = {}
         self._lock = threading.Lock()
 
@@ -190,6 +205,8 @@ class FuyaoRouter:
                 del self._creds[k]
             self._launched.pop(sandbox_id, None)
             self._fails.pop(sandbox_id, None)
+            self._where.pop(sandbox_id, None)
+            self._noted.discard(sandbox_id)
 
     def cached(self) -> Dict[Tuple[str, str], Target]:
         with self._lock:
@@ -262,7 +279,7 @@ class FuyaoRouter:
             if not interactive:
                 raise NotActive(user)
             try:
-                at = self.resume(keeper.id)
+                at = self.resume(keeper.id, synced=synced_before_pause(keeper))
             except osb.OpenSandboxError as exc:
                 self.log("Fuyao:恢复 %s 的沙箱 %s 失败:%s" % (user, keeper.id, exc))
                 return None, "resume_failed"
@@ -272,11 +289,12 @@ class FuyaoRouter:
             return self._ready(keeper, user, kind, launch=False)
         return None, "starting:%s" % (keeper.state or "unknown")
 
-    def resume(self, sandbox_id: str) -> float:
+    def resume(self, sandbox_id: str, synced: bool = False) -> float:
         """恢复一台暂停的沙箱,返回恢复时刻。**先**写恢复标记再恢复:标记写不进就不恢复 —— 否则恢复后的沙箱
-        不带标记,别的副本 / 清扫器会退回平台给的旧地址(可能已是别人的沙箱)。"""
+        不带标记,别的副本 / 清扫器会把平台给的地址当成新建时的地址用。synced:暂停前已收尾回写(记进
+        MD_RESUMED_SYNCED,恢复后一直找不到时据此判断能不能删掉重建)。"""
         at = self.clock()
-        self.os.patch_metadata(sandbox_id, {MD_RESUMED: str(int(at))})
+        self.os.patch_metadata(sandbox_id, {MD_RESUMED: str(int(at)), MD_RESUMED_SYNCED: "1" if synced else None})
         self.os.resume(sandbox_id)
         self.os.patch_metadata(sandbox_id, {MD_PAUSED: None, MD_SYNCED: None, MD_ACTIVE: str(int(at))})
         return float(int(at))
@@ -312,27 +330,98 @@ class FuyaoRouter:
         self.forget_sandbox(sandbox_id)
 
     def address(self, s: osb.Sandbox, resumed_at: Optional[float] = None) -> str:
-        """沙箱现在的地址:优先用状态服务最近看到的来源地址(这台沙箱用自己的令牌报到,地址可信)。
-        恢复过的(resumed_at,或 metadata 的恢复时刻)只认**恢复之后**报上来的,问不到就抛 AddressUnknown:
-        平台 /endpoints 恢复后回的是旧地址(实测),暂停前的报到记录也是旧地址,而旧地址可能已分给别人的沙箱 ——
-        往那里探活会送出本人口令,跑启动器 / 收尾会把本人令牌写进别人的沙箱。
-        没恢复过的才退回平台给的地址(新建时平台给的就是它的)。"""
+        """这台沙箱现在的地址,往那里发口令、跑启动器或收尾之前必经这里。
+        没恢复过:平台给的地址(新建时平台给的就是它的)。核实时发现那里是**别的**沙箱,才退到它报到时状态服务
+        看到的来源地址,同样要核实。连不上 envd / 还没跑过启动器的照旧用平台地址,由启动与探活报错。
+        恢复过(resumed_at,或 metadata 的恢复时刻):平台可能回暂停前的旧地址(实测),报到时的来源地址可能被
+        集群做了源地址转换(2026-11-28 现场:全是节点地址)—— 两个候选都**必须核实是它**才用,否则抛 AddressUnknown。
+        同一次恢复内地址不变,核实过的记在 _where,不每次都读令牌。"""
         user, kind = owner(s)
         if resumed_at is None:
             resumed_at = _num(s.metadata.get(MD_RESUMED)) or None
-        if self.locate is not None and user:
-            try:
-                got = self.locate(s.id, user, kind)
-            except Exception as exc:                    # noqa: BLE001 —— 状态服务问不到:没恢复过的退回平台给的地址
-                self.log("Fuyao:向状态服务问沙箱 %s 的地址失败:%s" % (s.id, exc))
-                got = None
-            if got:
-                addr, age = got
-                if resumed_at is None or age <= max(self.clock() - resumed_at, 0.0):
-                    return addr
-        if resumed_at is not None:
-            raise AddressUnknown(s.id)
-        return self.os.address(s.id)
+        mark = str(int(resumed_at)) if resumed_at else ""
+        with self._lock:
+            hit = self._where.get(s.id)
+        if hit is not None and hit[0] == mark:
+            return hit[1]
+        host = self._fresh_address(s, user, kind) if resumed_at is None else \
+            self._resumed_address(s, user, kind, resumed_at)
+        with self._lock:
+            self._where[s.id] = (mark, host)
+        return host
+
+    def _fresh_address(self, s: osb.Sandbox, user: str, kind: str) -> str:
+        plat = self.os.address(s.id)
+        if self.identify(plat, s) != ID_OTHER:
+            return plat
+        rep = self._reported(s, user, kind, since=None)
+        found = bool(rep) and rep != plat and self.identify(rep, s) == ID_MATCH
+        with self._lock:
+            first = s.id not in self._noted
+            self._noted.add(s.id)
+        if first:
+            self.log("Fuyao:平台给沙箱 %s 的地址上是别的沙箱,%s" % (s.id, "改用它报到时的地址(已核实)" if found
+                                                              else "报到地址也核实不了,先不碰它"))
+        if found:
+            return rep
+        raise AddressUnknown(s.id)
+
+    def _resumed_address(self, s: osb.Sandbox, user: str, kind: str, resumed_at: float) -> str:
+        cands: List[str] = []
+        rep = self._reported(s, user, kind, since=resumed_at)
+        if rep:
+            cands.append(rep)
+        try:
+            plat = self.os.address(s.id)
+        except osb.OpenSandboxError as exc:
+            self.log("Fuyao:取 %s 的地址失败:%s" % (s.id, exc))
+            plat = ""
+        if plat and plat not in cands:
+            cands.append(plat)
+        for host in cands:
+            if self.identify(host, s) == ID_MATCH:
+                # 第一次找到它:清掉「恢复前已回写」—— 之后用户可能写了新内容,不能再按「删了不丢」处理。
+                # 清不掉就先不用这个地址(宁可让用户等,也不留着一个可能误删的标记)
+                self.os.patch_metadata(s.id, {MD_RESUMED_SYNCED: None})
+                return host
+        raise AddressUnknown(s.id)
+
+    def _reported(self, s: osb.Sandbox, user: str, kind: str, since: Optional[float]) -> Optional[str]:
+        """状态服务最近看到这台沙箱报到的来源地址;since:只认这个时刻之后的(恢复之前的报到是旧地址)。"""
+        if self.locate is None or not user:
+            return None
+        try:
+            got = self.locate(s.id, user, kind)
+        except Exception as exc:                    # noqa: BLE001 —— 状态服务问不到:只是少一个候选
+            self.log("Fuyao:向状态服务问沙箱 %s 的地址失败:%s" % (s.id, exc))
+            return None
+        if not got:
+            return None
+        addr, age = got
+        if since is not None and age > max(self.clock() - since, 0.0):
+            return None
+        return addr
+
+    def identify(self, host: str, s: osb.Sandbox) -> str:
+        """这个地址上是不是这台沙箱:经 envd 读启动器写下的沙箱令牌(root 才能读写),用网关的密钥验签,
+        沙箱 ID、工号、种类都对上才算。令牌只在网关与沙箱之间传,不进日志。"""
+        try:
+            res = self.envd.run(host, ["cat", TOKEN_PATH], user="root", timeout_s=IDENTIFY_TIMEOUT_S)
+        except sandboxexec.ExecError:
+            return ID_UNREACHABLE
+        if not res.ok:
+            return ID_ABSENT
+        c = sbxtoken.verify(self.key, res.stdout.strip())
+        user, kind = owner(s)
+        if c is not None and (c.sandbox_id, c.user_id, c.kind) == (s.id, user, kind):
+            return ID_MATCH
+        return ID_OTHER
+
+    def unlocated_droppable(self, s: osb.Sandbox) -> bool:
+        """恢复后过了宽限期仍核实不了地址、恢复前已收尾回写、恢复后从没找到过(标记还在):删掉重建不丢数据。
+        (源地址转换的集群里平台又回旧地址时,恢复的沙箱永远找不到 —— 不删就一直占着名额,用户一直等。)"""
+        at = _num(s.metadata.get(MD_RESUMED))
+        return bool(at) and s.metadata.get(MD_RESUMED_SYNCED) == "1" and self.clock() - at >= RESUME_LOCATE_GRACE_S
 
     def _ready(self, s: osb.Sandbox, user: str, kind: str, launch: bool,
                resumed_at: Optional[float] = None) -> Tuple[Optional[Target], str]:
@@ -340,6 +429,10 @@ class FuyaoRouter:
         try:
             host = self.address(s, resumed_at=resumed_at)
         except AddressUnknown:
+            if self.unlocated_droppable(s):
+                self._drop(s.id, "恢复后 %d 秒仍核实不了地址;暂停前已收尾回写,删掉重建"
+                           % int(self.clock() - _num(s.metadata.get(MD_RESUMED))))
+                return None, "starting"
             return None, "address_stale"
         except osb.OpenSandboxError as exc:
             self.log("Fuyao:取 %s 的地址失败:%s" % (s.id, exc))

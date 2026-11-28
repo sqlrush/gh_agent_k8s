@@ -3,6 +3,7 @@
 平台的模板构建服务解层时不处理 OCI whiteout(实测:上层删掉的文件全回来、`.wh.*` 标记留在根文件系统里),
 所以两个模板目标必须压成一层:`FROM scratch` + `COPY --from=<准备阶段> / /`,之后不再有 RUN / COPY / ADD。
 压层丢掉的镜像配置要照 docker/Dockerfile 原样补回:ENV(键与值)、USER、WORKDIR、ENTRYPOINT。
+平台模板构建要现场 apt-get 的系统包(2026-11-27 现场不通外网,模板 error)在两个准备阶段预装好。
 """
 import pathlib
 import re
@@ -98,3 +99,44 @@ def test_the_launcher_supplies_the_same_image_env_to_its_systemd_units():
     import fuyao
     base = {k: v for k, v in _env(_chain(MAIN, "runtime")).items() if k not in _BASE_IMAGE_ONLY}
     assert base == fuyao._IMAGE_ENV, "systemd 服务拿不到镜像 ENV,启动器补的那份要与 Dockerfile 一致"
+
+
+# 平台模板构建(E2B provision.sh)逐个 dpkg-query 检查、缺了才联网装的包,按 E2B 版本(上游 e2b-dev/infra)
+_PROVISION_PACKAGES = {
+    "2025": "systemd systemd-sysv openssh-server sudo chrony linuxptp socat curl",
+    "2026-01": "systemd systemd-sysv openssh-server sudo chrony linuxptp socat curl ca-certificates fuse3 iptables git",
+    "current": "systemd systemd-sysv openssh-server sudo chrony socat curl ca-certificates fuse3 iptables git "
+               "nfs-common less nftables iputils-ping jq iproute2",
+}
+
+
+def _preinstall_run(prep):
+    runs = [a for op, a in E2B[prep][1] if op == "RUN" and "$E2B_BASE_PACKAGES" in a]
+    assert len(runs) == 1, "%s 要有且只有一条预装系统包的 RUN" % prep
+    return runs[0]
+
+
+def test_the_package_list_covers_every_e2b_provisioning_profile():
+    m = re.search(r'^ARG E2B_BASE_PACKAGES="([^"]+)"$', _E2B, re.M)
+    assert m, "E2B_BASE_PACKAGES 要在第一个 FROM 之前声明默认值"
+    have = set(m.group(1).split())
+    for version, pkgs in _PROVISION_PACKAGES.items():
+        missing = set(pkgs.split()) - have
+        assert not missing, "E2B %s 版模板构建会联网装 %s:不通外网的现场模板构建失败" % (version, sorted(missing))
+
+
+def test_both_preps_preinstall_the_same_packages_and_verify_them():
+    runs = {}
+    for prep in ("runtime-prep", "kbimport-prep"):
+        instrs = E2B[prep][1]
+        for name in ("E2B_BASE_PACKAGES", "MOUNTPOINT_BASE_URL"):
+            assert ("ARG", name) in instrs, "%s 要重新声明 ARG %s,否则阶段里取不到全局默认值、什么也没装" % (prep, name)
+        run = runs[prep] = _preinstall_run(prep)
+        assert "apt-get install" in run and "--no-install-recommends $E2B_BASE_PACKAGES" in run, prep
+        assert "mount-s3.deb" in run, "%s:新版平台还从 S3 下载 mount-s3" % prep
+        assert "dpkg-query -W -f='${Status}'" in run and "install ok installed" in run, \
+            "%s:要按平台的判断方式逐个核对,装不全就构建失败" % prep
+        assert "rm -rf /var/lib/apt/lists/*" in run, prep
+        order = [op for op, _a in instrs]
+        assert order.index("RUN") < order.index("COPY"), "%s:预装放在文档集与占位文件之前" % prep
+    assert runs["runtime-prep"] == runs["kbimport-prep"], "两个准备阶段的预装要逐字相同"

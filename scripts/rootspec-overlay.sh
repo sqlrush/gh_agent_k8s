@@ -112,7 +112,7 @@ if [ -n "$ETAR" ]; then
   RI=$(img_of runtime); KI=$(img_of kb-import); SI=$(img_of kbstd)
   [ -n "$RI" ] && [ -n "$KI" ] && [ -n "$SI" ] || { echo "重建 Fuyao 模板要 runtime、kb-import、kbstd 三个镜像" >&2; exit 1; }
   # 在已出的模板镜像上加同一层换规范,再按 Dockerfile.e2b 压回一层(RUNTIME_PREP / KBIMPORT_PREP 指向它)。
-  # 不从头重建:从头建要现场 apt-get 装平台要的系统包,行内不通外网(2026-11-28)
+  # 不从头重建:从头建要现场 apt-get 装平台要的系统包,现场不通外网(2026-11-28)
   EIN=()
   while IFS= read -r i; do EIN+=("$i"); done < <(docker load -i "$ETAR" | sed -n 's/^Loaded image: //p')
   e2b_of() { for i in "${EIN[@]}"; do case "$i" in *"gaussdb-agent-$1-e2b:"*) echo "$i"; return ;; esac; done; }
